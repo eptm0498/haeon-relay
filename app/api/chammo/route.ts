@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Redeploy marker after rotating the Experiential API key.
 const API_URL = "https://api.experientiallabs.ai/v1/chat/completions";
 
 const ADVISORS = [
