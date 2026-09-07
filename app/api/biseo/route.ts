@@ -116,7 +116,7 @@ async function makeBrief(task: string) {
   };
 }
 
-async function handle(task: string, mode: Mode) {
+async function handle(task: string, mode: Mode, debug = false) {
   if (!task.trim()) {
     return Response.json({ ok: false, error: "작업 내용이 없습니다." }, { status: 400 });
   }
@@ -146,12 +146,14 @@ async function handle(task: string, mode: Mode) {
       mode,
       decision,
       brief: result.brief,
-      meta: {
-        advisors: [ASTRA, CLAUDE],
-        strategy: "external-plan+critique+external-synthesis",
-        usage: result.usage,
-        generatedAt: new Date().toISOString(),
-      },
+      ...(debug ? {
+        meta: {
+          advisors: [ASTRA, CLAUDE],
+          strategy: "external-plan+critique+external-synthesis",
+          usage: result.usage,
+          generatedAt: new Date().toISOString(),
+        },
+      } : {}),
     }, { headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" } });
   } catch (error) {
     return Response.json({
@@ -165,12 +167,14 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const task = typeof body?.task === "string" ? body.task : "";
   const mode: Mode = body?.mode === "force" ? "force" : "auto";
-  return handle(task, mode);
+  const debug = body?.debug === true;
+  return handle(task, mode, debug);
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const task = searchParams.get("q") ?? "";
   const mode: Mode = searchParams.get("mode") === "force" ? "force" : "auto";
-  return handle(task, mode);
+  const debug = searchParams.get("debug") === "1";
+  return handle(task, mode, debug);
 }
