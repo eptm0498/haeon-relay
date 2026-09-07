@@ -17,16 +17,35 @@ type AdvisorResult = {
   error?: string;
 };
 
+function getApiKey() {
+  const apiKey = process.env.EXPLABS_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("EXPLABS_API_KEY가 Vercel에 설정되어 있지 않습니다.");
+  }
+
+  const hasNonAscii = [...apiKey].some((char) => char.charCodeAt(0) > 127);
+  if (hasNonAscii || apiKey.includes("…")) {
+    throw new Error(
+      "EXPLABS_API_KEY에 말줄임표(…) 같은 비정상 문자가 들어 있습니다. Experiential에서 발급 직후 표시되는 실제 전체 API 키를 다시 복사해 Vercel 환경변수에 저장해 주세요.",
+    );
+  }
+
+  if (!apiKey.startsWith("xpl_")) {
+    throw new Error(
+      "EXPLABS_API_KEY 형식이 올바르지 않습니다. Experiential API 키는 xpl_로 시작해야 합니다.",
+    );
+  }
+
+  return apiKey;
+}
+
 async function askModel(
   model: string,
   name: string,
   question: string,
 ): Promise<AdvisorResult> {
-  const apiKey = process.env.EXPLABS_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("EXPLABS_API_KEY가 Vercel에 설정되어 있지 않습니다.");
-  }
+  const apiKey = getApiKey();
 
   const response = await fetch(API_URL, {
     method: "POST",
