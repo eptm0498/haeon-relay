@@ -3,12 +3,19 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const API_URL = "https://api.experientiallabs.ai/v1/chat/completions";
-const MODELS = ["gpt-6-astra", "claude-fable-5.1"] as const;
-const VERSION = "2026-09-07.2";
+const DEFAULT_MODELS = ["gpt-6-astra", "claude-fable-5.1"] as const;
+const SPECIALIST_MODELS = {
+  balanced: "gpt-5.6-sol",
+  code: "grok-4.6",
+  longContext: "gemini-3.7-flash",
+} as const;
+const VERSION = "2026-09-09.1";
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" };
 type Mode = "auto" | "force";
 type WorkStatus = "available" | "exhausted";
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+type RouteKind = "default" | "balanced" | "code" | "long-context";
+type Routing = { kind: RouteKind; models: string[]; reason: string };
 
 class ModelError extends Error {
   constructor(message: string, readonly code: string, readonly retryable: boolean) { super(message); }
@@ -28,6 +35,35 @@ function isSimple(task: string, context: string) {
     /["'‘“「][^"'’”」\n]+["'’”」]\s*(?:을|를|에서)?\s*["'‘“「][^"'’”」\n]+["'’”」]/.test(task) &&
     /바꿔|변경|교체|수정/.test(task) &&
     !/분석|설계|조사|비교|오류|여러|전체|모든|자동|검증|배포|연동/.test(task);
+}
+
+function selectModels(task: string, context: string): Routing {
+  const text = `${task}\n${context.slice(0, 16000)}`.toLowerCase();
+  const longContext = context.length >= 16000 ||
+    /긴\s*(자료|문서|대화)|대량\s*(자료|문서|텍스트)|여러\s*(자료|문서|파일)|전수\s*(검토|점검|분석)|전체\s*(자료|문서|대화|로그).*(요약|분석|검토)|리서치|자료\s*훑|문맥\s*처리|장문\s*요약/.test(text);
+  const code = /디버깅|버그|오류|에러|exception|stack\s*trace|런타임|컴파일|빌드\s*실패|테스트\s*실패|코딩|코드\s*(수정|분석|리뷰)|typescript|javascript|python|sql|api\s*(오류|에러)|github\s*actions|vercel\s*(오류|에러)|supabase\s*(오류|에러)/.test(text);
+  const balanced = /홈페이지|웹사이트|프로그램|설계|분석|아키텍처|구조\s*(변경|개편|설계)|자동화|기획|전략|리팩터링|리팩터|개선안|시스템\s*설계/.test(text);
+
+  if (longContext) return {
+    kind: "long-context",
+    models: [SPECIALIST_MODELS.longContext, ...DEFAULT_MODELS],
+    reason: "긴 자료·다량 문맥 처리 작업이라 Gemini 3.7 Flash를 먼저 사용하고 Astra와 Claude Fable 5.1을 대체 모델로 둬.",
+  };
+  if (code) return {
+    kind: "code",
+    models: [SPECIALIST_MODELS.code, SPECIALIST_MODELS.balanced, DEFAULT_MODELS[1]],
+    reason: "코딩·디버깅·기술 문제라 Grok 4.6을 먼저 사용하고 GPT-5.6 Sol과 Claude Fable 5.1을 대체 모델로 둬.",
+  };
+  if (balanced) return {
+    kind: "balanced",
+    models: [SPECIALIST_MODELS.balanced, ...DEFAULT_MODELS],
+    reason: "홈페이지 수정·프로그램 설계·분석 성격이라 GPT-5.6 Sol을 먼저 사용하고 Astra와 Claude Fable 5.1을 대체 모델로 둬.",
+  };
+  return {
+    kind: "default",
+    models: [...DEFAULT_MODELS],
+    reason: "일반 고난도 작업은 GPT-6 Astra를 기본으로 사용하고 Claude Fable 5.1을 대체 모델로 둬.",
+  };
 }
 
 async function callModel(model: string, task: string, context: string, workStatus: WorkStatus, signal: AbortSignal) {
@@ -77,25 +113,30 @@ async function handle(body: unknown, request: Request) {
   const mode: Mode = input.mode === "force" ? "force" : "auto";
   const workStatus: WorkStatus = input.workStatus === "exhausted" ? "exhausted" : "available";
   const skip = mode === "auto" && workStatus === "available" && isSimple(task, context);
-  const decision = { useSecretary: !skip, complexity: skip ? "low" : "high", reason: skip ? "짧고 명확한 문구 변경은 외부 호출 없이 바로 실행하는 편이 효율적이야." : workStatus === "exhausted" ? "Work 소진: 비서가 완성 가능한 결과를 직접 작성해." : "비서가 분석과 초안을 먼저 완성하고 실행 사항만 인계해." };
+  const routing = selectModels(task, context);
+  const decision = { useSecretary: !skip, complexity: skip ? "low" : "high", reason: skip ? "짧고 명확한 문구 변경은 외부 호출 없이 바로 실행하는 편이 효율적이야." : `${workStatus === "exhausted" ? "Work 소진: 비서가 완성 가능한 결과를 직접 작성해. " : "비서가 분석과 초안을 먼저 완성하고 실행 사항만 인계해. "}${routing.reason}` };
   if (skip) return Response.json({ ok: true, useSecretary: false, mode, workStatus, decision, brief: "비서 생략. 요청한 문구 변경을 바로 적용해.", meta: { version: VERSION, calls: 0, usage: null } }, { headers });
   const started = Date.now();
   const warnings: string[] = [];
-  for (let index = 0; index < MODELS.length; index++) {
+  for (let index = 0; index < routing.models.length; index++) {
     try {
       const remaining = 54000 - (Date.now() - started);
       if (remaining < 1000 || request.signal.aborted) throw new ModelError("요청이 취소되었거나 처리 시간이 초과됐어.", "timeout", false);
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(Math.min(index === 0 ? 35000 : 18000, remaining))]);
-      const result = await callModel(MODELS[index], task, context, workStatus, signal);
+      const perCall = index === 0 ? 30000 : index === 1 ? 14000 : 8000;
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(Math.min(perCall, remaining))]);
+      const result = await callModel(routing.models[index], task, context, workStatus, signal);
       const marker = result.answer.lastIndexOf("[실행 인계]");
       const handoff = marker >= 0 ? result.answer.slice(marker).trim() : "별도 인계 요약이 없어. 결과 본문에서 필요한 실행·검증 항목을 확인해.";
       if (result.truncated) warnings.push("출력 한도에 도달한 부분 결과야. 작업 범위를 나눠서 이어서 요청해 줘.");
       return Response.json({ ok: true, useSecretary: true, mode, workStatus, decision, brief: handoff, deliverable: result.answer, warnings, partial: result.truncated,
-        meta: { version: VERSION, model: MODELS[index], calls: index + 1, usage: result.usage, usageScope: "successful_call_only", workUsage: null, elapsedMs: Date.now() - started, strategy: "external-deliverable+handoff", generatedAt: new Date().toISOString() } }, { headers });
+        meta: { version: VERSION, model: routing.models[index], candidates: routing.models, route: routing.kind, calls: index + 1, usage: result.usage, usageScope: "successful_call_only", workUsage: null, elapsedMs: Date.now() - started, strategy: "task-routed-external-deliverable+handoff", generatedAt: new Date().toISOString() } }, { headers });
     } catch (error) {
       const failure = error instanceof ModelError ? error : new ModelError("비서 처리 중 오류가 발생했어.", "internal_error", false);
-      if (failure.retryable && index === 0 && !request.signal.aborted) { warnings.push("Astra 응답 실패 후 Claude로 한 차례 재시도했어."); continue; }
-      return Response.json({ ok: false, code: failure.code, error: failure.message, warnings, meta: { version: VERSION, calls: index + 1 } }, { status: failure.code === "quota_exceeded" ? 429 : failure.code === "timeout" ? 504 : 502, headers });
+      if (failure.retryable && index < routing.models.length - 1 && !request.signal.aborted) {
+        warnings.push(`${routing.models[index]} 응답 실패 후 ${routing.models[index + 1]}로 재시도했어.`);
+        continue;
+      }
+      return Response.json({ ok: false, code: failure.code, error: failure.message, warnings, meta: { version: VERSION, route: routing.kind, candidates: routing.models, calls: index + 1 } }, { status: failure.code === "quota_exceeded" ? 429 : failure.code === "timeout" ? 504 : 502, headers });
     }
   }
 }
@@ -109,6 +150,6 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   // Retain the existing machine integration; no query is a zero-cost health check.
-  if (!query.has("q")) return Response.json({ ok: true, version: VERSION, status: "ready", capabilities: ["deliverable", "handoff", "work-exhausted", "fallback"], workUsageDetection: false }, { headers });
+  if (!query.has("q")) return Response.json({ ok: true, version: VERSION, status: "ready", capabilities: ["deliverable", "handoff", "work-exhausted", "fallback", "task-routing"], defaultModels: DEFAULT_MODELS, specialistModels: SPECIALIST_MODELS, workUsageDetection: false }, { headers });
   return handle({ task: query.get("q"), mode: query.get("mode") ?? "auto", workStatus: query.get("workStatus") ?? "available" }, request);
 }
