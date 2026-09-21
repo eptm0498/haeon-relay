@@ -24,6 +24,7 @@ type SpinResult = {
 
 const colors = ["#ff4fa3", "#7b5cff", "#24c8ff", "#ffcc33", "#ff715b", "#46d99a", "#ff8bd5", "#4a8cff"];
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 async function post<T>(url: string, pin: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
@@ -37,25 +38,14 @@ async function post<T>(url: string, pin: string, body: Record<string, unknown>):
   return data as T;
 }
 
-function wheelGradient(items: RouletteItem[]) {
-  let cursor = 0;
-  const stops = items.map((item, index) => {
-    const start = cursor;
-    cursor += Number(item.weight) * 3.6;
-    return `${colors[index % colors.length]} ${start}deg ${cursor}deg`;
-  });
-  return `conic-gradient(${stops.join(",")})`;
-}
-
-function targetAngle(items: RouletteItem[], label: string) {
+function resultCenter(items: RouletteItem[], label: string) {
   let cursor = 0;
   for (const item of items) {
-    const width = Number(item.weight) * 3.6;
-    const center = cursor + width / 2;
-    if (item.label === label) return (360 - center + 360) % 360;
+    const width = Number(item.weight || 0);
+    if (item.label === label) return Math.min(97, Math.max(3, cursor + width / 2));
     cursor += width;
   }
-  return 0;
+  return 50;
 }
 
 export default function GamePanel({
@@ -76,7 +66,11 @@ export default function GamePanel({
   const [openUsers, setOpenUsers] = useState(false);
   const [activeUser, setActiveUser] = useState(0);
   const [rouletteId, setRouletteId] = useState<number | null>(roulettes[0]?.id ?? null);
-  const [rotation, setRotation] = useState(0);
+
+  const [cursorPct, setCursorPct] = useState(5);
+  const [cursorDuration, setCursorDuration] = useState(0);
+  const [cursorEase, setCursorEase] = useState("linear");
+  const [currentPick, setCurrentPick] = useState("추첨 대기");
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState<SpinResult | null>(null);
   const [reveal, setReveal] = useState(false);
@@ -102,9 +96,6 @@ export default function GamePanel({
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
-  const wheelBg = items.length
-    ? wheelGradient(items)
-    : "conic-gradient(#ff4fa3 0deg 90deg,#7b5cff 90deg 180deg,#24c8ff 180deg 270deg,#ffcc33 270deg 360deg)";
 
   function chooseUser(user: User) {
     setNickname(user.nickname);
@@ -112,41 +103,67 @@ export default function GamePanel({
     setActiveUser(0);
   }
 
+  async function moveCursor(to: number, duration: number, ease = "linear") {
+    setCursorDuration(duration);
+    setCursorEase(ease);
+    setCursorPct(to);
+    await wait(duration + 30);
+  }
+
   async function spin() {
     if (!nickname.trim() || !rouletteId || spinning) {
       if (!nickname.trim()) onNotice("사용자를 먼저 선택해줘.");
+      return;
+    }
+    if (!items.length) {
+      onNotice("이 룰렛의 결과 항목을 불러오지 못했어.");
       return;
     }
 
     setResult(null);
     setReveal(false);
     setSpinning(true);
+    setCurrentPick("추첨 중...");
     onNotice("");
 
+    let cycleTimer: ReturnType<typeof window.setInterval> | null = null;
+
     try {
+      cycleTimer = window.setInterval(() => {
+        setCurrentPick((previous) => {
+          const index = Math.max(0, items.findIndex((item) => item.label === previous));
+          return items[(index + 1) % items.length]?.label || "추첨 중...";
+        });
+      }, 95);
+
       const hit = await post<SpinResult>("/api/cash-board", pin, {
         action: "spin",
         nickname: nickname.trim(),
         roulette_id: rouletteId,
       });
 
-      const target = targetAngle(items, hit.label);
-      setRotation((previous) => {
-        const current = ((previous % 360) + 360) % 360;
-        const delta = (target - current + 360) % 360;
-        return previous + 1800 + delta;
-      });
+      await moveCursor(95, 330);
+      await moveCursor(5, 390);
+      await moveCursor(94, 460);
+      await moveCursor(7, 540);
+      await moveCursor(90, 650);
+      await moveCursor(12, 760);
 
-      window.setTimeout(() => {
-        setResult(hit);
-        setReveal(true);
-        setBurst((value) => value + 1);
-        setSpinning(false);
-        void onChanged();
-      }, 3300);
-    } catch (error) {
+      const target = resultCenter(items, hit.label);
+      await moveCursor(target, 1150, "cubic-bezier(.08,.72,.12,1)");
+
+      if (cycleTimer) window.clearInterval(cycleTimer);
+      setCurrentPick(hit.label);
+      setResult(hit);
+      setReveal(true);
+      setBurst((value) => value + 1);
       setSpinning(false);
-      onNotice(error instanceof Error ? error.message : "룰렛 실행에 실패했어.");
+      await onChanged();
+    } catch (error) {
+      if (cycleTimer) window.clearInterval(cycleTimer);
+      setSpinning(false);
+      setCurrentPick("추첨 대기");
+      onNotice(error instanceof Error ? error.message : "추첨 실행에 실패했어.");
     }
   }
 
@@ -161,6 +178,10 @@ export default function GamePanel({
       onNotice(mode === "keep" ? `${result.label} 킵 저장 완료` : `${result.label} 즉시사용 완료`);
       setResult(null);
       setReveal(false);
+      setCurrentPick("추첨 대기");
+      setCursorDuration(350);
+      setCursorEase("ease");
+      setCursorPct(5);
       await onChanged();
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "결과 처리에 실패했어.");
@@ -169,15 +190,15 @@ export default function GamePanel({
 
   return (
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
-      <div className="text-[10px] font-black tracking-[.2em] text-violet-500">RANDOM PLAY</div>
+      <div className="text-[11px] font-black text-violet-600">무작위 추첨</div>
       <div className="mt-1 flex items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-black">룰렛 게임</h2>
-          <p className="mt-0.5 text-xs font-medium text-zinc-400">사용자를 고르고 돌리면 결과 위치에 실제로 멈춰.</p>
+          <p className="mt-0.5 text-xs font-medium text-zinc-400">선택 막대가 좌우로 왕복하다 실제 당첨 결과에 멈춰.</p>
         </div>
         {chosen && (
           <div className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-[11px] font-black text-violet-600">
-            {money(chosen.cash_balance)} CASH
+            {money(chosen.cash_balance)} 캐시
           </div>
         )}
       </div>
@@ -196,10 +217,10 @@ export default function GamePanel({
             if (!openUsers || suggestions.length === 0) return;
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setActiveUser((v) => (v + 1) % suggestions.length);
+              setActiveUser((value) => (value + 1) % suggestions.length);
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
-              setActiveUser((v) => (v - 1 + suggestions.length) % suggestions.length);
+              setActiveUser((value) => (value - 1 + suggestions.length) % suggestions.length);
             } else if (e.key === "Enter") {
               e.preventDefault();
               chooseUser(suggestions[activeUser] || suggestions[0]);
@@ -227,7 +248,7 @@ export default function GamePanel({
               >
                 <span className="truncate text-sm font-black">{user.nickname}</span>
                 <span className="ml-2 shrink-0 text-[11px] font-black text-violet-500">
-                  {money(user.cash_balance)} CASH
+                  {money(user.cash_balance)} 캐시
                 </span>
               </button>
             ))}
@@ -241,66 +262,68 @@ export default function GamePanel({
           setRouletteId(Number(e.target.value));
           setResult(null);
           setReveal(false);
+          setCurrentPick("추첨 대기");
+          setCursorDuration(0);
+          setCursorPct(5);
         }}
         disabled={spinning}
         className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
       >
         {roulettes.map((roulette) => (
           <option key={roulette.id} value={roulette.id}>
-            {roulette.name} · {money(roulette.cost)} CASH
+            {roulette.name} · {money(roulette.cost)} 캐시
           </option>
         ))}
       </select>
 
-      <div className={fx.stage + " mt-3 " + (spinning ? fx.isSpinning : "")}>
+      <div className={fx.stage + " mt-3"}>
         <div className="relative z-[2] flex items-center justify-between">
           <div>
-            <div className="text-[9px] font-black tracking-[.22em] text-fuchsia-300">LIVE SPIN</div>
+            <div className="text-[10px] font-black text-fuchsia-300">실시간 추첨</div>
             <div className="mt-1 text-sm font-black text-white">{config?.name || fallback?.name || "룰렛"}</div>
           </div>
           <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
-            {money(config?.cost ?? fallback?.cost ?? 0)} CASH
+            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
           </div>
         </div>
 
-        <div className={fx.wheelWrap}>
-          <div className={fx.pointer} />
-          <div className={fx.pulseRing} />
-          <div
-            className={fx.wheel + " " + (spinning ? fx.spinning : "")}
-            style={{
-              background: wheelBg,
-              transform: `rotate(${rotation}deg)`,
-              transitionDuration: spinning ? "3200ms" : "450ms",
-              transitionTimingFunction: spinning ? "cubic-bezier(.08,.72,.08,1)" : "ease",
-            }}
-          >
-            {items.map((item, index) => {
-              const before = items.slice(0, index).reduce((sum, current) => sum + current.weight, 0);
-              const center = (before + item.weight / 2) * 3.6;
-              return (
-                <span
-                  key={item.id || index}
-                  className={fx.label}
-                  style={{
-                    transform: `rotate(${center}deg) translateY(-84px) rotate(${-center}deg)`,
-                  }}
-                >
-                  {item.label}
+        <div className={fx.trackShell}>
+          <div className={fx.track}>
+            {items.map((item, index) => (
+              <div
+                key={item.id || index}
+                className={fx.segment}
+                style={{
+                  width: `${Math.max(0, Number(item.weight || 0))}%`,
+                  background: colors[index % colors.length],
+                }}
+                title={`${item.label} ${item.weight}%`}
+              >
+                <span className={fx.segmentText}>
+                  {item.weight >= 8 ? item.label : item.weight >= 4 ? item.label.slice(0, 3) : ""}
                 </span>
-              );
-            })}
-            <div className={fx.center}>CASH<br />SPIN</div>
+              </div>
+            ))}
+            <div
+              className={fx.selector + " " + (spinning ? fx.selectorHot : "")}
+              style={{
+                left: `${cursorPct}%`,
+                transitionDuration: `${cursorDuration}ms`,
+                transitionTimingFunction: cursorEase,
+              }}
+            />
           </div>
         </div>
+
+        <div className={fx.currentPick}>{currentPick}</div>
 
         <button
           type="button"
           onClick={spin}
           disabled={spinning || !rouletteId}
-          className="relative z-[3] w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
+          className="relative z-[3] mt-3 w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
         >
-          {spinning ? "두구두구..." : "룰렛 돌리기"}
+          {spinning ? "추첨 중..." : "추첨 시작"}
         </button>
 
         <div className={fx.flash + " " + (reveal ? fx.flashOn : "")} key={"flash-" + burst} />
@@ -313,14 +336,15 @@ export default function GamePanel({
               top: `${22 + (index * 13) % 55}%`,
               animationDelay: `${(index % 4) * 55}ms`,
               background: colors[index % colors.length],
+              color: colors[index % colors.length],
             }}
           />
         ))}
 
         {reveal && result && (
           <div className={fx.resultPop + " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"}>
-            <div className="text-[9px] font-black tracking-[.22em] text-fuchsia-200">RESULT</div>
-            <div className="mt-1 text-2xl font-black text-white">{result.label}</div>
+            <div className="text-[11px] font-black text-fuchsia-200">당첨 결과</div>
+            <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
 
             {result.result_type === "keep" && (
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -342,7 +366,7 @@ export default function GamePanel({
             )}
 
             {result.result_type === "cash" && (
-              <div className="mt-2 text-xs font-bold text-cyan-200">당첨 CASH는 자동으로 반영됐어.</div>
+              <div className="mt-2 text-xs font-bold text-cyan-200">당첨 캐시는 자동으로 반영됐어.</div>
             )}
 
             {result.result_type === "nothing" && (
