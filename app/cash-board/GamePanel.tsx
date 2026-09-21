@@ -24,7 +24,6 @@ type SpinResult = {
 
 const colors = ["#ff4fa3", "#7b5cff", "#24c8ff", "#ffcc33", "#ff715b", "#46d99a", "#ff8bd5", "#4a8cff"];
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
-const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 async function post<T>(url: string, pin: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
@@ -103,13 +102,6 @@ export default function GamePanel({
     setActiveUser(0);
   }
 
-  async function moveCursor(to: number, duration: number, ease = "linear") {
-    setCursorDuration(duration);
-    setCursorEase(ease);
-    setCursorPct(to);
-    await wait(duration + 30);
-  }
-
   async function spin() {
     if (!nickname.trim() || !rouletteId || spinning) {
       if (!nickname.trim()) onNotice("사용자를 먼저 선택해줘.");
@@ -126,41 +118,47 @@ export default function GamePanel({
     setCurrentPick("추첨 중...");
     onNotice("");
 
-    let cycleTimer: ReturnType<typeof window.setInterval> | null = null;
-
     try {
-      cycleTimer = window.setInterval(() => {
-        setCurrentPick((previous) => {
-          const index = Math.max(0, items.findIndex((item) => item.label === previous));
-          return items[(index + 1) % items.length]?.label || "추첨 중...";
-        });
-      }, 95);
-
       const hit = await post<SpinResult>("/api/cash-board", pin, {
         action: "spin",
         nickname: nickname.trim(),
         roulette_id: rouletteId,
       });
 
-      await moveCursor(95, 330);
-      await moveCursor(5, 390);
-      await moveCursor(94, 460);
-      await moveCursor(7, 540);
-      await moveCursor(90, 650);
-      await moveCursor(12, 760);
+      let itemIndex = 0;
+      const ticker = window.setInterval(() => {
+        itemIndex = (itemIndex + 1) % items.length;
+        setCurrentPick(items[itemIndex]?.label || "추첨 중...");
+      }, 95);
+
+      const move = (after: number, to: number, duration: number, ease = "linear") => {
+        window.setTimeout(() => {
+          setCursorDuration(duration);
+          setCursorEase(ease);
+          setCursorPct(to);
+        }, after);
+      };
+
+      move(0, 95, 320);
+      move(340, 5, 390);
+      move(750, 94, 450);
+      move(1220, 7, 520);
+      move(1760, 90, 620);
+      move(2400, 12, 700);
 
       const target = resultCenter(items, hit.label);
-      await moveCursor(target, 1150, "cubic-bezier(.08,.72,.12,1)");
+      move(3120, target, 1100, "cubic-bezier(.08,.72,.12,1)");
 
-      if (cycleTimer) window.clearInterval(cycleTimer);
-      setCurrentPick(hit.label);
-      setResult(hit);
-      setReveal(true);
-      setBurst((value) => value + 1);
-      setSpinning(false);
-      await onChanged();
+      window.setTimeout(() => {
+        window.clearInterval(ticker);
+        setCurrentPick(hit.label);
+        setResult(hit);
+        setReveal(true);
+        setBurst((value) => value + 1);
+        setSpinning(false);
+        void onChanged();
+      }, 4280);
     } catch (error) {
-      if (cycleTimer) window.clearInterval(cycleTimer);
       setSpinning(false);
       setCurrentPick("추첨 대기");
       onNotice(error instanceof Error ? error.message : "추첨 실행에 실패했어.");
