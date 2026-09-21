@@ -204,6 +204,7 @@ export default function CashBoardPage() {
   function suggestions(value: string) {
     const q = value.trim().toLowerCase();
     if (!q) return [];
+    if (data.users.some((user) => user.nickname.toLowerCase() === q)) return [];
     return data.users
       .filter((user) => user.nickname.toLowerCase().includes(q))
       .slice(0, 6);
@@ -527,6 +528,12 @@ function NameInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="닉네임"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && users[0]) {
+            e.preventDefault();
+            onPick(users[0].nickname);
+          }
+        }}
         className="w-full rounded-2xl border border-zinc-200 px-4 py-3 outline-none focus:border-zinc-500"
       />
       {users.length > 0 && (
