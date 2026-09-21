@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import GamePanel from "./GamePanel";
 import RouletteSettings from "./RouletteSettings";
+import TimerOverlay from "./TimerOverlay";
 
 type User = {
   id: number;
@@ -516,6 +517,7 @@ export default function CashBoardPage() {
           </>
         )}
       </div>
+      <TimerOverlay pin={pin} />
     </main>
   );
 }
