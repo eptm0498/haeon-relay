@@ -15,8 +15,9 @@ type User = {
 type Roulette = { id: number; name: string; cost: number };
 type ContentItem = { id: number; name: string; cost: number };
 type Keep = { id: number; item_name: string; quantity: number };
+type Charge = { id: number; amount: number; note: string | null; created_at: string };
 type Bootstrap = { users: User[]; roulettes: Roulette[]; contents: ContentItem[] };
-type UserDetail = { user: User; keeps: Keep[] };
+type UserDetail = { user: User; keeps: Keep[]; charges: Charge[] };
 type SpinResult = {
   ok: boolean;
   spin_id: number;
@@ -26,6 +27,17 @@ type SpinResult = {
 };
 
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
+const dateTime = (value: string) =>
+  new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
 
 export default function CashBoardPage() {
   const [pin, setPin] = useState("");
@@ -60,6 +72,18 @@ export default function CashBoardPage() {
     return result as T;
   }
 
+  async function userApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+    const response = await fetch("/api/cash-board-users", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-pin": pin },
+      body: JSON.stringify({ action, ...payload }),
+      cache: "no-store",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || "사용자 요청을 처리하지 못했어.");
+    return result as T;
+  }
+
   async function reload() {
     const next = await api<Bootstrap>("bootstrap");
     setData(next);
@@ -76,7 +100,7 @@ export default function CashBoardPage() {
       await reload();
       setAuthed(true);
     } catch {
-      setNotice("PIN을 확인해줘.");
+      setNotice("비밀번호를 확인해줘.");
     } finally {
       setBusy(false);
     }
@@ -170,7 +194,7 @@ export default function CashBoardPage() {
     setBusy(true);
     setNotice("");
     try {
-      const detail = await api<UserDetail>("user_detail", { user_id: id });
+      const detail = await userApi<UserDetail>("detail", { user_id: id });
       setSelectedUser(detail);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "사용자 정보를 불러오지 못했어.");
@@ -185,12 +209,36 @@ export default function CashBoardPage() {
     setNotice("");
     try {
       await api("use_keep", { user_id: selectedUser.user.id, item_name: itemName });
-      const detail = await api<UserDetail>("user_detail", { user_id: selectedUser.user.id });
+      const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
       setSelectedUser(detail);
       await reload();
       setNotice(`${itemName} 1회 사용 완료`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "킵 사용에 실패했어.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteUser() {
+    if (!selectedUser) return;
+
+    const nickname = selectedUser.user.nickname;
+    const confirmed = window.confirm(
+      `'${nickname}' 사용자를 정말 삭제할까?\n보유 캐시, 킵, 후원/사용 이력이 모두 삭제돼.`
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setNotice("");
+    try {
+      await userApi("delete", { user_id: selectedUser.user.id });
+      setSelectedUser(null);
+      setSearch("");
+      await reload();
+      setNotice(`${nickname} 사용자를 삭제했어.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "사용자 삭제에 실패했어.");
     } finally {
       setBusy(false);
     }
@@ -229,7 +277,7 @@ export default function CashBoardPage() {
                 onKeyDown={(e) => e.key === "Enter" && login()}
                 inputMode="numeric"
                 type="password"
-                placeholder="4자리 PIN"
+                placeholder="4자리 비밀번호"
                 className="min-w-0 flex-1 rounded-2xl border border-zinc-200 px-4 py-3 outline-none focus:border-zinc-500"
               />
               <button
@@ -379,13 +427,13 @@ export default function CashBoardPage() {
             </Card>
 
             {selectedUser && (
-              <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="mt-3 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <div className="text-lg font-black">{selectedUser.user.nickname}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-lg font-black">{selectedUser.user.nickname}</div>
                     <div className="mt-1 text-sm text-zinc-500">보유 캐시</div>
                   </div>
-                  <div className="text-3xl font-black">{money(selectedUser.user.cash_balance)}</div>
+                  <div className="shrink-0 text-3xl font-black">{money(selectedUser.user.cash_balance)}</div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
@@ -418,8 +466,53 @@ export default function CashBoardPage() {
                     </div>
                   )}
                 </div>
+
+                <div className="mt-6">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-sm font-extrabold text-zinc-500">후원 이력</div>
+                    <div className="text-[11px] font-bold text-zinc-400">최근 {selectedUser.charges.length}건</div>
+                  </div>
+                  {selectedUser.charges.length === 0 ? (
+                    <div className="rounded-2xl bg-zinc-50 px-4 py-4 text-sm font-semibold text-zinc-400">
+                      후원 충전 기록이 없어.
+                    </div>
+                  ) : (
+                    <div className="max-h-[280px] divide-y divide-zinc-100 overflow-auto rounded-2xl border border-zinc-100 bg-zinc-50 px-3">
+                      {selectedUser.charges.map((charge) => (
+                        <div key={charge.id} className="flex items-center justify-between gap-3 py-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-zinc-800">
+                              +{money(charge.amount)} 캐시
+                            </div>
+                            <div className="mt-0.5 text-[11px] font-bold text-zinc-400">
+                              {dateTime(charge.created_at)}
+                            </div>
+                          </div>
+                          <div className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">
+                            후원
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 border-t border-zinc-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={deleteUser}
+                    disabled={busy}
+                    className="w-full rounded-2xl bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 ring-1 ring-rose-100 disabled:opacity-40"
+                  >
+                    사용자 삭제
+                  </button>
+                  <div className="mt-2 text-center text-[10px] font-bold text-zinc-400">
+                    삭제하면 이 사용자의 캐시·킵·거래 이력이 함께 삭제돼.
+                  </div>
+                </div>
               </div>
             )}
+
           </>
         )}
       </div>
