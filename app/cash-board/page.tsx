@@ -98,8 +98,8 @@ export default function CashBoardPage() {
       await reload();
       setNotice(
         result.created
-          ? `${chargeNick.trim()} 신규 등록 · ${money(amount)} CASH 충전 완료`
-          : `${chargeNick.trim()} · ${money(amount)} CASH 충전 완료`
+          ? `${chargeNick.trim()} 신규 등록 · ${money(amount)} 캐시 충전 완료`
+          : `${chargeNick.trim()} · ${money(amount)} 캐시 충전 완료`
       );
       setChargeNick("");
       setChargeAmount("");
@@ -217,11 +217,11 @@ export default function CashBoardPage() {
       <main className="min-h-screen bg-[#f6f7f9] px-4 py-10 text-[#111318]">
         <div className="mx-auto max-w-md">
           <div className="mb-5">
-            <h1 className="text-2xl font-extrabold tracking-tight">CASH BOARD</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">캐시 보드</h1>
             <p className="mt-1 text-sm text-zinc-500">관리자 전용</p>
           </div>
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <label className="text-sm font-bold">관리자 PIN</label>
+            <label className="text-sm font-bold">관리자 비밀번호</label>
             <div className="mt-3 flex gap-2">
               <input
                 value={pin}
@@ -259,7 +259,7 @@ export default function CashBoardPage() {
       <div className="mx-auto max-w-[640px]">
         <header className="mb-4 flex items-end justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">CASH BOARD</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">캐시 보드</h1>
             <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 룰렛 설정 · 사용자</p>
           </div>
           <button
@@ -372,7 +372,7 @@ export default function CashBoardPage() {
                     className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left"
                   >
                     <span className="font-extrabold">{user.nickname}</span>
-                    <span className="font-black">{money(user.cash_balance)} CASH</span>
+                    <span className="font-black">{money(user.cash_balance)} 캐시</span>
                   </button>
                 ))}
               </div>
@@ -383,7 +383,7 @@ export default function CashBoardPage() {
                 <div className="flex items-end justify-between gap-3">
                   <div>
                     <div className="text-lg font-black">{selectedUser.user.nickname}</div>
-                    <div className="mt-1 text-sm text-zinc-500">보유 CASH</div>
+                    <div className="mt-1 text-sm text-zinc-500">보유 캐시</div>
                   </div>
                   <div className="text-3xl font-black">{money(selectedUser.user.cash_balance)}</div>
                 </div>
@@ -479,7 +479,7 @@ function NameInput({
               className="flex w-full items-center justify-between border-b border-zinc-100 px-4 py-3 text-left last:border-0 hover:bg-zinc-50"
             >
               <span className="font-bold">{user.nickname}</span>
-              <span className="text-sm font-extrabold text-zinc-500">{money(user.cash_balance)} CASH</span>
+              <span className="text-sm font-extrabold text-zinc-500">{money(user.cash_balance)} 캐시</span>
             </button>
           ))}
         </div>
