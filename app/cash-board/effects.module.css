@@ -1,13 +1,13 @@
 .stage {
   position: relative;
   overflow: hidden;
-  border-radius: 28px;
-  padding: 18px;
+  border-radius: 26px;
+  padding: 16px;
   background:
-    radial-gradient(circle at 50% 25%, rgba(174, 85, 255, .30), transparent 38%),
-    radial-gradient(circle at 18% 92%, rgba(58, 205, 255, .18), transparent 34%),
-    linear-gradient(180deg, #15121d 0%, #0e0d14 100%);
-  box-shadow: 0 18px 50px rgba(42, 27, 80, .18);
+    radial-gradient(circle at 50% 10%, rgba(174,85,255,.28), transparent 42%),
+    radial-gradient(circle at 12% 92%, rgba(58,205,255,.15), transparent 35%),
+    linear-gradient(180deg,#17131f 0%,#0f0e15 100%);
+  box-shadow: 0 18px 48px rgba(40,25,75,.18);
 }
 
 .stage::after {
@@ -15,95 +15,114 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: .28;
-  background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px);
+  opacity: .18;
+  background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
   background-size: 100% 4px;
 }
 
-.wheelWrap {
+.trackShell {
   position: relative;
-  width: 250px;
-  height: 250px;
-  margin: 8px auto 0;
+  z-index: 2;
+  margin-top: 14px;
+  padding: 7px;
+  border-radius: 20px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: inset 0 0 24px rgba(0,0,0,.28);
 }
 
-.pointer {
-  position: absolute;
-  z-index: 6;
-  left: 50%;
-  top: -1px;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 12px solid transparent;
-  border-right: 12px solid transparent;
-  border-top: 21px solid white;
-  filter: drop-shadow(0 2px 8px rgba(255,255,255,.65));
+.track {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 78px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #24202e;
 }
 
-.wheel {
-  position: absolute;
-  inset: 12px;
-  border-radius: 9999px;
-  border: 7px solid rgba(255,255,255,.96);
-  box-shadow:
-    0 0 0 5px rgba(255,255,255,.06),
-    0 0 46px rgba(180, 82, 255, .42),
-    inset 0 0 40px rgba(255,255,255,.10);
-  transition-property: transform;
-  will-change: transform;
-}
-
-.spinning {
-  filter: saturate(1.16) brightness(1.08);
-}
-
-.center {
-  position: absolute;
-  z-index: 5;
-  left: 50%;
-  top: 50%;
-  width: 68px;
-  height: 68px;
-  transform: translate(-50%, -50%);
-  border-radius: 9999px;
-  border: 4px solid white;
+.segment {
+  position: relative;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 6px 4px;
+  border-right: 1px solid rgba(255,255,255,.24);
+  color: #fff;
   text-align: center;
-  background: #15121d;
-  color: white;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.15;
   font-weight: 900;
-  line-height: 1.1;
-  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  text-shadow: 0 2px 6px rgba(0,0,0,.68);
 }
 
-.label {
+.segment:last-child {
+  border-right: 0;
+}
+
+.segmentText {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector {
+  position: absolute;
+  z-index: 7;
+  top: 1px;
+  bottom: 1px;
+  width: 14px;
+  margin-left: -7px;
+  border-radius: 8px;
+  border: 2px solid #fff;
+  background: rgba(255,255,255,.32);
+  box-shadow:
+    0 0 0 3px rgba(255,255,255,.14),
+    0 0 18px rgba(255,255,255,.95),
+    0 0 34px rgba(226,84,255,.72);
+  transition-property: left;
+  will-change: left;
+}
+
+.selector::before {
+  content: "";
   position: absolute;
   left: 50%;
-  top: 50%;
-  width: 108px;
-  margin-left: -54px;
-  transform-origin: 54px 0;
+  top: -10px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 9px solid #fff;
+  filter: drop-shadow(0 0 5px rgba(255,255,255,.8));
+}
+
+.selectorHot {
+  animation: selectorPulse 420ms ease-in-out infinite;
+}
+
+.currentPick {
+  position: relative;
+  z-index: 3;
+  margin-top: 11px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.07);
+  color: #fff;
   text-align: center;
-  color: white;
-  font-size: 10px;
-  font-weight: 900;
-  text-shadow: 0 2px 7px rgba(0,0,0,.62);
-}
-
-.pulseRing {
-  position: absolute;
-  inset: 28px;
-  border-radius: 9999px;
-  border: 2px solid rgba(255,255,255,.36);
-  opacity: 0;
-}
-
-.isSpinning .pulseRing {
-  animation: pulse 720ms ease-in-out infinite;
+  font-size: 22px;
+  line-height: 1.15;
+  font-weight: 950;
+  letter-spacing: -.02em;
+  text-shadow: 0 2px 12px rgba(0,0,0,.45);
 }
 
 .flash {
@@ -112,15 +131,15 @@
   z-index: 10;
   pointer-events: none;
   opacity: 0;
-  background: radial-gradient(circle at center, rgba(255,255,255,.96) 0%, rgba(255,255,255,.36) 18%, rgba(255,74,178,.18) 34%, transparent 60%);
+  background: radial-gradient(circle at center,rgba(255,255,255,.98) 0%,rgba(255,255,255,.35) 20%,rgba(255,74,178,.18) 38%,transparent 64%);
 }
 
 .flashOn {
-  animation: flash 760ms ease-out forwards;
+  animation: flash .8s ease-out forwards;
 }
 
 .resultPop {
-  animation: resultPop 520ms cubic-bezier(.2,.9,.25,1.2) both;
+  animation: resultPop .5s cubic-bezier(.2,.9,.25,1.2) both;
 }
 
 .spark {
@@ -129,18 +148,17 @@
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: white;
-  box-shadow: 0 0 12px rgba(255,255,255,.9);
   opacity: 0;
+  box-shadow: 0 0 12px currentColor;
 }
 
 .sparkOn {
-  animation: spark 900ms ease-out forwards;
+  animation: spark .9s ease-out forwards;
 }
 
-@keyframes pulse {
-  0%, 100% { transform: scale(.93); opacity: .12; }
-  50% { transform: scale(1.05); opacity: .55; }
+@keyframes selectorPulse {
+  0%,100% { filter: brightness(1); transform: scaleX(1); }
+  50% { filter: brightness(1.35); transform: scaleX(1.25); }
 }
 
 @keyframes flash {
@@ -159,4 +177,10 @@
   0% { opacity: 0; transform: scale(.3); }
   20% { opacity: 1; }
   100% { opacity: 0; transform: translateY(-34px) scale(1.8); }
+}
+
+@media (max-width: 480px) {
+  .track { height: 70px; }
+  .segment { font-size: 10px; padding: 4px 2px; }
+  .currentPick { font-size: 19px; min-height: 50px; }
 }
