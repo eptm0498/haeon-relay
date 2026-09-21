@@ -226,7 +226,7 @@ export default function CashBoardPage() {
                 onKeyDown={(e) => e.key === "Enter" && login()}
                 inputMode="numeric"
                 type="password"
-                placeholder="6자리 PIN"
+                placeholder="4자리 PIN"
                 className="min-w-0 flex-1 rounded-2xl border border-zinc-200 px-4 py-3 outline-none focus:border-zinc-500"
               />
               <button
@@ -246,14 +246,14 @@ export default function CashBoardPage() {
 
   const tabs = [
     ["charge", "+ 충전"],
-    ["roulette", "룰렛"],
-    ["content", "콘텐츠"],
+    ["roulette", "게임"],
+    ["content", "바로쓰기"],
     ["users", "사용자"],
   ] as const;
 
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-3 py-5 text-[#111318] sm:px-5">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-[640px]">
         <header className="mb-4 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">CASH BOARD</h1>
@@ -267,7 +267,7 @@ export default function CashBoardPage() {
             }}
             className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-zinc-500 ring-1 ring-zinc-200"
           >
-            잠금
+            나가기
           </button>
         </header>
 
@@ -335,7 +335,7 @@ export default function CashBoardPage() {
         )}
 
         {tab === "roulette" && (
-          <Card title="룰렛" subtitle="실행하면 캐시는 자동 차감돼.">
+          <Card title="게임" subtitle="캐시를 쓰고 랜덤 결과를 확인해.">
             <NameInput
               value={rouletteNick}
               onChange={setRouletteNick}
@@ -392,7 +392,7 @@ export default function CashBoardPage() {
         )}
 
         {tab === "content" && (
-          <Card title="콘텐츠 사용" subtitle="선택한 콘텐츠 금액만큼 캐시가 바로 차감돼.">
+          <Card title="바로쓰기" subtitle="랜덤 없이 원하는 콘텐츠를 확정으로 사용해.">
             <NameInput
               value={contentNick}
               onChange={setContentNick}
