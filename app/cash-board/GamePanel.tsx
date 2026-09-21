@@ -37,6 +37,20 @@ async function post<T>(url: string, pin: string, body: Record<string, unknown>):
   return data as T;
 }
 
+async function startPersistentTimer(pin: string, spinId: number) {
+  try {
+    await fetch("/api/cash-board-timers", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-pin": pin },
+      body: JSON.stringify({ action: "start_from_spin", spin_id: spinId }),
+      cache: "no-store",
+      keepalive: true,
+    });
+  } catch {
+    // 화면은 계속 진행하고 타이머 서버는 재접속 시 조회한다.
+  }
+}
+
 function resultCenter(items: RouletteItem[], label: string) {
   let cursor = 0;
   for (const item of items) {
@@ -185,6 +199,7 @@ export default function GamePanel({
         setBurst((value) => value + 1);
         setSpinning(false);
         animationRef.current = null;
+        void startPersistentTimer(pin, hit.spin_id);
         void onChanged();
       };
 
