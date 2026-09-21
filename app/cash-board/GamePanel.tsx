@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import fx from "./effects.module.css";
 
 type User = { id: number; nickname: string; cash_balance: number };
@@ -47,6 +47,24 @@ function resultCenter(items: RouletteItem[], label: string) {
   return 50;
 }
 
+function labelAt(items: RouletteItem[], position: number) {
+  let cursor = 0;
+  for (const item of items) {
+    cursor += Number(item.weight || 0);
+    if (position <= cursor) return item.label;
+  }
+  return items[items.length - 1]?.label || "추첨 중...";
+}
+
+function reflectInto(value: number, min: number, max: number) {
+  let next = value;
+  for (let i = 0; i < 8 && (next < min || next > max); i += 1) {
+    if (next > max) next = max - (next - max);
+    if (next < min) next = min + (min - next);
+  }
+  return Math.min(max, Math.max(min, next));
+}
+
 export default function GamePanel({
   pin,
   users,
@@ -67,13 +85,12 @@ export default function GamePanel({
   const [rouletteId, setRouletteId] = useState<number | null>(roulettes[0]?.id ?? null);
 
   const [cursorPct, setCursorPct] = useState(5);
-  const [cursorDuration, setCursorDuration] = useState(0);
-  const [cursorEase, setCursorEase] = useState("linear");
   const [currentPick, setCurrentPick] = useState("추첨 대기");
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState<SpinResult | null>(null);
   const [reveal, setReveal] = useState(false);
   const [burst, setBurst] = useState(0);
+  const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!rouletteId && roulettes[0]) setRouletteId(roulettes[0].id);
@@ -84,6 +101,12 @@ export default function GamePanel({
       .then((data) => setConfigs(data.roulettes.filter((item) => item.active)))
       .catch(() => {});
   }, [pin, roulettes]);
+
+  useEffect(() => {
+    return () => {
+      if (animationRef.current !== null) window.cancelAnimationFrame(animationRef.current);
+    };
+  }, []);
 
   const suggestions = useMemo(() => {
     const q = nickname.trim().toLowerCase();
@@ -115,7 +138,7 @@ export default function GamePanel({
     setResult(null);
     setReveal(false);
     setSpinning(true);
-    setCurrentPick("추첨 중...");
+    setCurrentPick(labelAt(items, cursorPct));
     onNotice("");
 
     try {
@@ -125,39 +148,47 @@ export default function GamePanel({
         roulette_id: rouletteId,
       });
 
-      let itemIndex = 0;
-      const ticker = window.setInterval(() => {
-        itemIndex = (itemIndex + 1) % items.length;
-        setCurrentPick(items[itemIndex]?.label || "추첨 중...");
-      }, 95);
-
-      const move = (after: number, to: number, duration: number, ease = "linear") => {
-        window.setTimeout(() => {
-          setCursorDuration(duration);
-          setCursorEase(ease);
-          setCursorPct(to);
-        }, after);
-      };
-
-      move(0, 95, 320);
-      move(340, 5, 390);
-      move(750, 94, 450);
-      move(1220, 7, 520);
-      move(1760, 90, 620);
-      move(2400, 12, 700);
-
+      const start = cursorPct;
       const target = resultCenter(items, hit.label);
-      move(3120, target, 1100, "cubic-bezier(.08,.72,.12,1)");
+      const startedAt = performance.now();
+      const duration = 4600;
+      const cycles = 5.15;
 
-      window.setTimeout(() => {
-        window.clearInterval(ticker);
+      const animate = (now: number) => {
+        const t = Math.min(1, (now - startedAt) / duration);
+        const smooth = t * t * (3 - 2 * t);
+        const base = start + (target - start) * smooth;
+
+        const envelope =
+          52 *
+          Math.pow(Math.max(0, 1 - t), 0.74) *
+          Math.pow(Math.max(0.0001, Math.sin(Math.PI * t)), 0.34);
+
+        const phase =
+          Math.PI * 2 * cycles * (1 - Math.pow(1 - t, 1.72));
+
+        const raw = base + envelope * Math.sin(phase);
+        const position = reflectInto(raw, 3, 97);
+
+        setCursorPct(position);
+        setCurrentPick(labelAt(items, position));
+
+        if (t < 1) {
+          animationRef.current = window.requestAnimationFrame(animate);
+          return;
+        }
+
+        setCursorPct(target);
         setCurrentPick(hit.label);
         setResult(hit);
         setReveal(true);
         setBurst((value) => value + 1);
         setSpinning(false);
+        animationRef.current = null;
         void onChanged();
-      }, 4280);
+      };
+
+      animationRef.current = window.requestAnimationFrame(animate);
     } catch (error) {
       setSpinning(false);
       setCurrentPick("추첨 대기");
@@ -177,8 +208,6 @@ export default function GamePanel({
       setResult(null);
       setReveal(false);
       setCurrentPick("추첨 대기");
-      setCursorDuration(350);
-      setCursorEase("ease");
       setCursorPct(5);
       await onChanged();
     } catch (error) {
@@ -192,7 +221,7 @@ export default function GamePanel({
       <div className="mt-1 flex items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-black">룰렛 게임</h2>
-          <p className="mt-0.5 text-xs font-medium text-zinc-400">선택 막대가 좌우로 왕복하다 실제 당첨 결과에 멈춰.</p>
+          <p className="mt-0.5 text-xs font-medium text-zinc-400">선택 막대가 자연스럽게 왕복하며 점점 감속해 당첨 결과에 멈춰.</p>
         </div>
         {chosen && (
           <div className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-[11px] font-black text-violet-600">
@@ -261,7 +290,6 @@ export default function GamePanel({
           setResult(null);
           setReveal(false);
           setCurrentPick("추첨 대기");
-          setCursorDuration(0);
           setCursorPct(5);
         }}
         disabled={spinning}
@@ -298,19 +326,31 @@ export default function GamePanel({
                 title={`${item.label} ${item.weight}%`}
               >
                 <span className={fx.segmentText}>
-                  {item.weight >= 8 ? item.label : item.weight >= 4 ? item.label.slice(0, 3) : ""}
+                  {item.weight >= 9 ? item.label : item.weight >= 6 ? item.label.slice(0, 2) : ""}
                 </span>
               </div>
             ))}
             <div
               className={fx.selector + " " + (spinning ? fx.selectorHot : "")}
-              style={{
-                left: `${cursorPct}%`,
-                transitionDuration: `${cursorDuration}ms`,
-                transitionTimingFunction: cursorEase,
-              }}
+              style={{ left: `${cursorPct}%` }}
             />
           </div>
+        </div>
+
+        <div className="relative z-[3] mt-2 flex flex-wrap gap-1.5">
+          {items.map((item, index) => (
+            <div
+              key={"legend-" + (item.id || index)}
+              className="flex min-w-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-[11px] font-black text-white"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: colors[index % colors.length] }}
+              />
+              <span className="truncate">{item.label}</span>
+              <span className="shrink-0 text-white/65">{item.weight}%</span>
+            </div>
+          ))}
         </div>
 
         <div className={fx.currentPick}>{currentPick}</div>
