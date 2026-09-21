@@ -49,9 +49,9 @@ export default function RouletteSettings({
   async function load(preferId?: number) {
     const data = await post<{ roulettes: RouletteConfig[] }>(pin, { action: "list" });
     setList(data.roulettes);
-    const targetId = preferId ?? selectedId ?? data.roulettes[0]?.id ?? null;
-    setSelectedId(targetId);
-    const found = data.roulettes.find((item) => item.id === targetId) ?? data.roulettes[0] ?? null;
+    const requestedId = preferId ?? selectedId;
+    const found = data.roulettes.find((item) => item.id === requestedId) ?? data.roulettes[0] ?? null;
+    setSelectedId(found?.id ?? null);
     setDraft(found ? structuredClone(found) : null);
   }
 
@@ -137,6 +137,35 @@ export default function RouletteSettings({
     }
   }
 
+  async function deleteRoulette() {
+    if (!draft) return;
+    const confirmed = window.confirm(`'${draft.name}' 룰렛을 정말 삭제할까?\n삭제하면 되돌릴 수 없어.`);
+    if (!confirmed) return;
+
+    setBusy(true);
+    onNotice("");
+    try {
+      const response = await fetch("/api/cash-board-delete", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-pin": pin },
+        body: JSON.stringify({ id: draft.id }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "룰렛 삭제에 실패했어.");
+
+      setSelectedId(null);
+      setDraft(null);
+      await load();
+      await onSaved();
+      onNotice(`${data.deleted_name || "룰렛"}을 삭제했어.`);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "룰렛 삭제에 실패했어.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveRoulette() {
     if (!draft) return;
     if (total !== 100) {
@@ -174,18 +203,28 @@ export default function RouletteSettings({
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <div className="text-[10px] font-black tracking-[.2em] text-violet-500">ROULETTE LAB</div>
+          <div className="text-[10px] font-black tracking-[.2em] text-violet-500">룰렛 관리</div>
           <h2 className="mt-1 text-lg font-black">룰렛 설정</h2>
           <p className="mt-0.5 text-xs font-medium text-zinc-400">룰렛 가격과 결과 확률을 방송 중에도 바로 바꿀 수 있어.</p>
         </div>
-        <button
-          type="button"
-          onClick={createRoulette}
-          disabled={busy}
-          className="shrink-0 rounded-xl bg-zinc-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
-        >
-          + 새 룰렛
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={createRoulette}
+            disabled={busy}
+            className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+          >
+            + 새 룰렛
+          </button>
+          <button
+            type="button"
+            onClick={deleteRoulette}
+            disabled={busy || !draft || list.length <= 1}
+            className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-black text-rose-600 ring-1 ring-rose-100 disabled:opacity-35"
+          >
+            룰렛 삭제
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -202,7 +241,7 @@ export default function RouletteSettings({
             }
           >
             {roulette.name}
-            {!roulette.active && <span className="ml-1 opacity-60">OFF</span>}
+            {!roulette.active && <span className="ml-1 opacity-60">꺼짐</span>}
           </button>
         ))}
       </div>
@@ -219,7 +258,7 @@ export default function RouletteSettings({
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[10px] font-black text-zinc-400">1회 사용 CASH</span>
+              <span className="mb-1 block text-[10px] font-black text-zinc-400">1회 사용 캐시</span>
               <input
                 value={draft.cost}
                 onChange={(e) => setDraft({ ...draft, cost: Number(e.target.value || 0) })}
@@ -298,7 +337,7 @@ export default function RouletteSettings({
                       inputMode="numeric"
                       type="number"
                       min={0}
-                      placeholder="당첨 CASH"
+                      placeholder="당첨 캐시"
                       className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-bold outline-none focus:border-violet-300"
                     />
                   ) : (
