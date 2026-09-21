@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import GamePanel from "./GamePanel";
+import RouletteSettings from "./RouletteSettings";
 
 type User = {
   id: number;
@@ -248,7 +250,7 @@ export default function CashBoardPage() {
   const tabs = [
     ["charge", "+ 충전"],
     ["roulette", "게임"],
-    ["content", "바로쓰기"],
+    ["content", "룰렛 설정"],
     ["users", "사용자"],
   ] as const;
 
@@ -258,7 +260,7 @@ export default function CashBoardPage() {
         <header className="mb-4 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">CASH BOARD</h1>
-            <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 바로쓰기 · 킵</p>
+            <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 룰렛 설정 · 사용자</p>
           </div>
           <button
             onClick={() => {
@@ -336,89 +338,21 @@ export default function CashBoardPage() {
         )}
 
         {tab === "roulette" && (
-          <Card title="게임" subtitle="캐시를 쓰고 랜덤 결과를 확인해.">
-            <NameInput
-              value={rouletteNick}
-              onChange={setRouletteNick}
-              users={suggestions(rouletteNick)}
-              onPick={setRouletteNick}
-            />
-            <select
-              value={rouletteId ?? ""}
-              onChange={(e) => setRouletteId(Number(e.target.value))}
-              className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none"
-            >
-              {data.roulettes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} · {money(item.cost)} CASH
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={spin}
-              disabled={busy}
-              className="mt-3 w-full rounded-2xl bg-zinc-950 px-4 py-4 font-extrabold text-white disabled:opacity-40"
-            >
-              룰렛 실행
-            </button>
-
-            {spinResult && (
-              <div className="mt-4 rounded-3xl bg-zinc-50 p-5 text-center ring-1 ring-zinc-200">
-                <div className="text-sm font-bold text-zinc-500">결과</div>
-                <div className="mt-2 text-3xl font-black">{spinResult.label}</div>
-                {spinResult.result_type === "keep" && (
-                  <div className="mt-5 grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => resolveSpin("use")}
-                      disabled={busy}
-                      className="rounded-2xl bg-blue-50 px-4 py-3 font-extrabold text-blue-700 disabled:opacity-40"
-                    >
-                      즉시사용
-                    </button>
-                    <button
-                      onClick={() => resolveSpin("keep")}
-                      disabled={busy}
-                      className="rounded-2xl bg-violet-50 px-4 py-3 font-extrabold text-violet-700 disabled:opacity-40"
-                    >
-                      킵
-                    </button>
-                  </div>
-                )}
-                {spinResult.result_type === "cash" && (
-                  <p className="mt-3 text-sm font-semibold text-zinc-500">캐시에 자동 반영됐어.</p>
-                )}
-              </div>
-            )}
-          </Card>
+          <GamePanel
+            pin={pin}
+            users={data.users}
+            roulettes={data.roulettes}
+            onChanged={reload}
+            onNotice={setNotice}
+          />
         )}
 
         {tab === "content" && (
-          <Card title="바로쓰기" subtitle="랜덤 없이 원하는 콘텐츠를 확정으로 사용해.">
-            <NameInput
-              value={contentNick}
-              onChange={setContentNick}
-              users={suggestions(contentNick)}
-              onPick={setContentNick}
-            />
-            <select
-              value={contentId ?? ""}
-              onChange={(e) => setContentId(Number(e.target.value))}
-              className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 outline-none"
-            >
-              {data.contents.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} · {money(item.cost)} CASH
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={useContent}
-              disabled={busy}
-              className="mt-3 w-full rounded-2xl bg-zinc-950 px-4 py-4 font-extrabold text-white disabled:opacity-40"
-            >
-              콘텐츠 사용
-            </button>
-          </Card>
+          <RouletteSettings
+            pin={pin}
+            onSaved={reload}
+            onNotice={setNotice}
+          />
         )}
 
         {tab === "users" && (
