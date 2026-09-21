@@ -38,7 +38,7 @@ export default function CashBoardPage() {
 
   const [rouletteNick, setRouletteNick] = useState("");
   const [rouletteId, setRouletteId] = useState<number | null>(null);
-  const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
+  const [spinResult, setSpinResult] = useState<SpinResult | null>(null);\n  const [wheelActive, setWheelActive] = useState(false);
 
   const [contentNick, setContentNick] = useState("");
   const [contentId, setContentId] = useState<number | null>(null);
@@ -362,7 +362,7 @@ export default function CashBoardPage() {
               룰렛 실행
             </button>
 
-            {spinResult && (
+            {spinResult && !wheelActive && (
               <div className="mt-4 rounded-3xl bg-zinc-50 p-5 text-center ring-1 ring-zinc-200">
                 <div className="text-sm font-bold text-zinc-500">결과</div>
                 <div className="mt-2 text-3xl font-black">{spinResult.label}</div>
