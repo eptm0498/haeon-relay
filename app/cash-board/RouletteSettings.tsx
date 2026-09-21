@@ -17,6 +17,7 @@ type RouletteConfig = {
   cost: number;
   active: boolean;
   sort_order: number;
+  time_limit_minutes: number;
   items: RouletteItem[];
 };
 
@@ -189,6 +190,21 @@ export default function RouletteSettings({
           weight: Number(item.weight),
         })),
       });
+
+      const timerResponse = await fetch("/api/cash-board-timers", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-pin": pin },
+        body: JSON.stringify({
+          action: "save_setting",
+          roulette_id: draft.id,
+          enabled: Number(draft.time_limit_minutes || 0) === 10,
+        }),
+        cache: "no-store",
+      });
+      const timerData = await timerResponse.json();
+      if (!timerResponse.ok) {
+        throw new Error(timerData?.error || "10분 제한 설정 저장에 실패했어.");
+      }
       await load(draft.id);
       await onSaved();
       onNotice("룰렛 설정을 저장했어.");
@@ -270,13 +286,39 @@ export default function RouletteSettings({
             </label>
           </div>
 
-          <div className="mt-3 flex items-center justify-between rounded-2xl bg-zinc-50 px-3 py-2.5">
-            <div className="text-xs font-black text-zinc-500">
-              확률 합계
-              <span className={"ml-2 text-sm " + (total === 100 ? "text-emerald-600" : "text-rose-500")}>
-                {total}%
-              </span>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-3 py-2.5">
+              <div className="text-xs font-black text-zinc-500">
+                확률 합계
+                <span className={"ml-2 text-sm " + (total === 100 ? "text-emerald-600" : "text-rose-500")}>
+                  {total}%
+                </span>
+              </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setDraft({
+                  ...draft,
+                  time_limit_minutes: Number(draft.time_limit_minutes || 0) === 10 ? 0 : 10,
+                })
+              }
+              className={
+                "rounded-2xl px-3 py-2.5 text-left ring-1 transition " +
+                (Number(draft.time_limit_minutes || 0) === 10
+                  ? "bg-amber-50 text-amber-700 ring-amber-200"
+                  : "bg-zinc-50 text-zinc-500 ring-zinc-100")
+              }
+            >
+              <div className="text-[10px] font-black">시간 제한</div>
+              <div className="mt-0.5 text-sm font-black">
+                {Number(draft.time_limit_minutes || 0) === 10 ? "10분 타이머 사용" : "사용 안 함"}
+              </div>
+            </button>
+          </div>
+
+          <div className="mt-2 flex justify-end">
             <button
               type="button"
               onClick={() => setDraft({ ...draft, active: !draft.active })}
@@ -285,7 +327,7 @@ export default function RouletteSettings({
                 (draft.active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-500")
               }
             >
-              {draft.active ? "사용 중" : "사용 안 함"}
+              {draft.active ? "룰렛 사용 중" : "룰렛 사용 안 함"}
             </button>
           </div>
 
