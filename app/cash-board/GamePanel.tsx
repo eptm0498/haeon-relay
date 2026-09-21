@@ -24,6 +24,7 @@ type SpinResult = {
 
 const colors = ["#ff4fa3", "#7b5cff", "#24c8ff", "#ffcc33", "#ff715b", "#46d99a", "#ff8bd5", "#4a8cff"];
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
+const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 async function post<T>(url: string, pin: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
@@ -104,6 +105,7 @@ export default function GamePanel({
   const [result, setResult] = useState<SpinResult | null>(null);
   const [reveal, setReveal] = useState(false);
   const [burst, setBurst] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -161,6 +163,14 @@ export default function GamePanel({
         nickname: nickname.trim(),
         roulette_id: rouletteId,
       });
+
+      setCountdown(3);
+      await delay(420);
+      setCountdown(2);
+      await delay(420);
+      setCountdown(1);
+      await delay(420);
+      setCountdown(null);
 
       const start = cursorPct;
       const target = resultCenter(items, hit.label);
@@ -318,6 +328,13 @@ export default function GamePanel({
       </select>
 
       <div className={fx.stage + " mt-3"}>
+        {countdown !== null && (
+          <div className="pointer-events-none absolute inset-0 z-[30] flex items-center justify-center bg-zinc-950/35 backdrop-blur-[1px]">
+            <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/30 bg-white/10 text-[52px] font-black leading-none text-white shadow-[0_0_45px_rgba(213,79,255,.55)] backdrop-blur-md animate-pulse">
+              {countdown}
+            </div>
+          </div>
+        )}
         <div className="relative z-[2] flex items-center justify-between">
           <div>
             <div className="text-[10px] font-black text-fuchsia-300">실시간 추첨</div>
@@ -397,6 +414,7 @@ export default function GamePanel({
         {reveal && result && (
           <div className={fx.resultPop + " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"}>
             <div className="text-[11px] font-black text-fuchsia-200">당첨 결과</div>
+            <div className="mt-1 text-[10px] font-bold text-white/55">결과는 서버에서 확정된 값 그대로 표시돼.</div>
             <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
 
             {result.result_type === "keep" && (
