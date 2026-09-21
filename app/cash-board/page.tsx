@@ -265,7 +265,7 @@ export default function CashBoardPage() {
       <main className="min-h-screen bg-[#f6f7f9] px-4 py-10 text-[#111318]">
         <div className="mx-auto max-w-md">
           <div className="mb-5">
-            <h1 className="text-2xl font-extrabold tracking-tight">캐시 보드</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">온유의 캐시 보드</h1>
             <p className="mt-1 text-sm text-zinc-500">관리자 전용</p>
           </div>
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -307,7 +307,7 @@ export default function CashBoardPage() {
       <div className="mx-auto max-w-[640px]">
         <header className="mb-4 flex items-end justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">캐시 보드</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">온유의 캐시 보드</h1>
             <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 룰렛 설정 · 사용자</p>
           </div>
           <button
@@ -470,7 +470,7 @@ export default function CashBoardPage() {
                 <div className="mt-6">
                   <div className="mb-2 flex items-center justify-between">
                     <div className="text-sm font-extrabold text-zinc-500">후원 이력</div>
-                    <div className="text-[11px] font-bold text-zinc-400">최근 {selectedUser.charges.length}건</div>
+                    <div className="text-[11px] font-bold text-zinc-400">최근 50건까지 · 현재 {selectedUser.charges.length}건</div>
                   </div>
                   {selectedUser.charges.length === 0 ? (
                     <div className="rounded-2xl bg-zinc-50 px-4 py-4 text-sm font-semibold text-zinc-400">
