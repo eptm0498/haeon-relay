@@ -258,7 +258,7 @@ export default function CashBoardPage() {
         <header className="mb-4 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">CASH BOARD</h1>
-            <p className="mt-1 text-sm text-zinc-500">충전 · 룰렛 · 콘텐츠 · 킵</p>
+            <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 바로쓰기 · 킵</p>
           </div>
           <button
             onClick={() => {
