@@ -147,6 +147,7 @@ export default function GamePanel({
   const [countdown, setCountdown] = useState<number | null>(null);
   const [spinProgress, setSpinProgress] = useState("");
   const [soundOn, setSoundOn] = useState(true);
+  const [visualBalance, setVisualBalance] = useState<number | null>(null);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
 
@@ -183,6 +184,13 @@ export default function GamePanel({
   }, [nickname, users]);
 
   const chosen = users.find((user) => user.nickname === nickname);
+
+  useEffect(() => {
+    if (!spinning) {
+      setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
+    }
+  }, [chosen?.id, chosen?.cash_balance, spinning]);
+
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
@@ -540,6 +548,7 @@ export default function GamePanel({
     setSpinning(true);
     setSpinProgress("");
     setCurrentPick(labelAt(items, cursorPct));
+    setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
     onNotice("");
 
     try {
@@ -559,6 +568,15 @@ export default function GamePanel({
         : [];
 
       let start = cursorPct;
+      const totalNet = results.reduce(
+        (sum, item) =>
+          sum +
+          Number(item.cash_delta || 0) -
+          Number(item.cost ?? response.effective_cost ?? 0),
+        0
+      );
+      let runningBalance = Number(response.balance || 0) - totalNet;
+      setVisualBalance(runningBalance);
 
       for (let index = 0; index < results.length; index += 1) {
         setSpinProgress(
@@ -572,11 +590,17 @@ export default function GamePanel({
           index,
           results.length
         );
+
+        runningBalance +=
+          Number(results[index].cash_delta || 0) -
+          Number(results[index].cost ?? response.effective_cost ?? 0);
+        setVisualBalance(runningBalance);
       }
 
       setBatchResults(results);
       setSpinning(false);
       setSpinProgress("");
+      setVisualBalance(Number(response.balance || runningBalance));
       await onChanged();
 
       window.dispatchEvent(new Event("cash-effect-updated"));
@@ -585,6 +609,7 @@ export default function GamePanel({
       setSpinning(false);
       setSpinProgress("");
       setCurrentPick("추첨 대기");
+      setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
       onNotice(
         error instanceof Error
           ? error.message
@@ -722,7 +747,7 @@ export default function GamePanel({
       <div className="relative z-30">
         {chosen && (
           <div className="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-600">
-            {money(chosen.cash_balance)} 캐시
+            {money(visualBalance ?? chosen.cash_balance)} 캐시
           </div>
         )}
 
@@ -1062,6 +1087,67 @@ export default function GamePanel({
               </div>
             </div>
 
+            {batchResults.some(
+              (item) =>
+                item.result_type === "cash" ||
+                item.result_type === "cash_loss" ||
+                item.result_type === "nothing"
+            ) && (
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <div className="rounded-xl bg-white/8 px-2 py-2 text-center">
+                  <div className="text-[8px] font-black text-white/45">총 사용</div>
+                  <div className="mt-0.5 text-[11px] font-black text-white">
+                    -{money(
+                      batchResults.reduce(
+                        (sum, item) => sum + Number(item.cost || 0),
+                        0
+                      )
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/8 px-2 py-2 text-center">
+                  <div className="text-[8px] font-black text-white/45">결과 반영</div>
+                  <div className="mt-0.5 text-[11px] font-black text-cyan-200">
+                    {batchResults.reduce(
+                      (sum, item) => sum + Number(item.cash_delta || 0),
+                      0
+                    ) >= 0
+                      ? "+"
+                      : ""}
+                    {money(
+                      batchResults.reduce(
+                        (sum, item) => sum + Number(item.cash_delta || 0),
+                        0
+                      )
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/8 px-2 py-2 text-center">
+                  <div className="text-[8px] font-black text-white/45">순변동</div>
+                  {(() => {
+                    const net = batchResults.reduce(
+                      (sum, item) =>
+                        sum +
+                        Number(item.cash_delta || 0) -
+                        Number(item.cost || 0),
+                      0
+                    );
+                    return (
+                      <div
+                        className={
+                          "mt-0.5 text-[11px] font-black " +
+                          (net >= 0 ? "text-emerald-200" : "text-rose-200")
+                        }
+                      >
+                        {net >= 0 ? "+" : ""}
+                        {money(net)}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             <div className="mt-2 space-y-2">
               {batchResults.map((item, index) => {
                 const hint = resultHint(item);
@@ -1101,22 +1187,63 @@ export default function GamePanel({
                           </div>
                         )}
 
+                        {(item.result_type === "cash" ||
+                          item.result_type === "cash_loss" ||
+                          item.result_type === "nothing") && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[9px] font-black">
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-white/65">
+                              사용 -{money(Number(item.cost || 0))}
+                            </span>
+                            {Number(item.cash_delta || 0) !== 0 && (
+                              <span
+                                className={
+                                  "rounded-full px-2 py-1 " +
+                                  (Number(item.cash_delta || 0) > 0
+                                    ? "bg-cyan-400/15 text-cyan-200"
+                                    : "bg-rose-400/15 text-rose-200")
+                                }
+                              >
+                                결과 {Number(item.cash_delta || 0) > 0 ? "+" : ""}
+                                {money(Number(item.cash_delta || 0))}
+                              </span>
+                            )}
+                            {(() => {
+                              const net =
+                                Number(item.cash_delta || 0) -
+                                Number(item.cost || 0);
+                              return (
+                                <span
+                                  className={
+                                    "rounded-full px-2 py-1 " +
+                                    (net >= 0
+                                      ? "bg-emerald-400/15 text-emerald-200"
+                                      : "bg-rose-400/15 text-rose-200")
+                                  }
+                                >
+                                  순변동 {net >= 0 ? "+" : ""}
+                                  {money(net)}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        )}
+
                         {item.result_type === "cash" && (
                           <div className="mt-1 text-[10px] font-bold text-cyan-200">
-                            캐시에 자동 반영됨
+                            당첨 캐시까지 잔액에 반영 완료
                           </div>
                         )}
 
                         {item.result_type === "cash_loss" && (
                           <div className="mt-1 text-[10px] font-bold text-rose-200">
-                            캐시 자동 차감
+                            룰렛 비용과 추가 차감 모두 반영 완료
                           </div>
                         )}
 
                         {item.result_type === "nothing" && (
                           <div className="mt-1 text-[10px] font-bold text-zinc-300">
                             {item.label === "꽝"
-                              ? "이번 결과는 꽝"
+                              ? "이번 회차는 룰렛 비용만 차감"
                               : "결과가 바로 적용됨"}
                           </div>
                         )}
