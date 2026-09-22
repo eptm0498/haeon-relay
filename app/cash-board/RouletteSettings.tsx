@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type ResultType = "keep" | "cash" | "nothing";
+type ResultType = "keep" | "cash" | "cash_loss" | "nothing";
 type RouletteItem = {
   id?: number;
   label: string;
@@ -318,7 +318,8 @@ export default function RouletteSettings({
                     className="rounded-xl border border-zinc-200 bg-zinc-50 px-2 py-2 text-xs font-black outline-none"
                   >
                     <option value="keep">킵</option>
-                    <option value="cash">캐시</option>
+                    <option value="cash">+ 캐시</option>
+                    <option value="cash_loss">- 캐시</option>
                     <option value="nothing">꽝</option>
                   </select>
                   <div className="relative">
@@ -336,15 +337,20 @@ export default function RouletteSettings({
                 </div>
 
                 <div className="mt-2 flex items-center gap-2">
-                  {item.result_type === "cash" ? (
+                  {item.result_type === "cash" || item.result_type === "cash_loss" ? (
                     <input
                       value={item.cash_amount}
                       onChange={(e) => updateItem(index, { cash_amount: Number(e.target.value || 0) })}
                       inputMode="numeric"
                       type="number"
                       min={0}
-                      placeholder="당첨 캐시"
-                      className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-bold outline-none focus:border-violet-300"
+                      placeholder={item.result_type === "cash_loss" ? "차감 캐시" : "당첨 캐시"}
+                      className={
+                        "min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs font-bold outline-none " +
+                        (item.result_type === "cash_loss"
+                          ? "border-rose-200 bg-rose-50 text-rose-700 focus:border-rose-300"
+                          : "border-zinc-200 bg-zinc-50 focus:border-violet-300")
+                      }
                     />
                   ) : (
                     <div className="flex-1 text-[10px] font-bold text-zinc-400">
