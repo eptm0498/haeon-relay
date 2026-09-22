@@ -390,3 +390,132 @@
     transition: none !important;
   }
 }
+
+
+.eatSceneShell {
+  position: relative;
+  z-index: 2;
+  margin-top: 14px;
+  padding: 7px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(255,112,87,.24), rgba(255,195,79,.12));
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow:
+    inset 0 0 28px rgba(255,255,255,.05),
+    0 10px 34px rgba(0,0,0,.24);
+}
+
+.eatScene {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 390px;
+  overflow: hidden;
+  border-radius: 17px;
+  background: #eadfd5;
+  isolation: isolate;
+}
+
+.eatSprite {
+  position: absolute;
+  inset: 0;
+  background-image: url("/cash-board/eat-sprite.webp");
+  background-repeat: no-repeat;
+  background-size: 600% 100%;
+  background-position: 0% 50%;
+  filter: saturate(1.04) contrast(1.02);
+  transform: scale(1.015);
+}
+
+.eatSpriteSpinning {
+  animation:
+    eatFrames 820ms steps(5, end) infinite alternate,
+    eatPulse 820ms ease-in-out infinite alternate;
+}
+
+.eatResultImage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: eatResultReveal .52s cubic-bezier(.18,.9,.28,1.16) both;
+}
+
+.eatSceneGlow {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 56px rgba(15,8,20,.18);
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.02), transparent 62%, rgba(0,0,0,.28)),
+    radial-gradient(circle at 50% 52%, transparent 42%, rgba(22,10,20,.16) 100%);
+}
+
+.eatChoiceBadges {
+  position: absolute;
+  z-index: 5;
+  left: 10px;
+  right: 10px;
+  top: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.eatChoiceBadges span {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(17,15,20,.64);
+  border: 1px solid rgba(255,255,255,.25);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 950;
+  text-shadow: 0 1px 5px rgba(0,0,0,.6);
+  backdrop-filter: blur(8px);
+}
+
+.eatMotionLabel {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(15,12,18,.72);
+  border: 1px solid rgba(255,255,255,.22);
+  color: #fff1dc;
+  font-size: 11px;
+  font-weight: 950;
+  text-align: center;
+  backdrop-filter: blur(10px);
+  animation: eatLabelPulse 720ms ease-in-out infinite alternate;
+}
+
+@keyframes eatFrames {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+@keyframes eatPulse {
+  0% { transform: scale(1.012); filter: saturate(1.02) brightness(.98); }
+  100% { transform: scale(1.032); filter: saturate(1.12) brightness(1.06); }
+}
+
+@keyframes eatResultReveal {
+  0% { opacity: 0; transform: scale(1.08); filter: brightness(1.45) blur(3px); }
+  55% { opacity: 1; transform: scale(.99); filter: brightness(1.08) blur(0); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1) blur(0); }
+}
+
+@keyframes eatLabelPulse {
+  from { opacity: .7; transform: translateX(-50%) scale(.97); }
+  to { opacity: 1; transform: translateX(-50%) scale(1.02); }
+}

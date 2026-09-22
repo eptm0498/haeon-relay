@@ -200,6 +200,14 @@ export default function GamePanel({
     Math.round(rawCost * (100 - Math.max(0, discountPercent || 0)) / 100)
   );
   const totalCost = effectiveCost * spinCount;
+  const activeRouletteName = config?.name || fallback?.name || "";
+  const isEatRoulette = activeRouletteName === "먹어/먹지마";
+  const eatResultSrc =
+    currentResult?.label === "먹어"
+      ? "/cash-board/eat-yes.webp"
+      : currentResult?.label === "먹지마"
+        ? "/cash-board/eat-no.webp"
+        : null;
 
   const activeIndex = itemIndexAt(items, cursorPct);
   const resultItem = currentResult
@@ -420,6 +428,10 @@ export default function GamePanel({
 
     playLaunchSound();
 
+    if (isEatRoulette) {
+      setCurrentPick("먹을까 · 말까");
+    }
+
     const target = resultCenter(items, hit.label);
     const startedAt = performance.now();
     const duration = total > 1 ? 4000 : 4900;
@@ -469,6 +481,7 @@ export default function GamePanel({
     }
 
     let lastTickLabel = labelAt(items, startPosition);
+    let lastEatBeat = -1;
 
     await new Promise<void>((resolve) => {
       const animate = (now: number) => {
@@ -477,11 +490,20 @@ export default function GamePanel({
         const nextLabel = labelAt(items, position);
 
         setCursorPct(position);
-        setCurrentPick(nextLabel);
 
-        if (nextLabel !== lastTickLabel) {
-          playTickSound(t, itemIndexAt(items, position));
-          lastTickLabel = nextLabel;
+        if (isEatRoulette) {
+          setCurrentPick("먹을까 · 말까");
+          const eatBeat = Math.floor(t * 18);
+          if (eatBeat !== lastEatBeat) {
+            playTickSound(t, eatBeat % 6);
+            lastEatBeat = eatBeat;
+          }
+        } else {
+          setCurrentPick(nextLabel);
+          if (nextLabel !== lastTickLabel) {
+            playTickSound(t, itemIndexAt(items, position));
+            lastTickLabel = nextLabel;
+          }
         }
 
         if (t < 1) {
@@ -496,7 +518,9 @@ export default function GamePanel({
         setReveal(true);
         setBurst((value) => value + 1);
 
-        if (
+        if (isEatRoulette) {
+          playPositiveResultSound("keep", false);
+        } else if (
           hit.result_type === "nothing" ||
           hit.result_type === "cash_loss"
         ) {
@@ -547,7 +571,7 @@ export default function GamePanel({
     setReveal(false);
     setSpinning(true);
     setSpinProgress("");
-    setCurrentPick(labelAt(items, cursorPct));
+    setCurrentPick(isEatRoulette ? "먹을까 · 말까" : labelAt(items, cursorPct));
     setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
     onNotice("");
 
@@ -935,85 +959,120 @@ export default function GamePanel({
           </div>
         </div>
 
-        <div className={fx.trackShell}>
-          <div className={fx.track}>
-            {items.map((item, index) => (
-              <div
-                key={item.id || index}
-                className={[
-                  fx.segment,
-                  spinning && activeIndex === index
-                    ? fx.segmentActive
-                    : "",
-                  reveal &&
-                  currentResult &&
-                  item.label === currentResult.label
-                    ? fx.segmentWinner
-                    : "",
-                  reveal &&
-                  currentResult &&
-                  item.label !== currentResult.label
-                    ? fx.segmentDim
-                    : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                style={{
-                  width: `${Math.max(
-                    0,
-                    Number(item.weight || 0)
-                  )}%`,
-                  background:
-                    colors[index % colors.length],
-                }}
-                title={`${item.label} ${item.weight}%`}
-              >
-                <span className={fx.segmentText}>
-                  {item.weight >= 9
-                    ? item.label
-                    : item.weight >= 6
-                      ? item.label.slice(0, 2)
-                      : ""}
-                </span>
+        {isEatRoulette ? (
+          <div className={fx.eatSceneShell}>
+            <div className={fx.eatScene}>
+              {reveal && eatResultSrc ? (
+                <img
+                  src={eatResultSrc}
+                  alt={currentResult?.label || "먹어 먹지마 결과"}
+                  className={fx.eatResultImage}
+                />
+              ) : (
+                <div
+                  className={
+                    fx.eatSprite +
+                    (spinning ? " " + fx.eatSpriteSpinning : "")
+                  }
+                />
+              )}
+
+              <div className={fx.eatSceneGlow} />
+              <div className={fx.eatChoiceBadges}>
+                <span>먹어 50%</span>
+                <span>먹지마 50%</span>
               </div>
-            ))}
 
-            <div
-              className={
-                fx.selector +
-                " " +
-                (spinning ? fx.selectorHot : "")
-              }
-              style={{ left: `${cursorPct}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="relative z-[3] mt-2 flex flex-wrap gap-1.5">
-          {items.map((item, index) => (
-            <div
-              key={"legend-" + (item.id || index)}
-              className="flex min-w-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-[11px] font-black text-white"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{
-                  background:
-                    colors[index % colors.length],
-                }}
-              />
-              <span className="truncate">{item.label}</span>
-              <span className="shrink-0 text-white/65">
-                {item.weight}%
-              </span>
-              {Number(item.time_limit_minutes || 0) > 0 && (
-                <span className="shrink-0 rounded-full bg-amber-300/15 px-1.5 py-0.5 text-[9px] font-black text-amber-200">
-                  ⏱ {item.time_limit_minutes}분
-                </span>
+              {spinning && (
+                <div className={fx.eatMotionLabel}>
+                  음식이 입 안팎을 오가는 중
+                </div>
               )}
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <>
+            <div className={fx.trackShell}>
+              <div className={fx.track}>
+                {items.map((item, index) => (
+                  <div
+                    key={item.id || index}
+                    className={[
+                      fx.segment,
+                      spinning && activeIndex === index
+                        ? fx.segmentActive
+                        : "",
+                      reveal &&
+                      currentResult &&
+                      item.label === currentResult.label
+                        ? fx.segmentWinner
+                        : "",
+                      reveal &&
+                      currentResult &&
+                      item.label !== currentResult.label
+                        ? fx.segmentDim
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Number(item.weight || 0)
+                      )}%`,
+                      background:
+                        colors[index % colors.length],
+                    }}
+                    title={`${item.label} ${item.weight}%`}
+                  >
+                    <span className={fx.segmentText}>
+                      {item.weight >= 9
+                        ? item.label
+                        : item.weight >= 6
+                          ? item.label.slice(0, 2)
+                          : ""}
+                    </span>
+                  </div>
+                ))}
+
+                <div
+                  className={
+                    fx.selector +
+                    " " +
+                    (spinning ? fx.selectorHot : "")
+                  }
+                  style={{ left: `${cursorPct}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="relative z-[3] mt-2 flex flex-wrap gap-1.5">
+              {items.map((item, index) => (
+                <div
+                  key={"legend-" + (item.id || index)}
+                  className="flex min-w-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-[11px] font-black text-white"
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{
+                      background:
+                        colors[index % colors.length],
+                    }}
+                  />
+                  <span className="truncate">{item.label}</span>
+                  <span className="shrink-0 text-white/65">
+                    {item.weight}%
+                  </span>
+                  {Number(item.time_limit_minutes || 0) > 0 && (
+                    <span className="shrink-0 rounded-full bg-amber-300/15 px-1.5 py-0.5 text-[9px] font-black text-amber-200">
+                      ⏱ {item.time_limit_minutes}분
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className={fx.currentPick}>
           {currentPick}
