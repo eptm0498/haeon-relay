@@ -8,7 +8,7 @@ type Roulette = { id: number; name: string; cost: number };
 type RouletteItem = {
   id: number;
   label: string;
-  result_type: "keep" | "cash" | "nothing";
+  result_type: "keep" | "cash" | "cash_loss" | "nothing";
   cash_amount: number;
   weight: number;
   time_limit_minutes?: number;
@@ -19,7 +19,7 @@ type SpinResult = {
   ok: boolean;
   spin_id: number;
   label: string;
-  result_type: "keep" | "cash" | "nothing";
+  result_type: "keep" | "cash" | "cash_loss" | "nothing";
   balance: number;
 };
 
@@ -528,6 +528,12 @@ export default function GamePanel({
 
             {result.result_type === "cash" && (
               <div className="mt-2 text-xs font-bold text-cyan-200">당첨 캐시는 자동으로 반영됐어.</div>
+            )}
+
+            {result.result_type === "cash_loss" && (
+              <div className="mt-2 rounded-xl bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-200 ring-1 ring-rose-300/20">
+                캐시가 차감됐어 · 잔액 {money(result.balance)} 캐시
+              </div>
             )}
 
             {result.result_type === "nothing" && (
