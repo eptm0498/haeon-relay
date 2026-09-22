@@ -43,7 +43,7 @@ function resultCenter(items: RouletteItem[], label: string) {
   let cursor = 0;
   for (const item of items) {
     const width = Number(item.weight || 0);
-    if (item.label === label) return Math.min(97, Math.max(3, cursor + width / 2));
+    if (item.label === label) return Math.min(99.5, Math.max(0.5, cursor + width / 2));
     cursor += width;
   }
   return 50;
@@ -140,8 +140,14 @@ export default function GamePanel({
   const rareWin =
     Boolean(resultItem) &&
     result?.result_type !== "nothing" &&
+    result?.result_type !== "cash_loss" &&
     Number(resultItem?.weight || 0) <= 5;
-  const positiveReveal = Boolean(reveal && result && result.result_type !== "nothing");
+  const positiveReveal = Boolean(
+    reveal &&
+    result &&
+    result.result_type !== "nothing" &&
+    result.result_type !== "cash_loss"
+  );
 
   function prepareAudio() {
     if (!soundOn) return;
@@ -232,7 +238,7 @@ export default function GamePanel({
           Math.PI * 2 * cycles * (1 - Math.pow(1 - t, 1.72));
 
         const raw = base + envelope * Math.sin(phase);
-        const position = reflectInto(raw, 3, 97);
+        const position = reflectInto(raw, 0.5, 99.5);
 
         const nextLabel = labelAt(items, position);
         setCursorPct(position);
@@ -254,8 +260,8 @@ export default function GamePanel({
         setResult(hit);
         setReveal(true);
         setBurst((value) => value + 1);
-        if (hit.result_type === "nothing") {
-          playTone(180, 120, 0.012);
+        if (hit.result_type === "nothing" || hit.result_type === "cash_loss") {
+          playTone(hit.result_type === "cash_loss" ? 145 : 180, 140, 0.014);
         } else {
           playTone(880, 110, 0.024);
           window.setTimeout(() => playTone(1175, 170, 0.022), 105);
@@ -489,7 +495,7 @@ export default function GamePanel({
         {reveal && result && (
           <div
             className={
-              (result.result_type === "nothing" ? fx.lossResult : fx.resultPop) +
+              (result.result_type === "nothing" || result.result_type === "cash_loss" ? fx.lossResult : fx.resultPop) +
               " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"
             }
           >
