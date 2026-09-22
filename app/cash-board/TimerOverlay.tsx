@@ -52,6 +52,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   const [gag, setGag] = useState<ActiveState | null>(null);
   const [smoking, setSmoking] = useState<ActiveState | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
 
   async function refreshTimers() {
@@ -89,6 +90,48 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   async function refreshAll() {
     await refreshStatus();
     await refreshTimers();
+  }
+
+  async function cancelQueue(item: QueueItem) {
+    if (
+      !window.confirm(
+        `${item.nickname}님의 ${item.item_name} 대기를 취소하고 킵으로 돌려줄까?`
+      )
+    ) {
+      return;
+    }
+
+    setCancellingId(item.id);
+
+    try {
+      const response = await fetch("/api/cash-board", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-admin-pin": pin,
+        },
+        body: JSON.stringify({
+          action: "admin_cancel_queue",
+          id: item.id,
+        }),
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || "대기 취소에 실패했어.");
+      }
+
+      await refreshAll();
+      window.dispatchEvent(new Event("cash-queue-updated"));
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "대기 취소에 실패했어."
+      );
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   useEffect(() => {
@@ -169,8 +212,20 @@ export default function TimerOverlay({ pin }: { pin: string }) {
           <div className="divide-y divide-white/5 px-3">
             {queue.slice(0, 6).map((item, index) => (
               <div key={item.id} className="flex items-center gap-2 py-2">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-black text-zinc-300">{index + 1}</div>
-                <div className="min-w-0 truncate text-[10px] font-black text-white">{item.nickname} · {item.item_name}</div>
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-black text-zinc-300">
+                  {index + 1}
+                </div>
+                <div className="min-w-0 flex-1 truncate text-[10px] font-black text-white">
+                  {item.nickname} · {item.item_name}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void cancelQueue(item)}
+                  disabled={cancellingId === item.id}
+                  className="pointer-events-auto shrink-0 rounded-lg bg-rose-500/15 px-2 py-1 text-[9px] font-black text-rose-200 ring-1 ring-rose-300/20 disabled:opacity-40"
+                >
+                  {cancellingId === item.id ? "취소중" : "취소"}
+                </button>
               </div>
             ))}
           </div>
