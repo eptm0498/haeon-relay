@@ -279,8 +279,16 @@ export default function CashBoardPage() {
 
       window.dispatchEvent(new Event("cash-timer-updated"));
       const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
-      setSelectedUser(detail);
-      await reload();
+      const next = await reload();
+      const titled = next.users.find((user) => user.id === selectedUser.user.id);
+      setSelectedUser({
+        ...detail,
+        user: {
+          ...detail.user,
+          title_text: titled?.title_text ?? null,
+          title_count: titled?.title_count ?? 0,
+        },
+      });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "킵 사용에 실패했어.");
     } finally {
@@ -302,10 +310,18 @@ export default function CashBoardPage() {
         item_name: restoreKeep,
       });
       const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
-      setSelectedUser(detail);
+      const next = await reload();
+      const titled = next.users.find((user) => user.id === selectedUser.user.id);
+      setSelectedUser({
+        ...detail,
+        user: {
+          ...detail.user,
+          title_text: titled?.title_text ?? null,
+          title_count: titled?.title_count ?? 0,
+        },
+      });
       setNotice(`${restoreKeep} 킵을 1개 다시 넣었어.`);
       setRestoreKeep("");
-      await reload();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "킵을 다시 넣지 못했어.");
     } finally {
