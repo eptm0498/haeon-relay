@@ -35,32 +35,15 @@ type Burst =
   | { key: string; eyebrow: string; title: string; tone: "violet" | "rose" | "cyan" }
   | null;
 
-function time(value: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
-
 function burstClass(tone: "violet" | "rose" | "cyan") {
   if (tone === "rose") return "from-rose-500 via-fuchsia-600 to-violet-600 shadow-rose-400/35";
   if (tone === "cyan") return "from-cyan-400 via-blue-500 to-violet-600 shadow-cyan-400/35";
   return "from-fuchsia-600 via-violet-600 to-indigo-600 shadow-violet-400/35";
 }
 
-function feedSentence(item: FeedItem) {
-  if (item.result_type === "keep") return `${item.nickname}님이 ${item.result}을(를) 남겼어요`;
-  if (item.result_type === "cash") return `${item.nickname}님이 ${item.result} 당첨`;
-  if (item.result_type === "nothing") return `${item.nickname}님 추첨 완료`;
-  return `${item.nickname}님 · ${item.result}`;
-}
-
 export default function LiveHud({ pin }: { pin: string }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [burst, setBurst] = useState<Burst>(null);
-  const [feedIndex, setFeedIndex] = useState(0);
 
   const previousClear = useRef<number | null>(null);
   const previousPhase = useRef<number | null>(null);
@@ -156,11 +139,8 @@ export default function LiveHud({ pin }: { pin: string }) {
     void refresh();
 
     const poll = window.setInterval(() => void refresh(), 1900);
-    const ticker = window.setInterval(() => setFeedIndex((index) => index + 1), 2500);
-
     return () => {
       window.clearInterval(poll);
-      window.clearInterval(ticker);
       if (burstTimer.current !== null) window.clearTimeout(burstTimer.current);
     };
   }, [pin]);
@@ -172,7 +152,6 @@ export default function LiveHud({ pin }: { pin: string }) {
   const remainingPercent = Math.max(0, Math.min(100, (hp / maxHp) * 100));
   const donePercent = Math.max(0, Math.min(100, 100 - remainingPercent));
   const chain = Number(data.global.chain_count || 0);
-  const latest = data.feed.length ? data.feed[feedIndex % Math.min(3, data.feed.length)] : null;
 
   const barClass =
     donePercent >= 65
@@ -241,18 +220,6 @@ export default function LiveHud({ pin }: { pin: string }) {
           </div>
         </div>
 
-        <div className="flex h-[34px] items-center border-t border-white/10 bg-white/[.035] px-3">
-          {latest ? (
-            <>
-              <div className="min-w-0 flex-1 truncate text-[10px] font-black text-zinc-300">
-                {feedSentence(latest)}
-              </div>
-              <div className="ml-2 shrink-0 text-[9px] font-black text-zinc-600">{time(latest.created_at)}</div>
-            </>
-          ) : (
-            <div className="text-[10px] font-bold text-zinc-600">첫 참여를 기다리는 중</div>
-          )}
-        </div>
       </section>
     </>
   );
