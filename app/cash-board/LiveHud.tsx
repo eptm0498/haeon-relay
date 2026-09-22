@@ -35,8 +35,6 @@ type Burst =
   | { key: string; eyebrow: string; title: string; tone: "violet" | "rose" | "cyan" }
   | null;
 
-const money = (value: number) => Number(value || 0).toLocaleString("ko-KR");
-
 function time(value: string) {
   return new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -50,6 +48,13 @@ function burstClass(tone: "violet" | "rose" | "cyan") {
   if (tone === "rose") return "from-rose-500 via-fuchsia-600 to-violet-600 shadow-rose-400/35";
   if (tone === "cyan") return "from-cyan-400 via-blue-500 to-violet-600 shadow-cyan-400/35";
   return "from-fuchsia-600 via-violet-600 to-indigo-600 shadow-violet-400/35";
+}
+
+function feedSentence(item: FeedItem) {
+  if (item.result_type === "keep") return `${item.nickname}님이 ${item.result}을(를) 남겼어요`;
+  if (item.result_type === "cash") return `${item.nickname}님이 ${item.result} 당첨`;
+  if (item.result_type === "nothing") return `${item.nickname}님 추첨 완료`;
+  return `${item.nickname}님 · ${item.result}`;
 }
 
 export default function LiveHud({ pin }: { pin: string }) {
@@ -66,7 +71,7 @@ export default function LiveHud({ pin }: { pin: string }) {
   function showBurst(next: Exclude<Burst, null>) {
     setBurst(next);
     if (burstTimer.current !== null) window.clearTimeout(burstTimer.current);
-    burstTimer.current = window.setTimeout(() => setBurst(null), 2800);
+    burstTimer.current = window.setTimeout(() => setBurst(null), 2600);
   }
 
   async function refresh() {
@@ -93,9 +98,9 @@ export default function LiveHud({ pin }: { pin: string }) {
 
       if (previousClear.current !== null && clearCount > previousClear.current) {
         showBurst({
-          key: "clear-" + clearCount,
-          eyebrow: "온유 레이드 클리어",
-          title: "ROUND " + Math.max(1, round - 1) + " 격파 ✦",
+          key: "done-" + clearCount,
+          eyebrow: "다 같이 채웠어요",
+          title: "오늘 목표 완성 ✦",
           tone: "cyan",
         });
       } else if (
@@ -103,12 +108,21 @@ export default function LiveHud({ pin }: { pin: string }) {
         previousPhase.current !== null &&
         phase > previousPhase.current
       ) {
-        showBurst({
-          key: "phase-" + round + "-" + phase,
-          eyebrow: "보스 상태 변화",
-          title: phase + "페이즈 돌입",
-          tone: phase >= 3 ? "rose" : "violet",
-        });
+        showBurst(
+          phase >= 3
+            ? {
+                key: "almost-" + round,
+                eyebrow: "거의 다 왔어요",
+                title: "조금만 더 ✦",
+                tone: "rose",
+              }
+            : {
+                key: "half-" + round,
+                eyebrow: "벌써 여기까지",
+                title: "절반 넘었어요",
+                tone: "violet",
+              }
+        );
       }
 
       const milestones = [3, 5, 8, 12, 20];
@@ -121,9 +135,9 @@ export default function LiveHud({ pin }: { pin: string }) {
 
       if (crossed) {
         showBurst({
-          key: "chain-" + crossed + "-" + Date.now(),
-          eyebrow: "서로 다른 시청자가 이어붙였다",
-          title: "참여 체인 ×" + crossed,
+          key: "together-" + crossed + "-" + Date.now(),
+          eyebrow: "이어지고 있어요",
+          title: crossed + "명째 참여 중",
           tone: "violet",
         });
       }
@@ -142,9 +156,7 @@ export default function LiveHud({ pin }: { pin: string }) {
     void refresh();
 
     const poll = window.setInterval(() => void refresh(), 1900);
-    const ticker = window.setInterval(() => {
-      setFeedIndex((index) => index + 1);
-    }, 2600);
+    const ticker = window.setInterval(() => setFeedIndex((index) => index + 1), 2500);
 
     return () => {
       window.clearInterval(poll);
@@ -157,22 +169,22 @@ export default function LiveHud({ pin }: { pin: string }) {
 
   const maxHp = Math.max(1, Number(data.global.raid_hp_max || 1));
   const hp = Math.max(0, Number(data.global.raid_hp || 0));
-  const hpPercent = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-  const phase = Number(data.global.raid_phase || 1);
+  const remainingPercent = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const donePercent = Math.max(0, Math.min(100, 100 - remainingPercent));
   const chain = Number(data.global.chain_count || 0);
   const latest = data.feed.length ? data.feed[feedIndex % Math.min(3, data.feed.length)] : null;
 
   const barClass =
-    phase >= 3
-      ? "from-rose-500 via-fuchsia-500 to-orange-400 shadow-rose-400/50"
-      : phase === 2
-        ? "from-amber-400 via-fuchsia-500 to-violet-500 shadow-fuchsia-400/45"
-        : "from-cyan-400 via-violet-500 to-fuchsia-500 shadow-violet-400/45";
+    donePercent >= 65
+      ? "from-rose-400 via-fuchsia-500 to-violet-500 shadow-fuchsia-400/45"
+      : donePercent >= 30
+        ? "from-amber-300 via-fuchsia-500 to-violet-500 shadow-fuchsia-400/40"
+        : "from-cyan-400 via-violet-500 to-fuchsia-500 shadow-violet-400/40";
 
   return (
     <>
       {burst && (
-        <div className="pointer-events-none fixed left-1/2 top-3 z-[140] w-[min(500px,calc(100vw-20px))] -translate-x-1/2">
+        <div className="pointer-events-none fixed left-1/2 top-3 z-[140] w-[min(480px,calc(100vw-20px))] -translate-x-1/2">
           <div
             key={burst.key}
             className={
@@ -180,23 +192,25 @@ export default function LiveHud({ pin }: { pin: string }) {
               burstClass(burst.tone)
             }
           >
-            <div className="text-[10px] font-black tracking-[.16em] text-white/75">{burst.eyebrow}</div>
+            <div className="text-[10px] font-black tracking-[.12em] text-white/75">{burst.eyebrow}</div>
             <div className="mt-0.5 text-[24px] font-black leading-tight">{burst.title}</div>
           </div>
         </div>
       )}
 
-      <section className="mb-3 overflow-hidden rounded-[20px] border border-zinc-800/70 bg-[#121018] text-white shadow-[0_12px_34px_rgba(23,17,45,.18)]">
+      <section className="mb-3 overflow-hidden rounded-[18px] border border-zinc-800/70 bg-[#121018] text-white shadow-[0_12px_34px_rgba(23,17,45,.18)]">
         <div className="px-3 py-2.5">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[9px] font-black text-zinc-300">
-                  ROUND {data.global.raid_round}
-                </span>
+              <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0 truncate text-[12px] font-black">
-                  온유 레이드
-                  <span className="ml-1.5 text-[10px] font-bold text-zinc-500">{phase}페이즈</span>
+                  오늘 목표
+                  <span className="ml-2 text-[20px] font-black text-fuchsia-200">
+                    {Math.floor(donePercent)}%
+                  </span>
+                </div>
+                <div className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[9px] font-black text-zinc-400">
+                  {data.global.raid_round}번째 목표
                 </div>
               </div>
 
@@ -206,29 +220,23 @@ export default function LiveHud({ pin }: { pin: string }) {
                     "h-full rounded-full bg-gradient-to-r transition-[width] duration-700 shadow-[0_0_13px_currentColor] " +
                     barClass
                   }
-                  style={{ width: hpPercent + "%" }}
+                  style={{ width: donePercent + "%" }}
                 />
-              </div>
-
-              <div className="mt-1 flex items-center justify-between gap-2 text-[9px] font-bold text-zinc-500">
-                <span>보스 HP {money(hp)} / {money(maxHp)}</span>
-                <span>{Math.ceil(hpPercent)}%</span>
               </div>
             </div>
 
-            <div className="w-[92px] shrink-0 border-l border-white/10 pl-3 text-right">
+            <div className="w-[104px] shrink-0 border-l border-white/10 pl-3 text-right">
+              <div className="text-[10px] font-black text-zinc-500">
+                이어가는 중
+              </div>
               <div
                 className={
-                  "text-[10px] font-black " +
-                  (data.global.chain_active && chain >= 3 ? "text-fuchsia-300" : "text-zinc-500")
+                  "mt-0.5 text-[22px] font-black leading-none " +
+                  (data.global.chain_active && chain >= 3 ? "text-fuchsia-200" : "text-white")
                 }
               >
-                참여 체인
+                {data.global.chain_active ? Math.max(1, chain) + "명째" : "다음 사람"}
               </div>
-              <div className="mt-0.5 text-[24px] font-black leading-none">
-                {data.global.chain_active ? "×" + Math.max(1, chain) : "대기"}
-              </div>
-              <div className="mt-1 text-[8px] font-bold text-zinc-600">다른 닉네임이 3분 안에 연결</div>
             </div>
           </div>
         </div>
@@ -236,17 +244,13 @@ export default function LiveHud({ pin }: { pin: string }) {
         <div className="flex h-[34px] items-center border-t border-white/10 bg-white/[.035] px-3">
           {latest ? (
             <>
-              <div className="min-w-0 flex-1 truncate text-[10px] font-bold text-zinc-400">
-                <span className="font-black text-white">{latest.nickname}</span>
-                <span className="mx-1 text-zinc-600">›</span>
-                <span className="font-black text-fuchsia-200">{latest.result}</span>
-                <span className="mx-1 text-zinc-600">·</span>
-                {latest.roulette_name}
+              <div className="min-w-0 flex-1 truncate text-[10px] font-black text-zinc-300">
+                {feedSentence(latest)}
               </div>
               <div className="ml-2 shrink-0 text-[9px] font-black text-zinc-600">{time(latest.created_at)}</div>
             </>
           ) : (
-            <div className="text-[10px] font-bold text-zinc-600">첫 추첨을 기다리는 중</div>
+            <div className="text-[10px] font-bold text-zinc-600">첫 참여를 기다리는 중</div>
           )}
         </div>
       </section>
