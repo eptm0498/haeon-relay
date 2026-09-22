@@ -52,10 +52,13 @@ export default function TimerOverlay({ pin }: { pin: string }) {
 
     const clock = window.setInterval(() => setNow(Date.now()), 1000);
     const poll = window.setInterval(() => void refresh(), 3000);
+    const onTimerUpdated = () => void refresh();
+    window.addEventListener("cash-timer-updated", onTimerUpdated);
 
     return () => {
       window.clearInterval(clock);
       window.clearInterval(poll);
+      window.removeEventListener("cash-timer-updated", onTimerUpdated);
     };
   }, [pin]);
 
@@ -67,7 +70,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   if (active.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-3 right-3 z-[100] flex w-[min(260px,calc(100vw-24px))] flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-3 right-3 z-[110] flex w-[min(300px,calc(100vw-20px))] flex-col gap-1.5">
       {active.slice(0, 4).map((timer) => {
         const left = remainingMs(timer.ends_at, now);
         const urgent = left <= 60_000;
@@ -76,24 +79,25 @@ export default function TimerOverlay({ pin }: { pin: string }) {
           <div
             key={timer.id}
             className={
-              "rounded-2xl border px-3 py-2.5 shadow-[0_12px_35px_rgba(20,18,40,.22)] backdrop-blur-xl " +
+              "rounded-2xl border px-3 py-2 shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl " +
               (urgent
                 ? "border-rose-300 bg-rose-600/95 text-white"
-                : "border-white/80 bg-zinc-950/92 text-white")
+                : "border-white/20 bg-zinc-950/94 text-white")
             }
           >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-[11px] font-black">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className={"text-[9px] font-black tracking-[.08em] " + (urgent ? "text-rose-100" : "text-amber-200")}>
+                  사용 중
+                </div>
+                <div className="mt-0.5 truncate text-[11px] font-black">
                   {timer.nickname} · {timer.result_label}
                 </div>
-                <div className={"mt-0.5 truncate text-[10px] font-bold " + (urgent ? "text-rose-100" : "text-zinc-400")}>
-                  10분 제한 · {timer.roulette_name}
-                </div>
               </div>
+
               <div
                 className={
-                  "shrink-0 tabular-nums text-[24px] font-black leading-none tracking-tight " +
+                  "shrink-0 tabular-nums text-[26px] font-black leading-none tracking-tight " +
                   (urgent ? "animate-pulse" : "")
                 }
               >
@@ -106,7 +110,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
 
       {active.length > 4 && (
         <div className="self-end rounded-full bg-zinc-950/90 px-3 py-1 text-[10px] font-black text-white shadow-lg">
-          +{active.length - 4}개 타이머
+          +{active.length - 4}개 사용 중
         </div>
       )}
     </div>
