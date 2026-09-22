@@ -87,7 +87,8 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   }
 
   async function refreshAll() {
-    await Promise.all([refreshTimers(), refreshStatus()]);
+    await refreshStatus();
+    await refreshTimers();
   }
 
   useEffect(() => {
