@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import GamePanel from "./GamePanel";
 import RouletteSettings from "./RouletteSettings";
 import TimerOverlay from "./TimerOverlay";
@@ -110,6 +110,42 @@ export default function CashBoardPage() {
     setContentId((current) => current ?? next.contents[0]?.id ?? null);
     return next;
   }
+
+  useEffect(() => {
+    if (!authed) return;
+
+    const syncQueueChange = () => {
+      void (async () => {
+        try {
+          const next = await reload();
+
+          if (!selectedUser) return;
+
+          const detail = await userApi<UserDetail>("detail", {
+            user_id: selectedUser.user.id,
+          });
+          const titled = next.users.find(
+            (user) => user.id === selectedUser.user.id
+          );
+
+          setSelectedUser({
+            ...detail,
+            user: {
+              ...detail.user,
+              title_text: titled?.title_text ?? null,
+              title_count: titled?.title_count ?? 0,
+            },
+          });
+        } catch {}
+      })();
+    };
+
+    window.addEventListener("cash-queue-updated", syncQueueChange);
+
+    return () => {
+      window.removeEventListener("cash-queue-updated", syncQueueChange);
+    };
+  }, [authed, pin, selectedUser?.user.id]);
 
   async function login() {
     if (!pin.trim()) return;
