@@ -188,7 +188,10 @@ export default function RouletteSettings({
         items: draft.items.map((item) => ({
           label: item.label,
           result_type: item.result_type,
-          cash_amount: item.result_type === "cash" ? Number(item.cash_amount || 0) : 0,
+          cash_amount:
+            item.result_type === "cash" || item.result_type === "cash_loss"
+              ? Number(item.cash_amount || 0)
+              : 0,
           weight: Number(item.weight),
           time_limit_minutes: Number(item.time_limit_minutes || 0),
         })),
