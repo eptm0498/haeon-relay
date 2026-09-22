@@ -222,25 +222,58 @@ export default function GamePanel({
       const start = cursorPct;
       const target = resultCenter(items, hit.label);
       const startedAt = performance.now();
-      const duration = 4600;
-      const cycles = 5.15;
+      const duration = 4900;
+
+      // 결과가 어느 쪽에 있든 초반에는 실제로 양 끝을 여러 번 훑는다.
+      // 마지막 구간에서만 서버가 이미 정한 결과 위치로 감속해 들어간다.
+      const seed = Number(hit.spin_id || 0) % 7;
+      const leftA = 1.2 + seed * 0.16;
+      const rightA = 98.8 - seed * 0.14;
+      const leftB = 2.2 + seed * 0.18;
+      const rightB = 97.8 - seed * 0.16;
+      const oppositeFirst = start <= 50 ? rightA : leftA;
+      const otherEdge = start <= 50 ? leftA : rightA;
+      const oppositeSecond = start <= 50 ? rightB : leftB;
+      const settleFrom = target < 50 ? rightB : leftB;
+
+      const points = [
+        start,
+        oppositeFirst,
+        otherEdge,
+        oppositeSecond,
+        settleFrom,
+        target,
+      ];
+      const weights = [0.14, 0.16, 0.17, 0.19, 0.34];
+
+      function scanPosition(t: number) {
+        let elapsed = 0;
+
+        for (let index = 0; index < weights.length; index += 1) {
+          const width = weights[index];
+          const end = elapsed + width;
+
+          if (t <= end || index === weights.length - 1) {
+            const local = Math.max(0, Math.min(1, (t - elapsed) / width));
+            const eased =
+              index === weights.length - 1
+                ? 1 - Math.pow(1 - local, 3.35)
+                : local * local * (3 - 2 * local);
+
+            return points[index] + (points[index + 1] - points[index]) * eased;
+          }
+
+          elapsed = end;
+        }
+
+        return target;
+      }
+
       let lastTickLabel = labelAt(items, start);
 
       const animate = (now: number) => {
         const t = Math.min(1, (now - startedAt) / duration);
-        const smooth = t * t * (3 - 2 * t);
-        const base = start + (target - start) * smooth;
-
-        const envelope =
-          52 *
-          Math.pow(Math.max(0, 1 - t), 0.74) *
-          Math.pow(Math.max(0.0001, Math.sin(Math.PI * t)), 0.34);
-
-        const phase =
-          Math.PI * 2 * cycles * (1 - Math.pow(1 - t, 1.72));
-
-        const raw = base + envelope * Math.sin(phase);
-        const position = reflectInto(raw, 0.5, 99.5);
+        const position = scanPosition(t);
 
         const nextLabel = labelAt(items, position);
         setCursorPct(position);
