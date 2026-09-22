@@ -341,7 +341,7 @@ export default function GamePanel({
             <div className="mt-1 text-sm font-black text-white">{config?.name || fallback?.name || "룰렛"}</div>
           </div>
           <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
-            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
+            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시 · 보스 피해 동일
           </div>
         </div>
 
@@ -393,7 +393,7 @@ export default function GamePanel({
           disabled={spinning || !rouletteId}
           className="relative z-[3] mt-3 w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
         >
-          {spinning ? "추첨 중..." : "추첨 시작"}
+          {spinning ? "추첨 중..." : `추첨 시작 · 보스 -${money(config?.cost ?? fallback?.cost ?? 0)}`}
         </button>
 
         <div className={fx.flash + " " + (reveal ? fx.flashOn : "")} key={"flash-" + burst} />
@@ -416,6 +416,9 @@ export default function GamePanel({
             <div className="text-[11px] font-black text-fuchsia-200">당첨 결과</div>
             <div className="mt-1 text-[10px] font-bold text-white/55">결과는 서버에서 확정된 값 그대로 표시돼.</div>
             <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
+            <div className="mt-1 text-[10px] font-black text-cyan-200/80">
+              온유 레이드에 {money(config?.cost ?? fallback?.cost ?? 0)} 피해
+            </div>
 
             {result.result_type === "keep" && (
               <div className="mt-3 grid grid-cols-2 gap-2">
