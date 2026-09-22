@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import GamePanel from "./GamePanel";
 import RouletteSettings from "./RouletteSettings";
 import TimerOverlay from "./TimerOverlay";
-import LiveHud from "./LiveHud";
 
 type User = {
   id: number;
@@ -419,8 +418,6 @@ export default function CashBoardPage() {
             </button>
           ))}
         </nav>
-
-        <LiveHud pin={pin} />
 
         {notice && (
           <div className="mb-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-bold">
