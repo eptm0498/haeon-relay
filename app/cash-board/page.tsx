@@ -311,7 +311,6 @@ export default function CashBoardPage() {
         <header className="mb-4 flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">온유의 캐시 보드</h1>
-            <p className="mt-1 text-sm text-zinc-500">충전 · 게임 · 룰렛 설정 · 사용자</p>
           </div>
           <button
             onClick={() => {
