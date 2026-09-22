@@ -135,6 +135,8 @@ export default function GamePanel({
   const timedResult = result
     ? items.find((item) => item.label === result.label && Number(item.time_limit_minutes || 0) > 0)
     : undefined;
+  const speechResult = Boolean(result?.label.includes("00체"));
+  const gagResult = Boolean(result?.label.includes("아봉"));
   const activeIndex = itemIndexAt(items, cursorPct);
   const resultItem = result ? items.find((item) => item.label === result.label) : undefined;
   const rareWin =
@@ -281,16 +283,67 @@ export default function GamePanel({
 
   async function resolve(mode: "use" | "keep") {
     if (!result) return;
+
     try {
-      await post("/api/cash-board", pin, {
-        action: "resolve_spin",
-        spin_id: result.spin_id,
-        mode,
-      });
-      if (mode === "use") {
+      if (mode === "use" && (speechResult || gagResult)) {
+        if (!chosen) {
+          onNotice("사용자를 다시 선택해줘.");
+          return;
+        }
+
+        let speechSuffix: string | undefined;
+        if (speechResult) {
+          const entered = window.prompt("무슨 체로 할까? 예: 냥  ·  해제하려면 '해제'");
+          if (entered === null) return;
+          speechSuffix = entered.trim();
+          if (!speechSuffix) {
+            onNotice("무슨 체인지 입력해줘.");
+            return;
+          }
+        }
+
+        // 먼저 결과를 킵으로 확정한 뒤 곧바로 특수 사용 처리한다.
+        await post("/api/cash-board", pin, {
+          action: "resolve_spin",
+          spin_id: result.spin_id,
+          mode: "keep",
+        });
+
+        const effect = await post<{
+          ok: boolean;
+          kind: string;
+          active: boolean;
+          label: string;
+          ends_at?: string;
+        }>("/api/cash-effects", pin, {
+          action: "use_special",
+          user_id: chosen.id,
+          item_name: result.label,
+          speech_suffix: speechSuffix,
+        });
+
+        window.dispatchEvent(new Event("cash-effect-updated"));
         window.dispatchEvent(new Event("cash-timer-updated"));
+
+        if (effect.kind === "speech_style") {
+          onNotice(effect.active ? `${effect.label} 10분 시작` : "말투 제한을 해제했어.");
+        } else {
+          onNotice(effect.active ? "현재 아봉중" : "아봉을 해제했어.");
+        }
+      } else {
+        await post("/api/cash-board", pin, {
+          action: "resolve_spin",
+          spin_id: result.spin_id,
+          mode,
+        });
+
+        if (mode === "use") {
+          window.dispatchEvent(new Event("cash-timer-updated"));
+        }
+
+        onNotice(mode === "keep" ? `${result.label} 킵 저장 완료` : `${result.label} 즉시사용 완료`);
       }
-      onNotice(mode === "keep" ? `${result.label} 킵 저장 완료` : `${result.label} 즉시사용 완료`);
+
       setResult(null);
       setReveal(false);
       setCurrentPick("추첨 대기");
@@ -507,7 +560,17 @@ export default function GamePanel({
             <div className="mt-1 text-[11px] font-black text-cyan-200/80">
               {nickname}님이 오늘 목표를 {money(config?.cost ?? fallback?.cost ?? 0)}만큼 채웠어요
             </div>
-            {timedResult && (
+            {speechResult && (
+              <div className="mt-2 rounded-xl bg-fuchsia-300/10 px-3 py-2 text-[11px] font-black text-fuchsia-100 ring-1 ring-fuchsia-200/20">
+                사용 → 무슨 체인지 입력 → 10분 시작
+              </div>
+            )}
+            {gagResult && (
+              <div className="mt-2 rounded-xl bg-rose-300/10 px-3 py-2 text-[11px] font-black text-rose-100 ring-1 ring-rose-200/20">
+                사용하면 아봉 · 다른 사람이 같은 아봉을 써야 해제
+              </div>
+            )}
+            {!speechResult && !gagResult && timedResult && (
               <div className="mt-2 rounded-xl bg-amber-300/10 px-3 py-2 text-[11px] font-black text-amber-200 ring-1 ring-amber-200/20">
                 사용하면 {timedResult.time_limit_minutes}분 타이머가 바로 시작돼
               </div>
