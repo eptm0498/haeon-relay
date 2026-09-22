@@ -3,8 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import fx from "./effects.module.css";
 
-type User = { id: number; nickname: string; cash_balance: number };
+type User = {
+  id: number;
+  nickname: string;
+  cash_balance: number;
+  title_text?: string | null;
+};
+
 type Roulette = { id: number; name: string; cost: number };
+
 type RouletteItem = {
   id: number;
   label: string;
@@ -14,23 +21,60 @@ type RouletteItem = {
   time_limit_minutes?: number;
   sort_order: number;
 };
-type RouletteConfig = Roulette & { active: boolean; items: RouletteItem[] };
+
+type RouletteConfig = Roulette & {
+  active: boolean;
+  items: RouletteItem[];
+};
+
 type SpinResult = {
   ok: boolean;
   spin_id: number;
   label: string;
   result_type: "keep" | "cash" | "cash_loss" | "nothing";
   balance: number;
+  cash_delta?: number;
+  cost?: number;
+  handled?: boolean;
+  handled_mode?: "use" | "keep";
 };
 
-const colors = ["#ff4fa3", "#7b5cff", "#24c8ff", "#ffcc33", "#ff715b", "#46d99a", "#ff8bd5", "#4a8cff"];
-const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
-const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+type SpinResponse = {
+  ok: boolean;
+  results: SpinResult[];
+  count: number;
+  effective_cost: number;
+  discount_percent: number;
+  total_cost: number;
+  balance: number;
+};
 
-async function post<T>(url: string, pin: string, body: Record<string, unknown>): Promise<T> {
+const colors = [
+  "#ff4fa3",
+  "#7b5cff",
+  "#24c8ff",
+  "#ffcc33",
+  "#ff715b",
+  "#46d99a",
+  "#ff8bd5",
+  "#4a8cff",
+];
+
+const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+async function post<T>(
+  url: string,
+  pin: string,
+  body: Record<string, unknown>
+): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-admin-pin": pin },
+    headers: {
+      "content-type": "application/json",
+      "x-admin-pin": pin,
+    },
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -43,7 +87,9 @@ function resultCenter(items: RouletteItem[], label: string) {
   let cursor = 0;
   for (const item of items) {
     const width = Number(item.weight || 0);
-    if (item.label === label) return Math.min(99.5, Math.max(0.5, cursor + width / 2));
+    if (item.label === label) {
+      return Math.min(99.5, Math.max(0.5, cursor + width / 2));
+    }
     cursor += width;
   }
   return 50;
@@ -73,26 +119,33 @@ export default function GamePanel({
   roulettes,
   onChanged,
   onNotice,
+  discountPercent,
 }: {
   pin: string;
   users: User[];
   roulettes: Roulette[];
   onChanged: () => Promise<unknown>;
   onNotice: (message: string) => void;
+  discountPercent: number;
 }) {
   const [configs, setConfigs] = useState<RouletteConfig[]>([]);
   const [nickname, setNickname] = useState("");
   const [openUsers, setOpenUsers] = useState(false);
   const [activeUser, setActiveUser] = useState(0);
-  const [rouletteId, setRouletteId] = useState<number | null>(roulettes[0]?.id ?? null);
+  const [rouletteId, setRouletteId] = useState<number | null>(
+    roulettes[0]?.id ?? null
+  );
+  const [spinCount, setSpinCount] = useState(1);
 
   const [cursorPct, setCursorPct] = useState(5);
   const [currentPick, setCurrentPick] = useState("추첨 대기");
   const [spinning, setSpinning] = useState(false);
-  const [result, setResult] = useState<SpinResult | null>(null);
+  const [currentResult, setCurrentResult] = useState<SpinResult | null>(null);
+  const [batchResults, setBatchResults] = useState<SpinResult[]>([]);
   const [reveal, setReveal] = useState(false);
   const [burst, setBurst] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [spinProgress, setSpinProgress] = useState("");
   const [soundOn, setSoundOn] = useState(true);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
@@ -102,44 +155,62 @@ export default function GamePanel({
   }, [rouletteId, roulettes]);
 
   useEffect(() => {
-    post<{ roulettes: RouletteConfig[] }>("/api/cash-board-settings", pin, { action: "list" })
-      .then((data) => setConfigs(data.roulettes.filter((item) => item.active)))
+    post<{ roulettes: RouletteConfig[] }>(
+      "/api/cash-board-settings",
+      pin,
+      { action: "list" }
+    )
+      .then((data) =>
+        setConfigs(data.roulettes.filter((item) => item.active))
+      )
       .catch(() => {});
   }, [pin, roulettes]);
 
   useEffect(() => {
     return () => {
-      if (animationRef.current !== null) window.cancelAnimationFrame(animationRef.current);
+      if (animationRef.current !== null) {
+        window.cancelAnimationFrame(animationRef.current);
+      }
     };
   }, []);
 
   const suggestions = useMemo(() => {
     const q = nickname.trim().toLowerCase();
     if (!q) return [];
-    return users.filter((user) => user.nickname.toLowerCase().includes(q)).slice(0, 6);
+    return users
+      .filter((user) => user.nickname.toLowerCase().includes(q))
+      .slice(0, 6);
   }, [nickname, users]);
 
   const chosen = users.find((user) => user.nickname === nickname);
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
-  const timedResult = result
-    ? items.find((item) => item.label === result.label && Number(item.time_limit_minutes || 0) > 0)
-    : undefined;
-  const speechResult = Boolean(result?.label.includes("00체"));
-  const gagResult = Boolean(result?.label.includes("아봉"));
+  const rawCost = Number(config?.cost ?? fallback?.cost ?? 0);
+  const effectiveCost = Math.max(
+    0,
+    Math.round(rawCost * (100 - Math.max(0, discountPercent || 0)) / 100)
+  );
+  const totalCost = effectiveCost * spinCount;
+
   const activeIndex = itemIndexAt(items, cursorPct);
-  const resultItem = result ? items.find((item) => item.label === result.label) : undefined;
+  const resultItem = currentResult
+    ? items.find((item) => item.label === currentResult.label)
+    : undefined;
   const rareWin =
     Boolean(resultItem) &&
-    result?.result_type !== "nothing" &&
-    result?.result_type !== "cash_loss" &&
+    currentResult?.result_type !== "nothing" &&
+    currentResult?.result_type !== "cash_loss" &&
     Number(resultItem?.weight || 0) <= 5;
   const positiveReveal = Boolean(
     reveal &&
-    result &&
-    result.result_type !== "nothing" &&
-    result.result_type !== "cash_loss"
+      currentResult &&
+      currentResult.result_type !== "nothing" &&
+      currentResult.result_type !== "cash_loss"
+  );
+
+  const unresolvedKeeps = batchResults.some(
+    (item) => item.result_type === "keep" && !item.handled
   );
 
   function prepareAudio() {
@@ -177,7 +248,10 @@ export default function GamePanel({
       }
 
       gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), startAt + 0.008);
+      gain.gain.exponentialRampToValueAtTime(
+        Math.max(0.0002, volume),
+        startAt + 0.008
+      );
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
       oscillator.connect(gain);
@@ -191,7 +265,10 @@ export default function GamePanel({
     if (!soundOn || !audioRef.current) return;
     try {
       const context = audioRef.current;
-      const frameCount = Math.max(1, Math.floor(context.sampleRate * (durationMs / 1000)));
+      const frameCount = Math.max(
+        1,
+        Math.floor(context.sampleRate * (durationMs / 1000))
+      );
       const buffer = context.createBuffer(1, frameCount, context.sampleRate);
       const channel = buffer.getChannelData(0);
 
@@ -234,20 +311,31 @@ export default function GamePanel({
   }
 
   function playTickSound(progress: number, index: number) {
-    const pitch = 310 + Math.round((1 - progress) * 300) + (index % 4) * 24;
-    const tone: OscillatorType = index % 2 === 0 ? "square" : "triangle";
+    const pitch =
+      310 + Math.round((1 - progress) * 300) + (index % 4) * 24;
+    const tone: OscillatorType =
+      index % 2 === 0 ? "square" : "triangle";
     playTone(pitch, 34, 0.0065, tone);
     if (index % 3 === 0) playNoise(24, 0.0035);
   }
 
-  function playPositiveResultSound(kind: "cash" | "keep", rare: boolean) {
+  function playPositiveResultSound(
+    kind: "cash" | "keep",
+    rare: boolean
+  ) {
     const notes =
       kind === "cash"
         ? [659, 784, 988, 1319]
         : [587, 740, 880, 1175];
 
     notes.forEach((note, index) => {
-      playTone(note, rare ? 230 : 180, rare ? 0.024 : 0.018, index % 2 ? "triangle" : "sine", index * 72);
+      playTone(
+        note,
+        rare ? 230 : 180,
+        rare ? 0.024 : 0.018,
+        index % 2 ? "triangle" : "sine",
+        index * 72
+      );
     });
 
     if (rare) {
@@ -256,7 +344,9 @@ export default function GamePanel({
     }
   }
 
-  function playNegativeResultSound(kind: "nothing" | "cash_loss") {
+  function playNegativeResultSound(
+    kind: "nothing" | "cash_loss"
+  ) {
     if (kind === "cash_loss") {
       playTone(330, 180, 0.018, "sawtooth", 0, 165);
       playTone(220, 220, 0.015, "triangle", 90, 110);
@@ -274,30 +364,13 @@ export default function GamePanel({
     setActiveUser(0);
   }
 
-  async function spin() {
-    if (!nickname.trim() || !rouletteId || spinning) {
-      if (!nickname.trim()) onNotice("사용자를 먼저 선택해줘.");
-      return;
-    }
-    if (!items.length) {
-      onNotice("이 룰렛의 결과 항목을 불러오지 못했어.");
-      return;
-    }
-
-    prepareAudio();
-    setResult(null);
-    setReveal(false);
-    setSpinning(true);
-    setCurrentPick(labelAt(items, cursorPct));
-    onNotice("");
-
-    try {
-      const hit = await post<SpinResult>("/api/cash-board", pin, {
-        action: "spin",
-        nickname: nickname.trim(),
-        roulette_id: rouletteId,
-      });
-
+  async function animateHit(
+    hit: SpinResult,
+    startPosition: number,
+    index: number,
+    total: number
+  ) {
+    if (index === 0) {
       setCountdown(3);
       playCountdownSound(3);
       await delay(420);
@@ -308,65 +381,71 @@ export default function GamePanel({
       playCountdownSound(1);
       await delay(420);
       setCountdown(null);
-      playLaunchSound();
+    } else {
+      setReveal(false);
+      setCurrentResult(null);
+      setCurrentPick(`다음 추첨 · ${index + 1}/${total}`);
+      await delay(500);
+    }
 
-      const start = cursorPct;
-      const target = resultCenter(items, hit.label);
-      const startedAt = performance.now();
-      const duration = 4900;
+    playLaunchSound();
 
-      // 결과가 어느 쪽에 있든 초반에는 실제로 양 끝을 여러 번 훑는다.
-      // 마지막 구간에서만 서버가 이미 정한 결과 위치로 감속해 들어간다.
-      const seed = Number(hit.spin_id || 0) % 7;
-      const leftA = 1.2 + seed * 0.16;
-      const rightA = 98.8 - seed * 0.14;
-      const leftB = 2.2 + seed * 0.18;
-      const rightB = 97.8 - seed * 0.16;
-      const oppositeFirst = start <= 50 ? rightA : leftA;
-      const otherEdge = start <= 50 ? leftA : rightA;
-      const oppositeSecond = start <= 50 ? rightB : leftB;
-      const settleFrom = target < 50 ? rightB : leftB;
+    const target = resultCenter(items, hit.label);
+    const startedAt = performance.now();
+    const duration = total > 1 ? 4000 : 4900;
+    const seed = Number(hit.spin_id || 0) % 7;
+    const leftA = 1.2 + seed * 0.16;
+    const rightA = 98.8 - seed * 0.14;
+    const leftB = 2.2 + seed * 0.18;
+    const rightB = 97.8 - seed * 0.16;
+    const oppositeFirst = startPosition <= 50 ? rightA : leftA;
+    const otherEdge = startPosition <= 50 ? leftA : rightA;
+    const oppositeSecond = startPosition <= 50 ? rightB : leftB;
+    const settleFrom = target < 50 ? rightB : leftB;
 
-      const points = [
-        start,
-        oppositeFirst,
-        otherEdge,
-        oppositeSecond,
-        settleFrom,
-        target,
-      ];
-      const weights = [0.14, 0.16, 0.17, 0.19, 0.34];
+    const points = [
+      startPosition,
+      oppositeFirst,
+      otherEdge,
+      oppositeSecond,
+      settleFrom,
+      target,
+    ];
+    const weights = [0.14, 0.16, 0.17, 0.19, 0.34];
 
-      function scanPosition(t: number) {
-        let elapsed = 0;
+    function scanPosition(t: number) {
+      let elapsed = 0;
+      for (let pointIndex = 0; pointIndex < weights.length; pointIndex += 1) {
+        const width = weights[pointIndex];
+        const end = elapsed + width;
+        if (t <= end || pointIndex === weights.length - 1) {
+          const local = Math.max(
+            0,
+            Math.min(1, (t - elapsed) / width)
+          );
+          const eased =
+            pointIndex === weights.length - 1
+              ? 1 - Math.pow(1 - local, 3.35)
+              : local * local * (3 - 2 * local);
 
-        for (let index = 0; index < weights.length; index += 1) {
-          const width = weights[index];
-          const end = elapsed + width;
-
-          if (t <= end || index === weights.length - 1) {
-            const local = Math.max(0, Math.min(1, (t - elapsed) / width));
-            const eased =
-              index === weights.length - 1
-                ? 1 - Math.pow(1 - local, 3.35)
-                : local * local * (3 - 2 * local);
-
-            return points[index] + (points[index + 1] - points[index]) * eased;
-          }
-
-          elapsed = end;
+          return (
+            points[pointIndex] +
+            (points[pointIndex + 1] - points[pointIndex]) * eased
+          );
         }
-
-        return target;
+        elapsed = end;
       }
+      return target;
+    }
 
-      let lastTickLabel = labelAt(items, start);
+    let lastTickLabel = labelAt(items, startPosition);
 
+    await new Promise<void>((resolve) => {
       const animate = (now: number) => {
         const t = Math.min(1, (now - startedAt) / duration);
         const position = scanPosition(t);
-
         const nextLabel = labelAt(items, position);
+
         setCursorPct(position);
         setCurrentPick(nextLabel);
 
@@ -376,48 +455,144 @@ export default function GamePanel({
         }
 
         if (t < 1) {
-          animationRef.current = window.requestAnimationFrame(animate);
+          animationRef.current =
+            window.requestAnimationFrame(animate);
           return;
         }
 
         setCursorPct(target);
         setCurrentPick(hit.label);
-        setResult(hit);
+        setCurrentResult(hit);
         setReveal(true);
         setBurst((value) => value + 1);
-        if (hit.result_type === "nothing" || hit.result_type === "cash_loss") {
+
+        if (
+          hit.result_type === "nothing" ||
+          hit.result_type === "cash_loss"
+        ) {
           playNegativeResultSound(hit.result_type);
         } else {
-          const hitItem = items.find((item) => item.label === hit.label);
-          const rare = Number(hitItem?.weight || 100) <= 5;
-          playPositiveResultSound(hit.result_type, rare);
+          const hitItem = items.find(
+            (item) => item.label === hit.label
+          );
+          playPositiveResultSound(
+            hit.result_type,
+            Number(hitItem?.weight || 100) <= 5
+          );
         }
-        setSpinning(false);
+
         animationRef.current = null;
-        void onChanged();
+        resolve();
       };
 
-      animationRef.current = window.requestAnimationFrame(animate);
+      animationRef.current =
+        window.requestAnimationFrame(animate);
+    });
+
+    if (index < total - 1) await delay(650);
+    return target;
+  }
+
+  async function spin() {
+    if (!nickname.trim() || !rouletteId || spinning) {
+      if (!nickname.trim()) {
+        onNotice("사용자를 먼저 선택해줘.");
+      }
+      return;
+    }
+
+    if (unresolvedKeeps) {
+      onNotice("이전 결과의 즉시사용/킵을 먼저 선택해줘.");
+      return;
+    }
+
+    if (!items.length) {
+      onNotice("이 룰렛의 결과 항목을 불러오지 못했어.");
+      return;
+    }
+
+    prepareAudio();
+    setCurrentResult(null);
+    setBatchResults([]);
+    setReveal(false);
+    setSpinning(true);
+    setSpinProgress("");
+    setCurrentPick(labelAt(items, cursorPct));
+    onNotice("");
+
+    try {
+      const response = await post<SpinResponse>(
+        "/api/cash-board",
+        pin,
+        {
+          action: "spin",
+          nickname: nickname.trim(),
+          roulette_id: rouletteId,
+          count: spinCount,
+        }
+      );
+
+      const results = Array.isArray(response.results)
+        ? response.results
+        : [];
+
+      let start = cursorPct;
+
+      for (let index = 0; index < results.length; index += 1) {
+        setSpinProgress(
+          results.length > 1
+            ? `${index + 1} / ${results.length}`
+            : ""
+        );
+        start = await animateHit(
+          results[index],
+          start,
+          index,
+          results.length
+        );
+      }
+
+      setBatchResults(results);
+      setSpinning(false);
+      setSpinProgress("");
+      await onChanged();
+
+      window.dispatchEvent(new Event("cash-effect-updated"));
+      window.dispatchEvent(new Event("cash-timer-updated"));
     } catch (error) {
       setSpinning(false);
+      setSpinProgress("");
       setCurrentPick("추첨 대기");
-      onNotice(error instanceof Error ? error.message : "추첨 실행에 실패했어.");
+      onNotice(
+        error instanceof Error
+          ? error.message
+          : "추첨 실행에 실패했어."
+      );
     }
   }
 
-  async function resolve(mode: "use" | "keep") {
-    if (!result) return;
+  async function resolveOne(
+    target: SpinResult,
+    mode: "use" | "keep"
+  ) {
+    if (target.handled) return;
 
     try {
-      if (mode === "use" && (speechResult || gagResult)) {
+      const speech = target.label.includes("00체");
+      const gag = target.label.includes("아봉");
+      const smoking = target.label === "금연";
+
+      if (mode === "use" && (speech || gag || smoking)) {
         if (!chosen) {
           onNotice("사용자를 다시 선택해줘.");
           return;
         }
 
         let speechSuffix: string | undefined;
-        if (speechResult) {
-          const entered = window.prompt("무슨 체로 할까? 예: 냥  ·  해제하려면 '해제'");
+        if (speech) {
+          const entered = window.prompt(
+            "무슨 체로 할까? 예: 냥  ·  해제하려면 '해제'"
+          );
           if (entered === null) return;
           speechSuffix = entered.trim();
           if (!speechSuffix) {
@@ -426,56 +601,95 @@ export default function GamePanel({
           }
         }
 
-        // 먼저 결과를 킵으로 확정한 뒤 곧바로 특수 사용 처리한다.
         await post("/api/cash-board", pin, {
           action: "resolve_spin",
-          spin_id: result.spin_id,
+          spin_id: target.spin_id,
           mode: "keep",
         });
 
         const effect = await post<{
-          ok: boolean;
           kind: string;
           active: boolean;
           label: string;
-          ends_at?: string;
         }>("/api/cash-effects", pin, {
           action: "use_special",
           user_id: chosen.id,
-          item_name: result.label,
+          item_name: target.label,
           speech_suffix: speechSuffix,
         });
 
-        window.dispatchEvent(new Event("cash-effect-updated"));
-        window.dispatchEvent(new Event("cash-timer-updated"));
-
         if (effect.kind === "speech_style") {
-          onNotice(effect.active ? `${effect.label} 10분 시작` : "말투 제한을 해제했어.");
+          onNotice(
+            effect.active
+              ? `${effect.label} 10분 시작`
+              : "말투 제한을 해제했어."
+          );
+        } else if (effect.kind === "smoking") {
+          onNotice("금연 상태를 시작했어.");
         } else {
-          onNotice(effect.active ? "현재 아봉중" : "아봉을 해제했어.");
+          onNotice(
+            effect.active ? "현재 아봉중" : "아봉을 해제했어."
+          );
         }
+
+        window.dispatchEvent(new Event("cash-effect-updated"));
       } else {
         await post("/api/cash-board", pin, {
           action: "resolve_spin",
-          spin_id: result.spin_id,
+          spin_id: target.spin_id,
           mode,
         });
 
-        if (mode === "use") {
-          window.dispatchEvent(new Event("cash-timer-updated"));
-        }
-
-        onNotice(mode === "keep" ? `${result.label} 킵 저장 완료` : `${result.label} 즉시사용 완료`);
+        onNotice(
+          mode === "keep"
+            ? `${target.label} 킵 저장 완료`
+            : `${target.label} 즉시사용 완료`
+        );
       }
 
-      setResult(null);
-      setReveal(false);
-      setCurrentPick("추첨 대기");
-      setCursorPct(5);
+      setBatchResults((current) =>
+        current.map((item) =>
+          item.spin_id === target.spin_id
+            ? {
+                ...item,
+                handled: true,
+                handled_mode: mode,
+              }
+            : item
+        )
+      );
+
+      window.dispatchEvent(new Event("cash-timer-updated"));
+      window.dispatchEvent(new Event("cash-queue-updated"));
       await onChanged();
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "결과 처리에 실패했어.");
+      onNotice(
+        error instanceof Error
+          ? error.message
+          : "결과 처리에 실패했어."
+      );
     }
+  }
+
+  function resultHint(item: SpinResult) {
+    if (item.label.includes("00체")) {
+      return "사용하면 말투 입력 후 10분 시작";
+    }
+    if (item.label.includes("아봉")) {
+      return "사용하면 아봉 상태 전환";
+    }
+    if (item.label === "금연") {
+      return "사용하면 금연 경과시간 시작";
+    }
+
+    const configItem = items.find(
+      (rouletteItem) => rouletteItem.label === item.label
+    );
+    if (Number(configItem?.time_limit_minutes || 0) > 0) {
+      return `사용하면 ${configItem?.time_limit_minutes}분 타이머 시작`;
+    }
+
+    return "";
   }
 
   return (
@@ -486,26 +700,39 @@ export default function GamePanel({
             {money(chosen.cash_balance)} 캐시
           </div>
         )}
+
         <input
           value={nickname}
-          onFocus={() => nickname.trim() && setOpenUsers(true)}
+          onFocus={() =>
+            nickname.trim() && setOpenUsers(true)
+          }
           onChange={(e) => {
             setNickname(e.target.value);
             setOpenUsers(true);
             setActiveUser(0);
           }}
-          onBlur={() => window.setTimeout(() => setOpenUsers(false), 90)}
+          onBlur={() =>
+            window.setTimeout(() => setOpenUsers(false), 90)
+          }
           onKeyDown={(e) => {
             if (!openUsers || suggestions.length === 0) return;
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setActiveUser((value) => (value + 1) % suggestions.length);
+              setActiveUser(
+                (value) => (value + 1) % suggestions.length
+              );
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
-              setActiveUser((value) => (value - 1 + suggestions.length) % suggestions.length);
+              setActiveUser(
+                (value) =>
+                  (value - 1 + suggestions.length) %
+                  suggestions.length
+              );
             } else if (e.key === "Enter") {
               e.preventDefault();
-              chooseUser(suggestions[activeUser] || suggestions[0]);
+              chooseUser(
+                suggestions[activeUser] || suggestions[0]
+              );
             } else if (e.key === "Escape") {
               setOpenUsers(false);
             }
@@ -513,6 +740,7 @@ export default function GamePanel({
           placeholder="닉네임 검색"
           className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-28 text-sm font-bold outline-none focus:border-violet-300 focus:bg-white"
         />
+
         {openUsers && suggestions.length > 0 && (
           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-xl">
             {suggestions.map((user, index) => (
@@ -525,10 +753,19 @@ export default function GamePanel({
                 }}
                 className={
                   "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left " +
-                  (activeUser === index ? "bg-violet-50" : "hover:bg-zinc-50")
+                  (activeUser === index
+                    ? "bg-violet-50"
+                    : "hover:bg-zinc-50")
                 }
               >
-                <span className="truncate text-sm font-black">{user.nickname}</span>
+                <span className="min-w-0 truncate text-sm font-black">
+                  {user.nickname}
+                  {user.title_text && (
+                    <span className="ml-2 text-[9px] text-violet-500">
+                      {user.title_text}
+                    </span>
+                  )}
+                </span>
                 <span className="ml-2 shrink-0 text-[11px] font-black text-violet-500">
                   {money(user.cash_balance)} 캐시
                 </span>
@@ -538,26 +775,64 @@ export default function GamePanel({
         )}
       </div>
 
-      <select
-        value={rouletteId ?? ""}
-        onChange={(e) => {
-          setRouletteId(Number(e.target.value));
-          setResult(null);
-          setReveal(false);
-          setCurrentPick("추첨 대기");
-          setCursorPct(5);
-        }}
-        disabled={spinning}
-        className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
-      >
-        {roulettes.map((roulette) => (
-          <option key={roulette.id} value={roulette.id}>
-            {roulette.name} · {money(roulette.cost)} 캐시
-          </option>
-        ))}
-      </select>
+      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+        <select
+          value={rouletteId ?? ""}
+          onChange={(e) => {
+            setRouletteId(Number(e.target.value));
+            setCurrentResult(null);
+            setBatchResults([]);
+            setReveal(false);
+            setCurrentPick("추첨 대기");
+            setCursorPct(5);
+          }}
+          disabled={spinning}
+          className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
+        >
+          {roulettes.map((roulette) => {
+            const discounted = Math.max(
+              0,
+              Math.round(
+                roulette.cost *
+                  (100 - Math.max(0, discountPercent || 0)) /
+                  100
+              )
+            );
+            return (
+              <option key={roulette.id} value={roulette.id}>
+                {roulette.name} · {money(discounted)} 캐시
+              </option>
+            );
+          })}
+        </select>
 
-      <div className={fx.stage + " mt-3 " + (spinning ? fx.stageSpinning : "")}>
+        <div className="flex rounded-2xl bg-zinc-100 p-1">
+          {[1, 2, 3, 5].map((count) => (
+            <button
+              key={count}
+              type="button"
+              disabled={spinning}
+              onClick={() => setSpinCount(count)}
+              className={
+                "min-w-9 rounded-xl px-2 py-2 text-xs font-black transition " +
+                (spinCount === count
+                  ? "bg-zinc-950 text-white"
+                  : "text-zinc-500")
+              }
+            >
+              {count}회
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className={
+          fx.stage +
+          " mt-3 " +
+          (spinning ? fx.stageSpinning : "")
+        }
+      >
         {countdown !== null && (
           <div className="pointer-events-none absolute inset-0 z-[30] flex items-center justify-center bg-zinc-950/35 backdrop-blur-[1px]">
             <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/30 bg-white/10 text-[52px] font-black leading-none text-white shadow-[0_0_45px_rgba(213,79,255,.55)] backdrop-blur-md animate-pulse">
@@ -565,22 +840,46 @@ export default function GamePanel({
             </div>
           </div>
         )}
+
         <div className="relative z-[2] flex items-center justify-between">
           <div>
-            <div className="text-[10px] font-black text-fuchsia-300">실시간 추첨</div>
-            <div className="mt-1 text-sm font-black text-white">{config?.name || fallback?.name || "룰렛"}</div>
+            <div className="flex items-center gap-2 text-[10px] font-black text-fuchsia-300">
+              <span>실시간 추첨</span>
+              {spinProgress && (
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-white/80">
+                  {spinProgress}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-sm font-black text-white">
+              {config?.name || fallback?.name || "룰렛"}
+            </div>
           </div>
+
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setSoundOn((value) => !value)}
+              onClick={() =>
+                setSoundOn((value) => !value)
+              }
               disabled={spinning}
               className="rounded-full bg-white/10 px-2.5 py-1.5 text-[10px] font-black text-white/75 disabled:opacity-40"
             >
               효과음 {soundOn ? "켜짐" : "꺼짐"}
             </button>
+
             <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
-              1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
+              {discountPercent > 0 ? (
+                <>
+                  <span className="mr-1 text-emerald-300">
+                    -{discountPercent}%
+                  </span>
+                  {money(effectiveCost)}
+                </>
+              ) : (
+                money(effectiveCost)
+              )}
+              {" "}캐시
             </div>
           </div>
         </div>
@@ -592,23 +891,48 @@ export default function GamePanel({
                 key={item.id || index}
                 className={[
                   fx.segment,
-                  spinning && activeIndex === index ? fx.segmentActive : "",
-                  reveal && result && item.label === result.label ? fx.segmentWinner : "",
-                  reveal && result && item.label !== result.label ? fx.segmentDim : "",
-                ].filter(Boolean).join(" ")}
+                  spinning && activeIndex === index
+                    ? fx.segmentActive
+                    : "",
+                  reveal &&
+                  currentResult &&
+                  item.label === currentResult.label
+                    ? fx.segmentWinner
+                    : "",
+                  reveal &&
+                  currentResult &&
+                  item.label !== currentResult.label
+                    ? fx.segmentDim
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 style={{
-                  width: `${Math.max(0, Number(item.weight || 0))}%`,
-                  background: colors[index % colors.length],
+                  width: `${Math.max(
+                    0,
+                    Number(item.weight || 0)
+                  )}%`,
+                  background:
+                    colors[index % colors.length],
                 }}
                 title={`${item.label} ${item.weight}%`}
               >
                 <span className={fx.segmentText}>
-                  {item.weight >= 9 ? item.label : item.weight >= 6 ? item.label.slice(0, 2) : ""}
+                  {item.weight >= 9
+                    ? item.label
+                    : item.weight >= 6
+                      ? item.label.slice(0, 2)
+                      : ""}
                 </span>
               </div>
             ))}
+
             <div
-              className={fx.selector + " " + (spinning ? fx.selectorHot : "")}
+              className={
+                fx.selector +
+                " " +
+                (spinning ? fx.selectorHot : "")
+              }
               style={{ left: `${cursorPct}%` }}
             />
           </div>
@@ -622,10 +946,15 @@ export default function GamePanel({
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: colors[index % colors.length] }}
+                style={{
+                  background:
+                    colors[index % colors.length],
+                }}
               />
               <span className="truncate">{item.label}</span>
-              <span className="shrink-0 text-white/65">{item.weight}%</span>
+              <span className="shrink-0 text-white/65">
+                {item.weight}%
+              </span>
               {Number(item.time_limit_minutes || 0) > 0 && (
                 <span className="shrink-0 rounded-full bg-amber-300/15 px-1.5 py-0.5 text-[9px] font-black text-amber-200">
                   ⏱ {item.time_limit_minutes}분
@@ -635,95 +964,168 @@ export default function GamePanel({
           ))}
         </div>
 
-        <div className={fx.currentPick}>{currentPick}</div>
+        <div className={fx.currentPick}>
+          {currentPick}
+        </div>
 
         <button
           type="button"
           onClick={spin}
-          disabled={spinning || !rouletteId}
+          disabled={
+            spinning ||
+            !rouletteId ||
+            unresolvedKeeps
+          }
           className="relative z-[3] mt-3 w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
         >
-          {spinning ? "추첨 중..." : `시작하기 · ${money(config?.cost ?? fallback?.cost ?? 0)} 캐시`}
+          {spinning
+            ? "연속 추첨 중..."
+            : `${spinCount}회 시작 · ${money(totalCost)} 캐시`}
         </button>
 
-        <div className={fx.flash + " " + (positiveReveal ? fx.flashOn : "")} key={"flash-" + burst} />
-        {positiveReveal && Array.from({ length: rareWin ? 18 : 12 }).map((_, index) => (
-          <span
-            key={burst + "-" + index}
-            className={fx.spark + " " + fx.sparkOn}
-            style={{
-              left: `${10 + (index * 7) % 82}%`,
-              top: `${22 + (index * 13) % 55}%`,
-              animationDelay: `${(index % 4) * 55}ms`,
-              background: colors[index % colors.length],
-              color: colors[index % colors.length],
-            }}
-          />
-        ))}
+        {unresolvedKeeps && !spinning && (
+          <div className="mt-2 text-center text-[10px] font-black text-amber-200">
+            아래 결과의 즉시사용/킵을 먼저 선택해줘.
+          </div>
+        )}
 
-        {reveal && result && (
-          <div
-            className={
-              (result.result_type === "nothing" || result.result_type === "cash_loss" ? fx.lossResult : fx.resultPop) +
-              " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"
-            }
-          >
-            <div className="text-[11px] font-black text-fuchsia-200">
-              {result.result_type === "nothing" ? "결과" : "당첨 결과"}
+        <div
+          className={
+            fx.flash +
+            " " +
+            (positiveReveal ? fx.flashOn : "")
+          }
+          key={"flash-" + burst}
+        />
+
+        {positiveReveal &&
+          Array.from({
+            length: rareWin ? 18 : 12,
+          }).map((_, index) => (
+            <span
+              key={burst + "-" + index}
+              className={fx.spark + " " + fx.sparkOn}
+              style={{
+                left: `${10 + (index * 7) % 82}%`,
+                top: `${22 + (index * 13) % 55}%`,
+                animationDelay: `${(index % 4) * 55}ms`,
+                background:
+                  colors[index % colors.length],
+                color: colors[index % colors.length],
+              }}
+            />
+          ))}
+
+        {!spinning && batchResults.length > 0 && (
+          <div className="relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-black text-fuchsia-200">
+                {batchResults.length > 1
+                  ? `${batchResults.length}회 결과`
+                  : "결과"}
+              </div>
+              <div className="text-[10px] font-black text-white/50">
+                {nickname}
+              </div>
             </div>
-            {rareWin && <div className={fx.rareBadge + " mt-2"}>희귀 당첨 · {resultItem?.weight}%</div>}
-            <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
-            <div className="mt-1 text-[11px] font-black text-cyan-200/80">
-              {nickname}님이 오늘 목표를 {money(config?.cost ?? fallback?.cost ?? 0)}만큼 채웠어요
+
+            <div className="mt-2 space-y-2">
+              {batchResults.map((item, index) => {
+                const hint = resultHint(item);
+                const weight = items.find(
+                  (rouletteItem) =>
+                    rouletteItem.label === item.label
+                )?.weight;
+                const rare =
+                  item.result_type !== "nothing" &&
+                  item.result_type !== "cash_loss" &&
+                  Number(weight || 100) <= 5;
+
+                return (
+                  <div
+                    key={item.spin_id}
+                    className="rounded-xl bg-zinc-950/30 p-3 text-white ring-1 ring-white/10"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-black">
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="text-[18px] font-black">
+                            {item.label}
+                          </div>
+                          {rare && (
+                            <div className="rounded-full bg-fuchsia-500/20 px-2 py-0.5 text-[9px] font-black text-fuchsia-100">
+                              희귀 {weight}%
+                            </div>
+                          )}
+                        </div>
+
+                        {hint && (
+                          <div className="mt-1 text-[10px] font-bold text-amber-100/80">
+                            {hint}
+                          </div>
+                        )}
+
+                        {item.result_type === "cash" && (
+                          <div className="mt-1 text-[10px] font-bold text-cyan-200">
+                            캐시에 자동 반영됨
+                          </div>
+                        )}
+
+                        {item.result_type === "cash_loss" && (
+                          <div className="mt-1 text-[10px] font-bold text-rose-200">
+                            캐시 자동 차감
+                          </div>
+                        )}
+
+                        {item.result_type === "nothing" && (
+                          <div className="mt-1 text-[10px] font-bold text-zinc-300">
+                            {item.label === "꽝"
+                              ? "이번 결과는 꽝"
+                              : "결과가 바로 적용됨"}
+                          </div>
+                        )}
+
+                        {item.result_type === "keep" &&
+                          !item.handled && (
+                            <div className="mt-2 grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  resolveOne(item, "use")
+                                }
+                                className="rounded-xl bg-white px-3 py-2 text-xs font-black text-zinc-900"
+                              >
+                                즉시사용
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  resolveOne(item, "keep")
+                                }
+                                className="rounded-xl bg-fuchsia-500 px-3 py-2 text-xs font-black text-white"
+                              >
+                                킵
+                              </button>
+                            </div>
+                          )}
+
+                        {item.result_type === "keep" &&
+                          item.handled && (
+                            <div className="mt-2 inline-flex rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-black text-emerald-200">
+                              {item.handled_mode === "keep"
+                                ? "킵 저장 완료"
+                                : "즉시사용 완료"}
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            {speechResult && (
-              <div className="mt-2 rounded-xl bg-fuchsia-300/10 px-3 py-2 text-[11px] font-black text-fuchsia-100 ring-1 ring-fuchsia-200/20">
-                사용 → 무슨 체인지 입력 → 10분 시작
-              </div>
-            )}
-            {gagResult && (
-              <div className="mt-2 rounded-xl bg-rose-300/10 px-3 py-2 text-[11px] font-black text-rose-100 ring-1 ring-rose-200/20">
-                사용하면 아봉 · 다른 사람이 같은 아봉을 써야 해제
-              </div>
-            )}
-            {!speechResult && !gagResult && timedResult && (
-              <div className="mt-2 rounded-xl bg-amber-300/10 px-3 py-2 text-[11px] font-black text-amber-200 ring-1 ring-amber-200/20">
-                사용하면 {timedResult.time_limit_minutes}분 타이머가 바로 시작돼
-              </div>
-            )}
-
-            {result.result_type === "keep" && (
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => resolve("use")}
-                  className="rounded-xl bg-white px-3 py-2.5 text-sm font-black text-zinc-900"
-                >
-                  즉시사용
-                </button>
-                <button
-                  type="button"
-                  onClick={() => resolve("keep")}
-                  className="rounded-xl bg-fuchsia-500 px-3 py-2.5 text-sm font-black text-white"
-                >
-                  킵
-                </button>
-              </div>
-            )}
-
-            {result.result_type === "cash" && (
-              <div className="mt-2 text-xs font-bold text-cyan-200">당첨 캐시는 자동으로 반영됐어.</div>
-            )}
-
-            {result.result_type === "cash_loss" && (
-              <div className="mt-2 rounded-xl bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-200 ring-1 ring-rose-300/20">
-                캐시가 차감됐어 · 잔액 {money(result.balance)} 캐시
-              </div>
-            )}
-
-            {result.result_type === "nothing" && (
-              <div className="mt-2 text-xs font-bold text-zinc-300">이번 판은 꽝.</div>
-            )}
           </div>
         )}
       </div>

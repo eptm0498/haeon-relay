@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import GamePanel from "./GamePanel";
 import RouletteSettings from "./RouletteSettings";
 import TimerOverlay from "./TimerOverlay";
+import SettingsPanel from "./SettingsPanel";
 
 type User = {
   id: number;
@@ -11,6 +12,8 @@ type User = {
   cash_balance: number;
   total_charged: number;
   total_spent: number;
+  title_text?: string | null;
+  title_count?: number;
 };
 
 type Roulette = { id: number; name: string; cost: number };
@@ -18,7 +21,7 @@ type ContentItem = { id: number; name: string; cost: number };
 type Keep = { id: number; item_name: string; quantity: number; time_limit_minutes?: number; source_roulette_name?: string | null };
 type KeepOption = { label: string; time_limit_minutes: number; roulette_name: string };
 type Charge = { id: number; amount: number; note: string | null; created_at: string };
-type Bootstrap = { users: User[]; roulettes: Roulette[]; contents: ContentItem[] };
+type Bootstrap = { users: User[]; roulettes: Roulette[]; contents: ContentItem[]; discount_percent: number };
 type UserDetail = { user: User; keeps: Keep[]; charges: Charge[] };
 type SpinResult = {
   ok: boolean;
@@ -44,8 +47,8 @@ const dateTime = (value: string) =>
 export default function CashBoardPage() {
   const [pin, setPin] = useState("");
   const [authed, setAuthed] = useState(false);
-  const [data, setData] = useState<Bootstrap>({ users: [], roulettes: [], contents: [] });
-  const [tab, setTab] = useState<"charge" | "roulette" | "content" | "users">("charge");
+  const [data, setData] = useState<Bootstrap>({ users: [], roulettes: [], contents: [], discount_percent: 0 });
+  const [tab, setTab] = useState<"charge" | "roulette" | "content" | "users" | "settings">("charge");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -214,7 +217,15 @@ export default function CashBoardPage() {
         userApi<UserDetail>("detail", { user_id: id }),
         effectsApi<{ options: KeepOption[] }>("options"),
       ]);
-      setSelectedUser(detail);
+      const fromList = data.users.find((user) => user.id === id);
+      setSelectedUser({
+        ...detail,
+        user: {
+          ...detail.user,
+          title_text: fromList?.title_text ?? null,
+          title_count: fromList?.title_count ?? 0,
+        },
+      });
       setKeepOptions(optionData.options || []);
       setRestoreKeep("");
     } catch (error) {
@@ -241,7 +252,7 @@ export default function CashBoardPage() {
     setBusy(true);
     setNotice("");
     try {
-      if (itemName.includes("00체") || itemName.includes("아봉")) {
+      if (itemName.includes("00체") || itemName.includes("아봉") || itemName === "금연") {
         const effect = await effectsApi<{
           kind: string;
           active: boolean;
@@ -254,6 +265,8 @@ export default function CashBoardPage() {
 
         if (effect.kind === "speech_style") {
           setNotice(effect.active ? `${effect.label} 10분 시작` : "말투 제한을 해제했어.");
+        } else if (effect.kind === "smoking") {
+          setNotice("금연 상태를 시작했어.");
         } else {
           setNotice(effect.active ? "현재 아봉중" : "아봉을 해제했어.");
         }
@@ -380,6 +393,7 @@ export default function CashBoardPage() {
     ["roulette", "게임"],
     ["content", "룰렛 설정"],
     ["users", "사용자"],
+    ["settings", "설정"],
   ] as const;
 
   return (
@@ -401,7 +415,7 @@ export default function CashBoardPage() {
           </button>
         </header>
 
-        <nav className="mb-4 grid grid-cols-4 gap-2">
+        <nav className="mb-4 grid grid-cols-5 gap-2">
           {tabs.map(([key, label]) => (
             <button
               key={key}
@@ -471,6 +485,7 @@ export default function CashBoardPage() {
             roulettes={data.roulettes}
             onChanged={reload}
             onNotice={setNotice}
+            discountPercent={data.discount_percent}
           />
         )}
 
@@ -498,8 +513,15 @@ export default function CashBoardPage() {
                     onClick={() => openUser(user.id)}
                     className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left"
                   >
-                    <span className="font-extrabold">{user.nickname}</span>
-                    <span className="font-black">{money(user.cash_balance)} 캐시</span>
+                    <span className="min-w-0">
+                      <span className="font-extrabold">{user.nickname}</span>
+                      {user.title_text && (
+                        <span className="ml-2 inline-flex rounded-full bg-violet-50 px-2 py-1 text-[10px] font-black text-violet-600">
+                          {user.title_text}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 font-black">{money(user.cash_balance)} 캐시</span>
                   </button>
                 ))}
               </div>
@@ -509,7 +531,14 @@ export default function CashBoardPage() {
               <div className="mt-3 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="flex items-end justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-lg font-black">{selectedUser.user.nickname}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="truncate text-lg font-black">{selectedUser.user.nickname}</div>
+                      {selectedUser.user.title_text && (
+                        <div className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-600">
+                          {selectedUser.user.title_text}
+                        </div>
+                      )}
+                    </div>
                     <div className="mt-1 text-sm text-zinc-500">보유 캐시</div>
                   </div>
                   <div className="shrink-0 text-3xl font-black">{money(selectedUser.user.cash_balance)}</div>
@@ -635,6 +664,15 @@ export default function CashBoardPage() {
 
           </>
         )}
+
+        {tab === "settings" && (
+          <SettingsPanel
+            pin={pin}
+            onNotice={setNotice}
+            onChanged={reload}
+          />
+        )}
+
       </div>
       <TimerOverlay pin={pin} />
     </main>
