@@ -93,7 +93,7 @@ export default function GamePanel({
   const [reveal, setReveal] = useState(false);
   const [burst, setBurst] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
 
@@ -151,21 +151,121 @@ export default function GamePanel({
     } catch {}
   }
 
-  function playTone(frequency: number, durationMs: number, volume = 0.025) {
+  function playTone(
+    frequency: number,
+    durationMs: number,
+    volume = 0.025,
+    type: OscillatorType = "sine",
+    delayMs = 0,
+    endFrequency?: number
+  ) {
     if (!soundOn || !audioRef.current) return;
     try {
       const context = audioRef.current;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(volume, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationMs / 1000);
+      const startAt = context.currentTime + delayMs / 1000;
+      const endAt = startAt + durationMs / 1000;
+
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      if (endFrequency) {
+        oscillator.frequency.exponentialRampToValueAtTime(
+          Math.max(20, endFrequency),
+          endAt
+        );
+      }
+
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), startAt + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
       oscillator.connect(gain);
       gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + durationMs / 1000);
+      oscillator.start(startAt);
+      oscillator.stop(endAt + 0.02);
     } catch {}
+  }
+
+  function playNoise(durationMs = 70, volume = 0.012, delayMs = 0) {
+    if (!soundOn || !audioRef.current) return;
+    try {
+      const context = audioRef.current;
+      const frameCount = Math.max(1, Math.floor(context.sampleRate * (durationMs / 1000)));
+      const buffer = context.createBuffer(1, frameCount, context.sampleRate);
+      const channel = buffer.getChannelData(0);
+
+      for (let index = 0; index < frameCount; index += 1) {
+        channel[index] = (Math.random() * 2 - 1) * (1 - index / frameCount);
+      }
+
+      const source = context.createBufferSource();
+      const filter = context.createBiquadFilter();
+      const gain = context.createGain();
+      const startAt = context.currentTime + delayMs / 1000;
+      const endAt = startAt + durationMs / 1000;
+
+      source.buffer = buffer;
+      filter.type = "bandpass";
+      filter.frequency.value = 1350;
+      filter.Q.value = 0.7;
+      gain.gain.setValueAtTime(volume, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(context.destination);
+      source.start(startAt);
+      source.stop(endAt + 0.01);
+    } catch {}
+  }
+
+  function playCountdownSound(step: number) {
+    const base = step === 3 ? 430 : step === 2 ? 520 : 640;
+    playTone(base, 105, 0.022, "triangle");
+    playTone(base * 2, 72, 0.008, "sine", 8);
+    playNoise(38, 0.006);
+  }
+
+  function playLaunchSound() {
+    playTone(420, 180, 0.018, "sawtooth", 0, 980);
+    playTone(840, 120, 0.012, "triangle", 75, 1320);
+    playNoise(65, 0.009, 15);
+  }
+
+  function playTickSound(progress: number, index: number) {
+    const pitch = 310 + Math.round((1 - progress) * 300) + (index % 4) * 24;
+    const tone: OscillatorType = index % 2 === 0 ? "square" : "triangle";
+    playTone(pitch, 34, 0.0065, tone);
+    if (index % 3 === 0) playNoise(24, 0.0035);
+  }
+
+  function playPositiveResultSound(kind: "cash" | "keep", rare: boolean) {
+    const notes =
+      kind === "cash"
+        ? [659, 784, 988, 1319]
+        : [587, 740, 880, 1175];
+
+    notes.forEach((note, index) => {
+      playTone(note, rare ? 230 : 180, rare ? 0.024 : 0.018, index % 2 ? "triangle" : "sine", index * 72);
+    });
+
+    if (rare) {
+      playTone(1568, 420, 0.015, "sine", 250);
+      playNoise(160, 0.008, 220);
+    }
+  }
+
+  function playNegativeResultSound(kind: "nothing" | "cash_loss") {
+    if (kind === "cash_loss") {
+      playTone(330, 180, 0.018, "sawtooth", 0, 165);
+      playTone(220, 220, 0.015, "triangle", 90, 110);
+      playNoise(110, 0.012, 35);
+      return;
+    }
+
+    playTone(240, 150, 0.012, "triangle", 0, 180);
+    playNoise(60, 0.005, 25);
   }
 
   function chooseUser(user: User) {
@@ -199,16 +299,16 @@ export default function GamePanel({
       });
 
       setCountdown(3);
-      playTone(520, 90, 0.018);
+      playCountdownSound(3);
       await delay(420);
       setCountdown(2);
-      playTone(590, 90, 0.018);
+      playCountdownSound(2);
       await delay(420);
       setCountdown(1);
-      playTone(680, 100, 0.02);
+      playCountdownSound(1);
       await delay(420);
       setCountdown(null);
-      playTone(820, 110, 0.022);
+      playLaunchSound();
 
       const start = cursorPct;
       const target = resultCenter(items, hit.label);
@@ -271,8 +371,7 @@ export default function GamePanel({
         setCurrentPick(nextLabel);
 
         if (nextLabel !== lastTickLabel) {
-          const pitch = 360 + Math.round((1 - t) * 260);
-          playTone(pitch, 42, 0.012);
+          playTickSound(t, itemIndexAt(items, position));
           lastTickLabel = nextLabel;
         }
 
@@ -287,10 +386,11 @@ export default function GamePanel({
         setReveal(true);
         setBurst((value) => value + 1);
         if (hit.result_type === "nothing" || hit.result_type === "cash_loss") {
-          playTone(hit.result_type === "cash_loss" ? 145 : 180, 140, 0.014);
+          playNegativeResultSound(hit.result_type);
         } else {
-          playTone(880, 110, 0.024);
-          window.setTimeout(() => playTone(1175, 170, 0.022), 105);
+          const hitItem = items.find((item) => item.label === hit.label);
+          const rare = Number(hitItem?.weight || 100) <= 5;
+          playPositiveResultSound(hit.result_type, rare);
         }
         setSpinning(false);
         animationRef.current = null;
@@ -380,20 +480,12 @@ export default function GamePanel({
 
   return (
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
-      <div className="text-[11px] font-black text-violet-600">오늘의 룰렛</div>
-      <div className="mt-1 flex items-end justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black">룰렛</h2>
-          <p className="mt-0.5 text-xs font-medium text-zinc-400">닉네임 고르고 바로 시작하면 돼.</p>
-        </div>
+      <div className="relative z-30">
         {chosen && (
-          <div className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-[11px] font-black text-violet-600">
+          <div className="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-600">
             {money(chosen.cash_balance)} 캐시
           </div>
         )}
-      </div>
-
-      <div className="relative z-30 mt-3">
         <input
           value={nickname}
           onFocus={() => nickname.trim() && setOpenUsers(true)}
@@ -419,7 +511,7 @@ export default function GamePanel({
             }
           }}
           placeholder="닉네임 검색"
-          className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-bold outline-none focus:border-violet-300 focus:bg-white"
+          className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-28 text-sm font-bold outline-none focus:border-violet-300 focus:bg-white"
         />
         {openUsers && suggestions.length > 0 && (
           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-xl">
