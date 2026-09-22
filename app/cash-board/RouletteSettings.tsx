@@ -9,6 +9,7 @@ type RouletteItem = {
   result_type: ResultType;
   cash_amount: number;
   weight: number;
+  time_limit_minutes?: number;
   sort_order?: number;
 };
 type RouletteConfig = {
@@ -107,6 +108,7 @@ export default function RouletteSettings({
         result_type: "keep",
         cash_amount: 0,
         weight: probability,
+        time_limit_minutes: 0,
       });
 
       return { ...current, items };
@@ -188,23 +190,10 @@ export default function RouletteSettings({
           result_type: item.result_type,
           cash_amount: item.result_type === "cash" ? Number(item.cash_amount || 0) : 0,
           weight: Number(item.weight),
+          time_limit_minutes: Number(item.time_limit_minutes || 0),
         })),
       });
 
-      const timerResponse = await fetch("/api/cash-board-timers", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-admin-pin": pin },
-        body: JSON.stringify({
-          action: "save_setting",
-          roulette_id: draft.id,
-          enabled: Number(draft.time_limit_minutes || 0) === 10,
-        }),
-        cache: "no-store",
-      });
-      const timerData = await timerResponse.json();
-      if (!timerResponse.ok) {
-        throw new Error(timerData?.error || "10분 제한 설정 저장에 실패했어.");
-      }
       await load(draft.id);
       await onSaved();
       onNotice("룰렛 설정을 저장했어.");
@@ -286,39 +275,27 @@ export default function RouletteSettings({
             </label>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-3 py-2.5">
-              <div className="text-xs font-black text-zinc-500">
-                확률 합계
-                <span className={"ml-2 text-sm " + (total === 100 ? "text-emerald-600" : "text-rose-500")}>
-                  {total}%
-                </span>
-              </div>
+          <div className="mt-3 flex items-center justify-between rounded-2xl bg-zinc-50 px-3 py-2.5">
+            <div className="text-xs font-black text-zinc-500">
+              확률 합계
+              <span className={"ml-2 text-sm " + (total === 100 ? "text-emerald-600" : "text-rose-500")}>
+                {total}%
+              </span>
             </div>
 
             <button
               type="button"
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  time_limit_minutes: Number(draft.time_limit_minutes || 0) === 10 ? 0 : 10,
-                })
-              }
+              onClick={() => setDraft({ ...draft, active: !draft.active })}
               className={
-                "rounded-2xl px-3 py-2.5 text-left ring-1 transition " +
-                (Number(draft.time_limit_minutes || 0) === 10
-                  ? "bg-amber-50 text-amber-700 ring-amber-200"
-                  : "bg-zinc-50 text-zinc-500 ring-zinc-100")
+                "rounded-full px-3 py-1.5 text-[10px] font-black " +
+                (draft.active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-500")
               }
             >
-              <div className="text-[10px] font-black">시간 제한</div>
-              <div className="mt-0.5 text-sm font-black">
-                {Number(draft.time_limit_minutes || 0) === 10 ? "10분 타이머 사용" : "사용 안 함"}
-              </div>
+              {draft.active ? "룰렛 사용 중" : "룰렛 사용 안 함"}
             </button>
           </div>
 
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2 hidden">
             <button
               type="button"
               onClick={() => setDraft({ ...draft, active: !draft.active })}
@@ -384,8 +361,31 @@ export default function RouletteSettings({
                     />
                   ) : (
                     <div className="flex-1 text-[10px] font-bold text-zinc-400">
-                      {item.result_type === "keep" ? "당첨 시 즉시사용 / 킵 선택" : "당첨 보상 없음"}
+                      {item.result_type === "keep"
+                        ? Number(item.time_limit_minutes || 0) > 0
+                          ? "실제 사용 순간부터 10분 타이머 시작"
+                          : "당첨 시 즉시사용 / 킵 선택"
+                        : "당첨 보상 없음"}
                     </div>
+                  )}
+
+                  {item.result_type === "keep" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateItem(index, {
+                          time_limit_minutes: Number(item.time_limit_minutes || 0) === 10 ? 0 : 10,
+                        })
+                      }
+                      className={
+                        "rounded-xl px-3 py-2 text-[10px] font-black ring-1 " +
+                        (Number(item.time_limit_minutes || 0) === 10
+                          ? "bg-amber-50 text-amber-700 ring-amber-200"
+                          : "bg-zinc-50 text-zinc-400 ring-zinc-200")
+                      }
+                    >
+                      {Number(item.time_limit_minutes || 0) === 10 ? "⏱ 10분 제한" : "10분 제한 추가"}
+                    </button>
                   )}
                   <button
                     type="button"
