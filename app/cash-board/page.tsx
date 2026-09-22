@@ -16,7 +16,7 @@ type User = {
 
 type Roulette = { id: number; name: string; cost: number };
 type ContentItem = { id: number; name: string; cost: number };
-type Keep = { id: number; item_name: string; quantity: number };
+type Keep = { id: number; item_name: string; quantity: number; time_limit_minutes?: number; source_roulette_name?: string | null };
 type Charge = { id: number; amount: number; note: string | null; created_at: string };
 type Bootstrap = { users: User[]; roulettes: Roulette[]; contents: ContentItem[] };
 type UserDetail = { user: User; keeps: Keep[]; charges: Charge[] };
@@ -211,6 +211,7 @@ export default function CashBoardPage() {
     setNotice("");
     try {
       await api("use_keep", { user_id: selectedUser.user.id, item_name: itemName });
+      window.dispatchEvent(new Event("cash-timer-updated"));
       const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
       setSelectedUser(detail);
       await reload();
@@ -455,8 +456,15 @@ export default function CashBoardPage() {
                     <div className="divide-y divide-zinc-100">
                       {selectedUser.keeps.map((keep) => (
                         <div key={keep.id} className="flex items-center justify-between gap-3 py-3">
-                          <div className="font-extrabold">
-                            {keep.item_name} <span className="text-zinc-400">×{keep.quantity}</span>
+                          <div className="min-w-0">
+                            <div className="font-extrabold">
+                              {keep.item_name} <span className="text-zinc-400">×{keep.quantity}</span>
+                            </div>
+                            {Number(keep.time_limit_minutes || 0) > 0 && (
+                              <div className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">
+                                ⏱ 사용 시 {keep.time_limit_minutes}분
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => useKeep(keep.item_name)}
