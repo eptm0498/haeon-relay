@@ -100,7 +100,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   if (active.length === 0 && !gag) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-3 right-3 z-[110] flex w-[min(300px,calc(100vw-20px))] flex-col gap-1.5">
+    <div className="pointer-events-none fixed top-5 z-[110] flex w-[280px] flex-col gap-1.5 right-3 xl:left-[calc(50%+332px)] xl:right-auto">
       {gag && (
         <div className="rounded-2xl border border-rose-300/50 bg-rose-600/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(190,24,93,.28)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3">
