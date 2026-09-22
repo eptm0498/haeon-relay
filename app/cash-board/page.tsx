@@ -24,7 +24,7 @@ type SpinResult = {
   ok: boolean;
   spin_id: number;
   label: string;
-  result_type: "keep" | "cash" | "nothing";
+  result_type: "keep" | "cash" | "cash_loss" | "nothing";
   balance: number;
 };
 
