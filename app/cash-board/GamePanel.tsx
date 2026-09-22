@@ -610,6 +610,7 @@ export default function GamePanel({
         const effect = await post<{
           kind: string;
           active: boolean;
+          queued?: boolean;
           label: string;
         }>("/api/cash-effects", pin, {
           action: "use_special",
@@ -620,9 +621,11 @@ export default function GamePanel({
 
         if (effect.kind === "speech_style") {
           onNotice(
-            effect.active
-              ? `${effect.label} 10분 시작`
-              : "말투 제한을 해제했어."
+            effect.queued
+              ? `${effect.label}을(를) 다음 말투 대기열에 넣었어.`
+              : effect.active
+                ? `${effect.label} 10분 시작`
+                : "말투 제한을 해제했어."
           );
         } else if (effect.kind === "smoking") {
           onNotice("금연 상태를 시작했어.");
