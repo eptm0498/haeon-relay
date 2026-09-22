@@ -295,19 +295,6 @@ export default function RouletteSettings({
             </button>
           </div>
 
-          <div className="mt-2 hidden">
-            <button
-              type="button"
-              onClick={() => setDraft({ ...draft, active: !draft.active })}
-              className={
-                "rounded-full px-3 py-1.5 text-[10px] font-black " +
-                (draft.active ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-500")
-              }
-            >
-              {draft.active ? "룰렛 사용 중" : "룰렛 사용 안 함"}
-            </button>
-          </div>
-
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
             <div
               className={"h-full transition-all " + (total === 100 ? "bg-emerald-500" : "bg-rose-400")}
