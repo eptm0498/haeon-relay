@@ -51,6 +51,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   const [timers, setTimers] = useState<TimerItem[]>([]);
   const [gag, setGag] = useState<ActiveState | null>(null);
   const [smoking, setSmoking] = useState<ActiveState | null>(null);
+  const [eating, setEating] = useState<ActiveState | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [clearingGag, setClearingGag] = useState(false);
@@ -83,6 +84,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
       if (response.ok) {
         setGag(data.gag ?? null);
         setSmoking(data.smoking ?? null);
+        setEating(data.eating ?? null);
         setQueue(Array.isArray(data.queue) ? data.queue : []);
       }
     } catch {}
@@ -192,7 +194,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     [timers, now]
   );
 
-  if (active.length === 0 && !gag && !smoking && queue.length === 0) return null;
+  if (active.length === 0 && !gag && !smoking && !eating && queue.length === 0) return null;
 
   return (
     <div className="pointer-events-none fixed top-5 right-3 z-[110] flex w-[280px] flex-col gap-1.5 xl:left-[calc(50%+332px)] xl:right-auto">
@@ -230,6 +232,48 @@ export default function TimerOverlay({ pin }: { pin: string }) {
               <div className="mt-1 text-[9px] font-bold text-emerald-100/80">{smoking.nickname}님이 시작</div>
             </div>
             <div className="shrink-0 tabular-nums text-[24px] font-black leading-none text-emerald-100">{formatElapsed(smoking.started_at, now)}</div>
+          </div>
+        </div>
+      )}
+
+      {eating && (
+        <div
+          className={
+            "rounded-2xl border px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(20,18,40,.24)] backdrop-blur-xl " +
+            (eating.label === "먹어"
+              ? "border-amber-300/50 bg-amber-600/95"
+              : "border-sky-300/40 bg-sky-950/95")
+          }
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div
+                className={
+                  "text-[9px] font-black tracking-[.08em] " +
+                  (eating.label === "먹어"
+                    ? "text-amber-100"
+                    : "text-sky-200")
+                }
+              >
+                먹어/먹지마
+              </div>
+              <div className="mt-0.5 text-[16px] font-black leading-none">
+                현재 {eating.label} 상태
+              </div>
+              <div
+                className={
+                  "mt-1 text-[9px] font-bold " +
+                  (eating.label === "먹어"
+                    ? "text-amber-100/85"
+                    : "text-sky-100/80")
+                }
+              >
+                {eating.nickname}님 결과
+              </div>
+            </div>
+            <div className="shrink-0 tabular-nums text-[24px] font-black leading-none">
+              {formatElapsed(eating.started_at, now)}
+            </div>
           </div>
         </div>
       )}
