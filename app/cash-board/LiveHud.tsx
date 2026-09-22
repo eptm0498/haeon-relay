@@ -12,6 +12,16 @@ type FeedItem = {
   created_at: string;
 };
 
+type ActiveTimer = {
+  id: number;
+  user_id: number;
+  roulette_name: string;
+  result_label: string;
+  duration_minutes: number;
+  started_at: string;
+  ends_at: string;
+};
+
 type Snapshot = {
   global: {
     raid_round: number;
@@ -29,6 +39,13 @@ type Snapshot = {
     spins_today: number;
   };
   feed: FeedItem[];
+  active_timers: ActiveTimer[];
+  active_gag: {
+    id: number;
+    label: string;
+    activated_by_user_id: number;
+    started_at: string;
+  } | null;
 };
 
 type Burst =
@@ -44,6 +61,7 @@ function burstClass(tone: "violet" | "rose" | "cyan") {
 export default function LiveHud({ pin }: { pin: string }) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [burst, setBurst] = useState<Burst>(null);
+  const [now, setNow] = useState(Date.now());
 
   const previousClear = useRef<number | null>(null);
   const previousPhase = useRef<number | null>(null);
@@ -139,8 +157,10 @@ export default function LiveHud({ pin }: { pin: string }) {
     void refresh();
 
     const poll = window.setInterval(() => void refresh(), 1900);
+    const clock = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       window.clearInterval(poll);
+      window.clearInterval(clock);
       if (burstTimer.current !== null) window.clearTimeout(burstTimer.current);
     };
   }, [pin]);
@@ -152,6 +172,19 @@ export default function LiveHud({ pin }: { pin: string }) {
   const remainingPercent = Math.max(0, Math.min(100, (hp / maxHp) * 100));
   const donePercent = Math.max(0, Math.min(100, 100 - remainingPercent));
   const chain = Number(data.global.chain_count || 0);
+  const activeTimers = (data.active_timers || []).filter(
+    (timer) => new Date(timer.ends_at).getTime() > now
+  );
+
+  function formatRemaining(endsAt: string) {
+    const totalSeconds = Math.max(
+      0,
+      Math.ceil((new Date(endsAt).getTime() - now) / 1000)
+    );
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
 
   const barClass =
     donePercent >= 65
@@ -178,6 +211,34 @@ export default function LiveHud({ pin }: { pin: string }) {
       )}
 
       <section className="mb-3 overflow-hidden rounded-[18px] border border-zinc-800/70 bg-[#121018] text-white shadow-[0_12px_34px_rgba(23,17,45,.18)]">
+        {(data.active_gag || activeTimers.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 border-b border-white/10 bg-white/[.035] px-3 py-2">
+            {data.active_gag && (
+              <div className="rounded-full bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-black text-rose-200 ring-1 ring-rose-300/20">
+                🔇 현재 아봉중
+              </div>
+            )}
+            {activeTimers.slice(0, 3).map((timer) => (
+              <div
+                key={timer.id}
+                className={
+                  "rounded-full px-2.5 py-1.5 text-[11px] font-black ring-1 " +
+                  (timer.roulette_name === "말투"
+                    ? "bg-fuchsia-500/15 text-fuchsia-100 ring-fuchsia-300/20"
+                    : "bg-amber-400/10 text-amber-100 ring-amber-300/20")
+                }
+              >
+                {timer.roulette_name === "말투" ? "💬 " : "⏱ "}
+                {timer.result_label} · {formatRemaining(timer.ends_at)}
+              </div>
+            ))}
+            {activeTimers.length > 3 && (
+              <div className="rounded-full bg-white/10 px-2.5 py-1.5 text-[10px] font-black text-zinc-300">
+                +{activeTimers.length - 3}
+              </div>
+            )}
+          </div>
+        )}
         <div className="px-3 py-2.5">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
