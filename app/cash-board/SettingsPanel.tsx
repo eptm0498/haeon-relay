@@ -114,6 +114,38 @@ export default function SettingsPanel({
     }
   }
 
+  async function cancelQueue(item: QueueItem) {
+    if (
+      !window.confirm(
+        `${item.nickname}님의 ${item.item_name} 대기를 취소하고 킵으로 돌려줄까?`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    onNotice("");
+
+    try {
+      const result = await post<{ restored_item: string }>(pin, {
+        action: "admin_cancel_queue",
+        id: item.id,
+      });
+
+      await Promise.all([load(), onChanged()]);
+      window.dispatchEvent(new Event("cash-queue-updated"));
+      onNotice(
+        `${item.nickname}님의 대기를 취소하고 ${result.restored_item} 킵을 1개 돌려줬어.`
+      );
+    } catch (error) {
+      onNotice(
+        error instanceof Error ? error.message : "대기 취소에 실패했어."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -197,14 +229,24 @@ export default function SettingsPanel({
                     {dateTime(item.created_at)}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => completeQueue(item.id)}
-                  disabled={busy}
-                  className="shrink-0 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 disabled:opacity-40"
-                >
-                  완료
-                </button>
+                <div className="flex shrink-0 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void cancelQueue(item)}
+                    disabled={busy}
+                    className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-black text-rose-600 disabled:opacity-40"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => completeQueue(item.id)}
+                    disabled={busy}
+                    className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 disabled:opacity-40"
+                  >
+                    완료
+                  </button>
+                </div>
               </div>
             ))}
           </div>
