@@ -67,15 +67,6 @@ function itemIndexAt(items: RouletteItem[], position: number) {
   return Math.max(0, items.length - 1);
 }
 
-function reflectInto(value: number, min: number, max: number) {
-  let next = value;
-  for (let i = 0; i < 8 && (next < min || next > max); i += 1) {
-    if (next > max) next = max - (next - max);
-    if (next < min) next = min + (min - next);
-  }
-  return Math.min(max, Math.max(min, next));
-}
-
 export default function GamePanel({
   pin,
   users,
