@@ -71,6 +71,15 @@ function labelAt(items: RouletteItem[], position: number) {
   return items[items.length - 1]?.label || "추첨 중...";
 }
 
+function itemIndexAt(items: RouletteItem[], position: number) {
+  let cursor = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    cursor += Number(items[index].weight || 0);
+    if (position <= cursor) return index;
+  }
+  return Math.max(0, items.length - 1);
+}
+
 function reflectInto(value: number, min: number, max: number) {
   let next = value;
   for (let i = 0; i < 8 && (next < min || next > max); i += 1) {
@@ -106,7 +115,9 @@ export default function GamePanel({
   const [reveal, setReveal] = useState(false);
   const [burst, setBurst] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [soundOn, setSoundOn] = useState(false);
   const animationRef = useRef<number | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (!rouletteId && roulettes[0]) setRouletteId(roulettes[0].id);
@@ -134,6 +145,39 @@ export default function GamePanel({
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
+  const activeIndex = itemIndexAt(items, cursorPct);
+  const resultItem = result ? items.find((item) => item.label === result.label) : undefined;
+  const rareWin =
+    Boolean(resultItem) &&
+    result?.result_type !== "nothing" &&
+    Number(resultItem?.weight || 0) <= 5;
+  const positiveReveal = Boolean(reveal && result && result.result_type !== "nothing");
+
+  function prepareAudio() {
+    if (!soundOn) return;
+    try {
+      const context = audioRef.current ?? new AudioContext();
+      audioRef.current = context;
+      if (context.state === "suspended") void context.resume();
+    } catch {}
+  }
+
+  function playTone(frequency: number, durationMs: number, volume = 0.025) {
+    if (!soundOn || !audioRef.current) return;
+    try {
+      const context = audioRef.current;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(volume, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationMs / 1000);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + durationMs / 1000);
+    } catch {}
+  }
 
   function chooseUser(user: User) {
     setNickname(user.nickname);
@@ -151,6 +195,7 @@ export default function GamePanel({
       return;
     }
 
+    prepareAudio();
     setResult(null);
     setReveal(false);
     setSpinning(true);
@@ -165,18 +210,23 @@ export default function GamePanel({
       });
 
       setCountdown(3);
+      playTone(520, 90, 0.018);
       await delay(420);
       setCountdown(2);
+      playTone(590, 90, 0.018);
       await delay(420);
       setCountdown(1);
+      playTone(680, 100, 0.02);
       await delay(420);
       setCountdown(null);
+      playTone(820, 110, 0.022);
 
       const start = cursorPct;
       const target = resultCenter(items, hit.label);
       const startedAt = performance.now();
       const duration = 4600;
       const cycles = 5.15;
+      let lastTickLabel = labelAt(items, start);
 
       const animate = (now: number) => {
         const t = Math.min(1, (now - startedAt) / duration);
@@ -194,8 +244,15 @@ export default function GamePanel({
         const raw = base + envelope * Math.sin(phase);
         const position = reflectInto(raw, 3, 97);
 
+        const nextLabel = labelAt(items, position);
         setCursorPct(position);
-        setCurrentPick(labelAt(items, position));
+        setCurrentPick(nextLabel);
+
+        if (nextLabel !== lastTickLabel) {
+          const pitch = 360 + Math.round((1 - t) * 260);
+          playTone(pitch, 42, 0.012);
+          lastTickLabel = nextLabel;
+        }
 
         if (t < 1) {
           animationRef.current = window.requestAnimationFrame(animate);
@@ -207,6 +264,12 @@ export default function GamePanel({
         setResult(hit);
         setReveal(true);
         setBurst((value) => value + 1);
+        if (hit.result_type === "nothing") {
+          playTone(180, 120, 0.012);
+        } else {
+          playTone(880, 110, 0.024);
+          window.setTimeout(() => playTone(1175, 170, 0.022), 105);
+        }
         setSpinning(false);
         animationRef.current = null;
         void startPersistentTimer(pin, hit.spin_id);
@@ -327,7 +390,7 @@ export default function GamePanel({
         ))}
       </select>
 
-      <div className={fx.stage + " mt-3"}>
+      <div className={fx.stage + " mt-3 " + (spinning ? fx.stageSpinning : "")}>
         {countdown !== null && (
           <div className="pointer-events-none absolute inset-0 z-[30] flex items-center justify-center bg-zinc-950/35 backdrop-blur-[1px]">
             <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/30 bg-white/10 text-[52px] font-black leading-none text-white shadow-[0_0_45px_rgba(213,79,255,.55)] backdrop-blur-md animate-pulse">
@@ -340,8 +403,18 @@ export default function GamePanel({
             <div className="text-[10px] font-black text-fuchsia-300">실시간 추첨</div>
             <div className="mt-1 text-sm font-black text-white">{config?.name || fallback?.name || "룰렛"}</div>
           </div>
-          <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
-            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSoundOn((value) => !value)}
+              disabled={spinning}
+              className="rounded-full bg-white/10 px-2.5 py-1.5 text-[10px] font-black text-white/75 disabled:opacity-40"
+            >
+              효과음 {soundOn ? "켜짐" : "꺼짐"}
+            </button>
+            <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
+              1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
+            </div>
           </div>
         </div>
 
@@ -350,7 +423,12 @@ export default function GamePanel({
             {items.map((item, index) => (
               <div
                 key={item.id || index}
-                className={fx.segment}
+                className={[
+                  fx.segment,
+                  spinning && activeIndex === index ? fx.segmentActive : "",
+                  reveal && result && item.label === result.label ? fx.segmentWinner : "",
+                  reveal && result && item.label !== result.label ? fx.segmentDim : "",
+                ].filter(Boolean).join(" ")}
                 style={{
                   width: `${Math.max(0, Number(item.weight || 0))}%`,
                   background: colors[index % colors.length],
@@ -396,8 +474,8 @@ export default function GamePanel({
           {spinning ? "추첨 중..." : `시작하기 · ${money(config?.cost ?? fallback?.cost ?? 0)} 캐시`}
         </button>
 
-        <div className={fx.flash + " " + (reveal ? fx.flashOn : "")} key={"flash-" + burst} />
-        {reveal && Array.from({ length: 12 }).map((_, index) => (
+        <div className={fx.flash + " " + (positiveReveal ? fx.flashOn : "")} key={"flash-" + burst} />
+        {positiveReveal && Array.from({ length: rareWin ? 18 : 12 }).map((_, index) => (
           <span
             key={burst + "-" + index}
             className={fx.spark + " " + fx.sparkOn}
@@ -412,9 +490,16 @@ export default function GamePanel({
         ))}
 
         {reveal && result && (
-          <div className={fx.resultPop + " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"}>
-            <div className="text-[11px] font-black text-fuchsia-200">당첨 결과</div>
-            
+          <div
+            className={
+              (result.result_type === "nothing" ? fx.lossResult : fx.resultPop) +
+              " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"
+            }
+          >
+            <div className="text-[11px] font-black text-fuchsia-200">
+              {result.result_type === "nothing" ? "결과" : "당첨 결과"}
+            </div>
+            {rareWin && <div className={fx.rareBadge + " mt-2"}>희귀 당첨 · {resultItem?.weight}%</div>}
             <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
             <div className="mt-1 text-[11px] font-black text-cyan-200/80">
               {nickname}님이 오늘 목표를 {money(config?.cost ?? fallback?.cost ?? 0)}만큼 채웠어요
