@@ -11,6 +11,7 @@ type RouletteItem = {
   result_type: "keep" | "cash" | "nothing";
   cash_amount: number;
   weight: number;
+  time_limit_minutes?: number;
   sort_order: number;
 };
 type RouletteConfig = Roulette & { active: boolean; items: RouletteItem[] };
@@ -36,20 +37,6 @@ async function post<T>(url: string, pin: string, body: Record<string, unknown>):
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error || "요청을 처리하지 못했어.");
   return data as T;
-}
-
-async function startPersistentTimer(pin: string, spinId: number) {
-  try {
-    await fetch("/api/cash-board-timers", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-admin-pin": pin },
-      body: JSON.stringify({ action: "start_from_spin", spin_id: spinId }),
-      cache: "no-store",
-      keepalive: true,
-    });
-  } catch {
-    // 화면은 계속 진행하고 타이머 서버는 재접속 시 조회한다.
-  }
 }
 
 function resultCenter(items: RouletteItem[], label: string) {
@@ -145,6 +132,9 @@ export default function GamePanel({
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
+  const timedResult = result
+    ? items.find((item) => item.label === result.label && Number(item.time_limit_minutes || 0) > 0)
+    : undefined;
   const activeIndex = itemIndexAt(items, cursorPct);
   const resultItem = result ? items.find((item) => item.label === result.label) : undefined;
   const rareWin =
@@ -272,7 +262,6 @@ export default function GamePanel({
         }
         setSpinning(false);
         animationRef.current = null;
-        void startPersistentTimer(pin, hit.spin_id);
         void onChanged();
       };
 
@@ -292,6 +281,9 @@ export default function GamePanel({
         spin_id: result.spin_id,
         mode,
       });
+      if (mode === "use") {
+        window.dispatchEvent(new Event("cash-timer-updated"));
+      }
       onNotice(mode === "keep" ? `${result.label} 킵 저장 완료` : `${result.label} 즉시사용 완료`);
       setResult(null);
       setReveal(false);
@@ -459,6 +451,11 @@ export default function GamePanel({
               />
               <span className="truncate">{item.label}</span>
               <span className="shrink-0 text-white/65">{item.weight}%</span>
+              {Number(item.time_limit_minutes || 0) > 0 && (
+                <span className="shrink-0 rounded-full bg-amber-300/15 px-1.5 py-0.5 text-[9px] font-black text-amber-200">
+                  ⏱ {item.time_limit_minutes}분
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -504,6 +501,11 @@ export default function GamePanel({
             <div className="mt-1 text-[11px] font-black text-cyan-200/80">
               {nickname}님이 오늘 목표를 {money(config?.cost ?? fallback?.cost ?? 0)}만큼 채웠어요
             </div>
+            {timedResult && (
+              <div className="mt-2 rounded-xl bg-amber-300/10 px-3 py-2 text-[11px] font-black text-amber-200 ring-1 ring-amber-200/20">
+                사용하면 {timedResult.time_limit_minutes}분 타이머가 바로 시작돼
+              </div>
+            )}
 
             {result.result_type === "keep" && (
               <div className="mt-3 grid grid-cols-2 gap-2">
