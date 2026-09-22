@@ -256,6 +256,7 @@ export default function CashBoardPage() {
         const effect = await effectsApi<{
           kind: string;
           active: boolean;
+          queued?: boolean;
           label: string;
         }>("use_special", {
           user_id: selectedUser.user.id,
@@ -264,7 +265,13 @@ export default function CashBoardPage() {
         });
 
         if (effect.kind === "speech_style") {
-          setNotice(effect.active ? `${effect.label} 10분 시작` : "말투 제한을 해제했어.");
+          setNotice(
+            effect.queued
+              ? `${effect.label}을(를) 다음 말투 대기열에 넣었어.`
+              : effect.active
+                ? `${effect.label} 10분 시작`
+                : "말투 제한을 해제했어."
+          );
         } else if (effect.kind === "smoking") {
           setNotice("금연 상태를 시작했어.");
         } else {
