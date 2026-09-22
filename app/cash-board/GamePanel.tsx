@@ -237,6 +237,7 @@ export default function GamePanel({
       const gain = context.createGain();
       const startAt = context.currentTime + delayMs / 1000;
       const endAt = startAt + durationMs / 1000;
+      const boostedVolume = Math.min(0.09, Math.max(0.0004, volume * 2.65));
 
       oscillator.type = type;
       oscillator.frequency.setValueAtTime(frequency, startAt);
@@ -249,8 +250,8 @@ export default function GamePanel({
 
       gain.gain.setValueAtTime(0.0001, startAt);
       gain.gain.exponentialRampToValueAtTime(
-        Math.max(0.0002, volume),
-        startAt + 0.008
+        boostedVolume,
+        startAt + 0.006
       );
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
@@ -273,7 +274,8 @@ export default function GamePanel({
       const channel = buffer.getChannelData(0);
 
       for (let index = 0; index < frameCount; index += 1) {
-        channel[index] = (Math.random() * 2 - 1) * (1 - index / frameCount);
+        channel[index] =
+          (Math.random() * 2 - 1) * Math.pow(1 - index / frameCount, 1.15);
       }
 
       const source = context.createBufferSource();
@@ -284,9 +286,9 @@ export default function GamePanel({
 
       source.buffer = buffer;
       filter.type = "bandpass";
-      filter.frequency.value = 1350;
-      filter.Q.value = 0.7;
-      gain.gain.setValueAtTime(volume, startAt);
+      filter.frequency.value = 1600;
+      filter.Q.value = 0.85;
+      gain.gain.setValueAtTime(Math.min(0.055, volume * 2.4), startAt);
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
       source.connect(filter);
@@ -298,25 +300,31 @@ export default function GamePanel({
   }
 
   function playCountdownSound(step: number) {
-    const base = step === 3 ? 430 : step === 2 ? 520 : 640;
-    playTone(base, 105, 0.022, "triangle");
-    playTone(base * 2, 72, 0.008, "sine", 8);
-    playNoise(38, 0.006);
+    const base = step === 3 ? 390 : step === 2 ? 500 : 650;
+    playTone(base, 130, 0.028, "triangle");
+    playTone(base * 2, 90, 0.014, "square", 5);
+    playTone(110, 100, 0.018, "sine", 0, 82);
+    playNoise(55, 0.009, 4);
   }
 
   function playLaunchSound() {
-    playTone(420, 180, 0.018, "sawtooth", 0, 980);
-    playTone(840, 120, 0.012, "triangle", 75, 1320);
-    playNoise(65, 0.009, 15);
+    playTone(260, 260, 0.028, "sawtooth", 0, 980);
+    playTone(520, 220, 0.022, "triangle", 45, 1560);
+    playTone(1040, 180, 0.016, "sine", 110, 1900);
+    playTone(96, 210, 0.025, "sine", 0, 64);
+    playNoise(100, 0.015, 25);
   }
 
   function playTickSound(progress: number, index: number) {
     const pitch =
-      310 + Math.round((1 - progress) * 300) + (index % 4) * 24;
+      330 + Math.round((1 - progress) * 360) + (index % 5) * 28;
     const tone: OscillatorType =
       index % 2 === 0 ? "square" : "triangle";
-    playTone(pitch, 34, 0.0065, tone);
-    if (index % 3 === 0) playNoise(24, 0.0035);
+    playTone(pitch, 42, 0.010, tone);
+    if (index % 3 === 0) {
+      playTone(pitch * 1.5, 30, 0.0045, "sine", 3);
+    }
+    if (index % 4 === 0) playNoise(28, 0.0045);
   }
 
   function playPositiveResultSound(
@@ -325,22 +333,34 @@ export default function GamePanel({
   ) {
     const notes =
       kind === "cash"
-        ? [659, 784, 988, 1319]
-        : [587, 740, 880, 1175];
+        ? [523, 659, 784, 988, 1319]
+        : [494, 587, 740, 880, 1175];
+
+    playTone(110, 260, rare ? 0.035 : 0.028, "sine", 0, 88);
+    playNoise(90, rare ? 0.018 : 0.013, 15);
 
     notes.forEach((note, index) => {
       playTone(
         note,
-        rare ? 230 : 180,
-        rare ? 0.024 : 0.018,
+        rare ? 310 : 230,
+        rare ? 0.032 : 0.024,
         index % 2 ? "triangle" : "sine",
-        index * 72
+        index * 68
+      );
+      playTone(
+        note * 2,
+        rare ? 210 : 150,
+        rare ? 0.012 : 0.008,
+        "sine",
+        index * 68 + 10
       );
     });
 
     if (rare) {
-      playTone(1568, 420, 0.015, "sine", 250);
-      playNoise(160, 0.008, 220);
+      [1568, 1760, 2093].forEach((note, index) => {
+        playTone(note, 360, 0.018, "sine", 250 + index * 90);
+      });
+      playNoise(220, 0.014, 230);
     }
   }
 
@@ -348,14 +368,16 @@ export default function GamePanel({
     kind: "nothing" | "cash_loss"
   ) {
     if (kind === "cash_loss") {
-      playTone(330, 180, 0.018, "sawtooth", 0, 165);
-      playTone(220, 220, 0.015, "triangle", 90, 110);
-      playNoise(110, 0.012, 35);
+      playTone(330, 230, 0.026, "sawtooth", 0, 145);
+      playTone(220, 280, 0.022, "triangle", 85, 92);
+      playTone(78, 240, 0.024, "sine", 20, 54);
+      playNoise(145, 0.016, 35);
       return;
     }
 
-    playTone(240, 150, 0.012, "triangle", 0, 180);
-    playNoise(60, 0.005, 25);
+    playTone(245, 190, 0.020, "triangle", 0, 165);
+    playTone(122, 200, 0.016, "sine", 35, 90);
+    playNoise(85, 0.008, 20);
   }
 
   function chooseUser(user: User) {
@@ -833,7 +855,8 @@ export default function GamePanel({
         className={
           fx.stage +
           " mt-3 " +
-          (spinning ? fx.stageSpinning : "")
+          (spinning ? fx.stageSpinning : "") +
+          (positiveReveal ? " " + fx.stageWin : "")
         }
       >
         {countdown !== null && (
@@ -1001,23 +1024,30 @@ export default function GamePanel({
           key={"flash-" + burst}
         />
 
-        {positiveReveal &&
-          Array.from({
-            length: rareWin ? 18 : 12,
-          }).map((_, index) => (
-            <span
-              key={burst + "-" + index}
-              className={fx.spark + " " + fx.sparkOn}
-              style={{
-                left: `${10 + (index * 7) % 82}%`,
-                top: `${22 + (index * 13) % 55}%`,
-                animationDelay: `${(index % 4) * 55}ms`,
-                background:
-                  colors[index % colors.length],
-                color: colors[index % colors.length],
-              }}
-            />
-          ))}
+        {positiveReveal && (
+          <>
+            <span className={fx.burstCore} key={"core-" + burst} />
+            <span className={fx.burstRing} key={"ring-a-" + burst} />
+            <span className={fx.burstRingAlt} key={"ring-b-" + burst} />
+            {Array.from({
+              length: rareWin ? 36 : 24,
+            }).map((_, index) => (
+              <span
+                key={burst + "-" + index}
+                className={fx.spark + " " + fx.sparkOn}
+                style={{
+                  left: `${6 + (index * 11) % 90}%`,
+                  top: `${14 + (index * 17) % 70}%`,
+                  animationDelay: `${(index % 7) * 38}ms`,
+                  animationDuration: `${720 + (index % 5) * 90}ms`,
+                  background:
+                    colors[index % colors.length],
+                  color: colors[index % colors.length],
+                }}
+              />
+            ))}
+          </>
+        )}
 
         {!spinning && batchResults.length > 0 && (
           <div className="relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
