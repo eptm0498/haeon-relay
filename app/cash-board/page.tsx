@@ -17,6 +17,7 @@ type User = {
 type Roulette = { id: number; name: string; cost: number };
 type ContentItem = { id: number; name: string; cost: number };
 type Keep = { id: number; item_name: string; quantity: number; time_limit_minutes?: number; source_roulette_name?: string | null };
+type KeepOption = { label: string; time_limit_minutes: number; roulette_name: string };
 type Charge = { id: number; amount: number; note: string | null; created_at: string };
 type Bootstrap = { users: User[]; roulettes: Roulette[]; contents: ContentItem[] };
 type UserDetail = { user: User; keeps: Keep[]; charges: Charge[] };
@@ -61,6 +62,8 @@ export default function CashBoardPage() {
 
   const [search, setSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
+  const [keepOptions, setKeepOptions] = useState<KeepOption[]>([]);
+  const [restoreKeep, setRestoreKeep] = useState("");
 
   async function api<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
     const response = await fetch("/api/cash-board", {
@@ -83,6 +86,18 @@ export default function CashBoardPage() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result?.error || "사용자 요청을 처리하지 못했어.");
+    return result as T;
+  }
+
+  async function effectsApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+    const response = await fetch("/api/cash-effects", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-pin": pin },
+      body: JSON.stringify({ action, ...payload }),
+      cache: "no-store",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || "상태 요청을 처리하지 못했어.");
     return result as T;
   }
 
@@ -196,8 +211,13 @@ export default function CashBoardPage() {
     setBusy(true);
     setNotice("");
     try {
-      const detail = await userApi<UserDetail>("detail", { user_id: id });
+      const [detail, optionData] = await Promise.all([
+        userApi<UserDetail>("detail", { user_id: id }),
+        effectsApi<{ options: KeepOption[] }>("options"),
+      ]);
       setSelectedUser(detail);
+      setKeepOptions(optionData.options || []);
+      setRestoreKeep("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "사용자 정보를 불러오지 못했어.");
     } finally {
@@ -207,17 +227,75 @@ export default function CashBoardPage() {
 
   async function useKeep(itemName: string) {
     if (!selectedUser) return;
+
+    let speechSuffix: string | undefined;
+    if (itemName.includes("00체")) {
+      const entered = window.prompt("무슨 체로 할까? 예: 냥  ·  해제하려면 '해제'");
+      if (entered === null) return;
+      speechSuffix = entered.trim();
+      if (!speechSuffix) {
+        setNotice("무슨 체인지 입력해줘.");
+        return;
+      }
+    }
+
     setBusy(true);
     setNotice("");
     try {
-      await api("use_keep", { user_id: selectedUser.user.id, item_name: itemName });
+      if (itemName.includes("00체") || itemName.includes("아봉")) {
+        const effect = await effectsApi<{
+          kind: string;
+          active: boolean;
+          label: string;
+        }>("use_special", {
+          user_id: selectedUser.user.id,
+          item_name: itemName,
+          speech_suffix: speechSuffix,
+        });
+
+        if (effect.kind === "speech_style") {
+          setNotice(effect.active ? `${effect.label} 10분 시작` : "말투 제한을 해제했어.");
+        } else {
+          setNotice(effect.active ? "현재 아봉중" : "아봉을 해제했어.");
+        }
+
+        window.dispatchEvent(new Event("cash-effect-updated"));
+      } else {
+        await api("use_keep", { user_id: selectedUser.user.id, item_name: itemName });
+        setNotice(`${itemName} 1회 사용 완료`);
+      }
+
       window.dispatchEvent(new Event("cash-timer-updated"));
       const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
       setSelectedUser(detail);
       await reload();
-      setNotice(`${itemName} 1회 사용 완료`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "킵 사용에 실패했어.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreKeepToUser() {
+    if (!selectedUser || !restoreKeep) {
+      setNotice("다시 넣을 킵을 선택해줘.");
+      return;
+    }
+
+    setBusy(true);
+    setNotice("");
+    try {
+      await effectsApi("add_keep", {
+        user_id: selectedUser.user.id,
+        item_name: restoreKeep,
+      });
+      const detail = await userApi<UserDetail>("detail", { user_id: selectedUser.user.id });
+      setSelectedUser(detail);
+      setNotice(`${restoreKeep} 킵을 1개 다시 넣었어.`);
+      setRestoreKeep("");
+      await reload();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "킵을 다시 넣지 못했어.");
     } finally {
       setBusy(false);
     }
@@ -459,11 +537,19 @@ export default function CashBoardPage() {
                             <div className="font-extrabold">
                               {keep.item_name} <span className="text-zinc-400">×{keep.quantity}</span>
                             </div>
-                            {Number(keep.time_limit_minutes || 0) > 0 && (
+                            {keep.item_name.includes("00체") ? (
+                              <div className="mt-1 inline-flex rounded-full bg-fuchsia-50 px-2 py-1 text-[10px] font-black text-fuchsia-700">
+                                말투 입력 후 10분
+                              </div>
+                            ) : keep.item_name.includes("아봉") ? (
+                              <div className="mt-1 inline-flex rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700">
+                                다른 사용자의 아봉까지 유지
+                              </div>
+                            ) : Number(keep.time_limit_minutes || 0) > 0 ? (
                               <div className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">
                                 ⏱ 사용 시 {keep.time_limit_minutes}분
                               </div>
-                            )}
+                            ) : null}
                           </div>
                           <button
                             onClick={() => useKeep(keep.item_name)}
@@ -476,6 +562,32 @@ export default function CashBoardPage() {
                       ))}
                     </div>
                   )}
+
+                  <div className="mt-3 rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-100">
+                    <div className="mb-2 text-[11px] font-black text-violet-700">킵 다시 넣기</div>
+                    <div className="flex gap-2">
+                      <select
+                        value={restoreKeep}
+                        onChange={(e) => setRestoreKeep(e.target.value)}
+                        className="min-w-0 flex-1 rounded-xl border border-violet-100 bg-white px-3 py-2.5 text-xs font-bold outline-none"
+                      >
+                        <option value="">룰렛 항목 선택</option>
+                        {keepOptions.map((option) => (
+                          <option key={option.label} value={option.label}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={restoreKeepToUser}
+                        disabled={busy || !restoreKeep}
+                        className="shrink-0 rounded-xl bg-violet-600 px-3 py-2.5 text-xs font-black text-white disabled:opacity-40"
+                      >
+                        +1 넣기
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-6">
