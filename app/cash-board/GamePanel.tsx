@@ -242,11 +242,11 @@ export default function GamePanel({
 
   return (
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
-      <div className="text-[11px] font-black text-violet-600">무작위 추첨</div>
+      <div className="text-[11px] font-black text-violet-600">오늘의 룰렛</div>
       <div className="mt-1 flex items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black">룰렛 게임</h2>
-          <p className="mt-0.5 text-xs font-medium text-zinc-400">선택 막대가 자연스럽게 왕복하며 점점 감속해 당첨 결과에 멈춰.</p>
+          <h2 className="text-lg font-black">룰렛</h2>
+          <p className="mt-0.5 text-xs font-medium text-zinc-400">닉네임 고르고 바로 시작하면 돼.</p>
         </div>
         {chosen && (
           <div className="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-[11px] font-black text-violet-600">
@@ -341,7 +341,7 @@ export default function GamePanel({
             <div className="mt-1 text-sm font-black text-white">{config?.name || fallback?.name || "룰렛"}</div>
           </div>
           <div className="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black text-white">
-            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시 · 보스 피해 동일
+            1회 {money(config?.cost ?? fallback?.cost ?? 0)} 캐시
           </div>
         </div>
 
@@ -393,7 +393,7 @@ export default function GamePanel({
           disabled={spinning || !rouletteId}
           className="relative z-[3] mt-3 w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
         >
-          {spinning ? "추첨 중..." : `추첨 시작 · 보스 -${money(config?.cost ?? fallback?.cost ?? 0)}`}
+          {spinning ? "추첨 중..." : `시작하기 · ${money(config?.cost ?? fallback?.cost ?? 0)} 캐시`}
         </button>
 
         <div className={fx.flash + " " + (reveal ? fx.flashOn : "")} key={"flash-" + burst} />
@@ -414,10 +414,10 @@ export default function GamePanel({
         {reveal && result && (
           <div className={fx.resultPop + " relative z-[4] mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-center backdrop-blur"}>
             <div className="text-[11px] font-black text-fuchsia-200">당첨 결과</div>
-            <div className="mt-1 text-[10px] font-bold text-white/55">결과는 서버에서 확정된 값 그대로 표시돼.</div>
+            
             <div className="mt-1 text-[28px] font-black leading-tight text-white">{result.label}</div>
-            <div className="mt-1 text-[10px] font-black text-cyan-200/80">
-              온유 레이드에 {money(config?.cost ?? fallback?.cost ?? 0)} 피해
+            <div className="mt-1 text-[11px] font-black text-cyan-200/80">
+              {nickname}님이 오늘 목표를 {money(config?.cost ?? fallback?.cost ?? 0)}만큼 채웠어요
             </div>
 
             {result.result_type === "keep" && (
