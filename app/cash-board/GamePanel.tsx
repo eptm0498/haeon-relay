@@ -1528,6 +1528,11 @@ export default function GamePanel({
 
       <div
         id="cash-game-stage"
+        style={
+          goldenTicketReveal > 0
+            ? { height: "342px", minHeight: "342px" }
+            : undefined
+        }
         className={
           fx.stage +
           " mt-3 " +
