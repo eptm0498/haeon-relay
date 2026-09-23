@@ -409,7 +409,7 @@ export default function RedButtonEvent({
         {phase === "offer" && (
           <>
             <div className="mb-3 text-xs font-black tracking-[.34em] text-red-200">
-              SUDDEN EVENT
+              깜짝 이벤트
             </div>
             <div className="mb-6 text-3xl font-black tracking-tight">
               빨간 버튼이 나타났다
@@ -453,7 +453,7 @@ export default function RedButtonEvent({
               <div className="text-4xl font-black tracking-tight">결과 추첨</div>
             </div>
             <div className="relative mt-8 text-sm font-black tracking-[.28em] text-yellow-100 animate-pulse">
-              RANDOMIZING
+              미션 추첨 중
             </div>
           </div>
         )}
@@ -533,12 +533,15 @@ export default function RedButtonEvent({
             <div className={fx.vignette} />
 
             <div className={fx.resultWrap}>
-              <div className={fx.resultBanner}>SUDDEN EVENT · RESULT</div>
+              <div className={fx.resultBanner}>깜짝 미션</div>
               <div className={fx.resultCard}>
                 <div className={fx.cardGlowA} />
                 <div className={fx.cardGlowB} />
 
-                <div className={fx.resultLabel}>RED BUTTON RESULT</div>
+                <div className={fx.resultLabel}>온유의 미션</div>
+                <div className="relative z-10 mt-2 text-sm font-black text-white/75">
+                  온유가 버튼을 눌렀으니, 이 미션은 온유가 해야 해.
+                </div>
                 <div className={fx.resultTextShell}>
                   <div className={fx.resultTextRed} aria-hidden="true">
                     {outcome}
