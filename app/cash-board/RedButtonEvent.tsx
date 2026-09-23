@@ -114,6 +114,9 @@ export default function RedButtonEvent({
   const rouletteBusyRef = useRef(false);
   const rouletteBlockedUntilRef = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
+  const offerSoundIntervalRef = useRef<number | null>(null);
+  const pressingSoundIntervalRef = useRef<number | null>(null);
+  const pressingBeatRef = useRef(0);
 
   const matchingUsers = useMemo(() => {
     const query = rewardNick.trim().toLowerCase();
@@ -272,11 +275,133 @@ export default function RedButtonEvent({
         handleRouletteActivity
       );
       clearTimer();
+      stopEventSoundLoops();
       try {
         void audioRef.current?.close();
       } catch {}
     };
   }, [pin]);
+
+  function stopEventSoundLoops() {
+    if (offerSoundIntervalRef.current !== null) {
+      window.clearInterval(offerSoundIntervalRef.current);
+      offerSoundIntervalRef.current = null;
+    }
+    if (pressingSoundIntervalRef.current !== null) {
+      window.clearInterval(pressingSoundIntervalRef.current);
+      pressingSoundIntervalRef.current = null;
+    }
+  }
+
+  function playOfferPulse() {
+    try {
+      const context = audioRef.current ?? new AudioContext();
+      audioRef.current = context;
+      if (context.state === "suspended") void context.resume();
+
+      const now = context.currentTime;
+      const master = context.createGain();
+      master.gain.setValueAtTime(0.55, now);
+      master.connect(context.destination);
+
+      [118, 176].forEach((frequency, index) => {
+        const osc = context.createOscillator();
+        const gain = context.createGain();
+        osc.type = index === 0 ? "sine" : "triangle";
+        osc.frequency.setValueAtTime(frequency, now);
+        osc.frequency.exponentialRampToValueAtTime(
+          frequency * 0.86,
+          now + 0.42
+        );
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(
+          index === 0 ? 0.11 : 0.045,
+          now + 0.025
+        );
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(now);
+        osc.stop(now + 0.5);
+      });
+
+      const ping = context.createOscillator();
+      const pingGain = context.createGain();
+      ping.type = "sine";
+      ping.frequency.setValueAtTime(880, now + 0.08);
+      ping.frequency.exponentialRampToValueAtTime(620, now + 0.25);
+      pingGain.gain.setValueAtTime(0.0001, now);
+      pingGain.gain.exponentialRampToValueAtTime(0.025, now + 0.09);
+      pingGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      ping.connect(pingGain);
+      pingGain.connect(master);
+      ping.start(now + 0.08);
+      ping.stop(now + 0.3);
+    } catch {}
+  }
+
+  function playPressingBeat() {
+    try {
+      const context = audioRef.current ?? new AudioContext();
+      audioRef.current = context;
+      if (context.state === "suspended") void context.resume();
+
+      const beat = pressingBeatRef.current++;
+      const now = context.currentTime;
+      const base = 150 + Math.min(beat, 14) * 32;
+
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = beat % 3 === 0 ? "sawtooth" : "triangle";
+      osc.frequency.setValueAtTime(base, now);
+      osc.frequency.exponentialRampToValueAtTime(base * 1.45, now + 0.16);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.07, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.19);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(now);
+      osc.stop(now + 0.21);
+
+      if (beat % 4 === 3) {
+        const accent = context.createOscillator();
+        const accentGain = context.createGain();
+        accent.type = "sine";
+        accent.frequency.setValueAtTime(740 + beat * 24, now);
+        accent.frequency.exponentialRampToValueAtTime(1280, now + 0.22);
+        accentGain.gain.setValueAtTime(0.0001, now);
+        accentGain.gain.exponentialRampToValueAtTime(0.045, now + 0.02);
+        accentGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        accent.connect(accentGain);
+        accentGain.connect(context.destination);
+        accent.start(now);
+        accent.stop(now + 0.27);
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    stopEventSoundLoops();
+
+    if (phase === "offer") {
+      playOfferPulse();
+      offerSoundIntervalRef.current = window.setInterval(
+        playOfferPulse,
+        1050
+      );
+    } else if (phase === "pressing") {
+      pressingBeatRef.current = 0;
+      playPressingBeat();
+      pressingSoundIntervalRef.current = window.setInterval(
+        playPressingBeat,
+        185
+      );
+    }
+
+    return () => {
+      stopEventSoundLoops();
+    };
+  }, [phase]);
 
   function playImpact() {
     try {
@@ -396,6 +521,7 @@ export default function RedButtonEvent({
   }
 
   function giveUp() {
+    stopEventSoundLoops();
     scheduleNext();
     setPhase("idle");
     setOutcome("");
@@ -403,6 +529,7 @@ export default function RedButtonEvent({
 
   function pressButton() {
     if (phase !== "offer") return;
+    stopEventSoundLoops();
     scheduleNext();
     setPhase("pressing");
     playImpact();
@@ -441,7 +568,7 @@ export default function RedButtonEvent({
           );
         }
       })();
-    }, 1550);
+    }, 2400);
   }
 
   async function grantReward() {
@@ -540,14 +667,31 @@ export default function RedButtonEvent({
         )}
 
         {phase === "pressing" && (
-          <div className="relative mx-auto flex min-h-[430px] flex-col items-center justify-center">
-            <div className="absolute h-80 w-80 rounded-full bg-red-500/25 blur-3xl animate-pulse" />
-            <div className="relative flex h-60 w-60 scale-90 items-center justify-center rounded-full border-[14px] border-yellow-200/40 bg-[radial-gradient(circle,#fff6b7_0%,#ff3b1f_25%,#a90000_62%,#280000_100%)] shadow-[0_0_85px_rgba(255,68,0,.9)] animate-pulse">
-              <div className="text-4xl font-black tracking-tight">결과 추첨</div>
+          <div className={fx.pressingScene}>
+            <div className={fx.pressingStrobe} />
+            <div className={fx.pressingOrbit} />
+            <div className={fx.pressingOrbitAlt} />
+            <div className={fx.pressingSweep} />
+            <div className={fx.pressingGlow} />
+            <div className={fx.pressingCore}>
+              <div className={fx.pressingCoreInner}>
+                <div className="text-[10px] font-black tracking-[.28em] text-yellow-100/80">
+                  깜짝 미션
+                </div>
+                <div className="mt-2 text-4xl font-black tracking-tight">
+                  결과 추첨
+                </div>
+              </div>
             </div>
-            <div className="relative mt-8 text-sm font-black tracking-[.28em] text-yellow-100 animate-pulse">
-              미션 추첨 중
+            <div className={fx.pressingMeter}>
+              {Array.from({ length: 12 }).map((_, index) => (
+                <span
+                  key={index}
+                  style={{ animationDelay: `${index * 55}ms` }}
+                />
+              ))}
             </div>
+            <div className={fx.pressingLabel}>미션 추첨 중</div>
           </div>
         )}
 
