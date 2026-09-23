@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import fx from "./redButton.module.css";
 
 type User = {
   id: number;
@@ -150,6 +151,90 @@ export default function RedButtonEvent({
     } catch {}
   }
 
+  function playResultReveal() {
+    try {
+      const context = audioRef.current ?? new AudioContext();
+      audioRef.current = context;
+      if (context.state === "suspended") void context.resume();
+
+      const now = context.currentTime;
+
+      const master = context.createGain();
+      master.gain.setValueAtTime(0.8, now);
+      master.connect(context.destination);
+
+      const boom = context.createOscillator();
+      const boomGain = context.createGain();
+      boom.type = "sine";
+      boom.frequency.setValueAtTime(92, now);
+      boom.frequency.exponentialRampToValueAtTime(38, now + 0.65);
+      boomGain.gain.setValueAtTime(0.0001, now);
+      boomGain.gain.exponentialRampToValueAtTime(0.34, now + 0.018);
+      boomGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.78);
+      boom.connect(boomGain);
+      boomGain.connect(master);
+      boom.start(now);
+      boom.stop(now + 0.82);
+
+      const impact = context.createOscillator();
+      const impactGain = context.createGain();
+      impact.type = "sawtooth";
+      impact.frequency.setValueAtTime(260, now + 0.02);
+      impact.frequency.exponentialRampToValueAtTime(82, now + 0.34);
+      impactGain.gain.setValueAtTime(0.0001, now);
+      impactGain.gain.exponentialRampToValueAtTime(0.1, now + 0.025);
+      impactGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+      impact.connect(impactGain);
+      impactGain.connect(master);
+      impact.start(now + 0.02);
+      impact.stop(now + 0.42);
+
+      [392, 523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
+        const osc = context.createOscillator();
+        const gain = context.createGain();
+        osc.type = index % 2 === 0 ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(frequency, now + 0.08 + index * 0.06);
+        gain.gain.setValueAtTime(0.0001, now + index * 0.06);
+        gain.gain.exponentialRampToValueAtTime(
+          0.055 - index * 0.006,
+          now + 0.1 + index * 0.06
+        );
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + 0.72 + index * 0.07
+        );
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(now + 0.07 + index * 0.06);
+        osc.stop(now + 0.82 + index * 0.07);
+      });
+
+      const buffer = context.createBuffer(
+        1,
+        Math.floor(context.sampleRate * 0.42),
+        context.sampleRate
+      );
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < channel.length; i += 1) {
+        const fade = 1 - i / channel.length;
+        channel[i] = (Math.random() * 2 - 1) * fade * fade;
+      }
+      const noise = context.createBufferSource();
+      const noiseGain = context.createGain();
+      const filter = context.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(1500, now);
+      filter.Q.setValueAtTime(0.7, now);
+      noise.buffer = buffer;
+      noiseGain.gain.setValueAtTime(0.12, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(master);
+      noise.start(now);
+    } catch {}
+  }
+
   function giveUp() {
     scheduleNext();
     setPhase("idle");
@@ -167,6 +252,7 @@ export default function RedButtonEvent({
       setOutcome(result);
       setRewardDone(false);
       setPhase("result");
+      playResultReveal();
     }, 1550);
   }
 
@@ -204,7 +290,7 @@ export default function RedButtonEvent({
   const resultIsReward = outcome === REWARD_OUTCOME;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden bg-black/80 px-4 backdrop-blur-sm">
+    <div className={fx.screen + (phase === "result" ? " " + fx.resultScreen : "")}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-1/2 h-[76vmin] w-[76vmin] -translate-x-1/2 -translate-y-1/2 rounded-full border-[10px] border-red-500/20 animate-ping" />
         <div className="absolute left-1/2 top-1/2 h-[58vmin] w-[58vmin] -translate-x-1/2 -translate-y-1/2 rounded-full border-[4px] border-orange-300/25 animate-pulse" />
@@ -280,16 +366,97 @@ export default function RedButtonEvent({
         )}
 
         {phase === "result" && (
-          <div className="relative overflow-hidden rounded-[34px] border border-red-300/30 bg-[linear-gradient(145deg,rgba(90,0,0,.96),rgba(20,20,24,.98))] p-6 shadow-[0_0_100px_rgba(255,30,0,.45)]">
-            <div className="absolute -left-20 -top-20 h-52 w-52 rounded-full bg-red-500/30 blur-3xl" />
-            <div className="absolute -bottom-20 -right-20 h-52 w-52 rounded-full bg-yellow-400/20 blur-3xl" />
+          <>
+            <div className={fx.resultBackdrop} />
+            <div className={fx.resultAura} />
+            <div className={fx.centerBurst} />
+            <div className={fx.flashWhite} />
+            <div className={fx.flashRed} />
+            <div className={fx.flashGold} />
+            <div className={fx.shockwave} />
+            <div className={fx.shockwave + " " + fx.shockwave2} />
+            <div className={fx.shockwave + " " + fx.shockwave3} />
 
-            <div className="relative text-[11px] font-black tracking-[.3em] text-red-200">
-              RED BUTTON RESULT
-            </div>
-            <div className="relative mt-5 text-3xl font-black leading-tight text-white sm:text-4xl">
-              {outcome}
-            </div>
+            {Array.from({ length: 72 }).map((_, index) => {
+              const angle = (index / 72) * Math.PI * 2;
+              const distance = 180 + (index % 9) * 34;
+              const palette = [
+                "#fff8cf",
+                "#ffd43b",
+                "#ff7a00",
+                "#ff2b00",
+                "#ff4d91",
+                "#7df9ff",
+              ];
+              return (
+                <span
+                  key={"burst-" + index}
+                  className={fx.particle}
+                  style={
+                    {
+                      "--dx": `${Math.cos(angle) * distance}px`,
+                      "--dy": `${Math.sin(angle) * distance}px`,
+                      "--size": `${5 + (index % 7) * 1.5}px`,
+                      "--delay": `${(index % 12) * 22}ms`,
+                      "--rot": `${240 + index * 19}deg`,
+                      color: palette[index % palette.length],
+                    } as React.CSSProperties
+                  }
+                />
+              );
+            })}
+
+            {Array.from({ length: 24 }).map((_, index) => (
+              <span
+                key={"meteor-" + index}
+                className={fx.spark}
+                style={
+                  {
+                    "--x": `${4 + ((index * 37) % 92)}%`,
+                    "--y": `${-6 + ((index * 29) % 58)}%`,
+                    "--delay": `${180 + (index % 8) * 55}ms`,
+                  } as React.CSSProperties
+                }
+              />
+            ))}
+
+            {Array.from({ length: 14 }).map((_, index) => (
+              <span
+                key={"star-" + index}
+                className={fx.star}
+                style={
+                  {
+                    left: `${8 + ((index * 41) % 84)}%`,
+                    top: `${10 + ((index * 31) % 72)}%`,
+                    fontSize: `${18 + (index % 5) * 7}px`,
+                    "--delay": `${420 + (index % 7) * 110}ms`,
+                  } as React.CSSProperties
+                }
+              >
+                ✦
+              </span>
+            ))}
+
+            <div className={fx.vignette} />
+
+            <div className={fx.resultWrap}>
+              <div className={fx.resultBanner}>SUDDEN EVENT · RESULT</div>
+              <div className={fx.resultCard}>
+                <div className={fx.cardGlowA} />
+                <div className={fx.cardGlowB} />
+
+                <div className={fx.resultLabel}>RED BUTTON RESULT</div>
+                <div className={fx.resultTextShell}>
+                  <div className={fx.resultTextRed} aria-hidden="true">
+                    {outcome}
+                  </div>
+                  <div className={fx.resultTextCyan} aria-hidden="true">
+                    {outcome}
+                  </div>
+                  <div className={fx.resultText}>{outcome}</div>
+                </div>
+
+                <div className={fx.contentFadeIn}>
 
             {resultIsReward && !rewardDone && (
               <div className="relative mt-6 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
@@ -336,17 +503,20 @@ export default function RedButtonEvent({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                setPhase("idle");
-                setOutcome("");
-              }}
-              className="relative mt-6 w-full rounded-2xl bg-white px-4 py-3.5 text-sm font-black text-zinc-950"
-            >
-              확인
-            </button>
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhase("idle");
+                      setOutcome("");
+                    }}
+                    className="relative mt-6 w-full rounded-2xl bg-white px-4 py-3.5 text-sm font-black text-zinc-950 shadow-[0_0_35px_rgba(255,255,255,.18)] transition hover:scale-[1.01] active:scale-[.98]"
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
