@@ -301,42 +301,87 @@ export default function RedButtonEvent({
 
       const now = context.currentTime;
       const master = context.createGain();
-      master.gain.setValueAtTime(0.55, now);
+      master.gain.setValueAtTime(0.92, now);
       master.connect(context.destination);
 
-      [118, 176].forEach((frequency, index) => {
+      // Low double pulse: stronger "heartbeat / alarm" body.
+      [84, 126].forEach((frequency, index) => {
         const osc = context.createOscillator();
         const gain = context.createGain();
-        osc.type = index === 0 ? "sine" : "triangle";
-        osc.frequency.setValueAtTime(frequency, now);
+        osc.type = index === 0 ? "sine" : "sawtooth";
+        osc.frequency.setValueAtTime(frequency, now + index * 0.08);
         osc.frequency.exponentialRampToValueAtTime(
-          frequency * 0.86,
-          now + 0.42
+          Math.max(42, frequency * 0.72),
+          now + 0.34 + index * 0.08
         );
-        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.setValueAtTime(0.0001, now + index * 0.08);
         gain.gain.exponentialRampToValueAtTime(
-          index === 0 ? 0.11 : 0.045,
-          now + 0.025
+          index === 0 ? 0.22 : 0.11,
+          now + 0.018 + index * 0.08
         );
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + 0.4 + index * 0.08
+        );
         osc.connect(gain);
         gain.connect(master);
-        osc.start(now);
-        osc.stop(now + 0.5);
+        osc.start(now + index * 0.08);
+        osc.stop(now + 0.44 + index * 0.08);
       });
 
-      const ping = context.createOscillator();
-      const pingGain = context.createGain();
-      ping.type = "sine";
-      ping.frequency.setValueAtTime(880, now + 0.08);
-      ping.frequency.exponentialRampToValueAtTime(620, now + 0.25);
-      pingGain.gain.setValueAtTime(0.0001, now);
-      pingGain.gain.exponentialRampToValueAtTime(0.025, now + 0.09);
-      pingGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
-      ping.connect(pingGain);
-      pingGain.connect(master);
-      ping.start(now + 0.08);
-      ping.stop(now + 0.3);
+      // Urgent siren sweep.
+      const siren = context.createOscillator();
+      const sirenGain = context.createGain();
+      siren.type = "square";
+      siren.frequency.setValueAtTime(690, now + 0.02);
+      siren.frequency.exponentialRampToValueAtTime(1320, now + 0.22);
+      siren.frequency.exponentialRampToValueAtTime(760, now + 0.5);
+      sirenGain.gain.setValueAtTime(0.0001, now);
+      sirenGain.gain.exponentialRampToValueAtTime(0.072, now + 0.035);
+      sirenGain.gain.setValueAtTime(0.072, now + 0.33);
+      sirenGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.56);
+      siren.connect(sirenGain);
+      sirenGain.connect(master);
+      siren.start(now + 0.02);
+      siren.stop(now + 0.58);
+
+      // Sharp warning ticks layered over the sweep.
+      [0.0, 0.17, 0.34].forEach((offset, index) => {
+        const tick = context.createOscillator();
+        const tickGain = context.createGain();
+        tick.type = "triangle";
+        const start = now + 0.06 + offset;
+        tick.frequency.setValueAtTime(1550 + index * 170, start);
+        tick.frequency.exponentialRampToValueAtTime(980, start + 0.075);
+        tickGain.gain.setValueAtTime(0.0001, start);
+        tickGain.gain.exponentialRampToValueAtTime(0.055, start + 0.008);
+        tickGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.09);
+        tick.connect(tickGain);
+        tickGain.connect(master);
+        tick.start(start);
+        tick.stop(start + 0.1);
+      });
+
+      // Tiny filtered noise hit adds physical urgency without overpowering speech.
+      const frameCount = Math.floor(context.sampleRate * 0.12);
+      const buffer = context.createBuffer(1, frameCount, context.sampleRate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        channel[i] =
+          (Math.random() * 2 - 1) * Math.pow(1 - i / frameCount, 2);
+      }
+      const noise = context.createBufferSource();
+      const noiseGain = context.createGain();
+      const filter = context.createBiquadFilter();
+      noise.buffer = buffer;
+      filter.type = "highpass";
+      filter.frequency.setValueAtTime(900, now);
+      noiseGain.gain.setValueAtTime(0.06, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(master);
+      noise.start(now);
     } catch {}
   }
 
@@ -387,7 +432,7 @@ export default function RedButtonEvent({
       playOfferPulse();
       offerSoundIntervalRef.current = window.setInterval(
         playOfferPulse,
-        1050
+        720
       );
     } else if (phase === "pressing") {
       pressingBeatRef.current = 0;
