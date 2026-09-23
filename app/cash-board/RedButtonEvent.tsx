@@ -518,9 +518,11 @@ export default function RedButtonEvent({
             <button
               type="button"
               onClick={pressButton}
-              className="group relative mx-auto block h-56 w-56 rounded-full border-[12px] border-red-950 bg-[radial-gradient(circle_at_38%_28%,#ff8b8b_0%,#ff1919_25%,#bd0000_58%,#650000_100%)] shadow-[0_14px_0_#3f0000,0_28px_55px_rgba(255,0,0,.55),inset_0_10px_20px_rgba(255,255,255,.32)] transition active:translate-y-3 active:shadow-[0_2px_0_#3f0000,0_15px_35px_rgba(255,0,0,.7)]"
+              className={fx.offerButton + " group relative mx-auto block h-56 w-56 rounded-full border-[12px] border-red-950 bg-[radial-gradient(circle_at_38%_28%,#ff8b8b_0%,#ff1919_25%,#bd0000_58%,#650000_100%)] shadow-[0_14px_0_#3f0000,0_28px_55px_rgba(255,0,0,.55),inset_0_10px_20px_rgba(255,255,255,.32)] active:translate-y-3 active:shadow-[0_2px_0_#3f0000,0_15px_35px_rgba(255,0,0,.7)]"}
               aria-label="빨간 버튼 누르기"
             >
+              <span className={fx.offerPulseRing} />
+              <span className={fx.offerSheen} />
               <span className="absolute inset-4 rounded-full border border-white/25" />
               <span className="relative text-3xl font-black drop-shadow-lg">
                 누르기
