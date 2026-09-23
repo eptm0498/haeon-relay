@@ -245,7 +245,7 @@ function ScratchTicket({
     if (moveCountRef.current % 3 !== 0 && !force) return;
     const nextProgress = scratchedPercent();
     setProgress(Math.min(100, Math.round(nextProgress)));
-    if (nextProgress >= 58) {
+    if (nextProgress >= 40) {
       completedRef.current = true;
       scratchingRef.current = false;
       setCompleted(true);
