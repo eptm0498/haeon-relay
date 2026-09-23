@@ -19,6 +19,7 @@ type Props = {
 type Phase = "idle" | "offer" | "pressing" | "result";
 
 const STORAGE_KEY = "cash-red-button-next-at-v1";
+const RATE_KEY = "cash-red-button-rate-v1";
 const OUTCOMES = [
   "방송 단축 30분",
   "방송 연장 30분",
@@ -31,9 +32,9 @@ const OUTCOMES = [
 
 const REWARD_OUTCOME = "원하는 시청자에게 5000 캐시 지급";
 
-function nextDelayMs() {
-  // 20~40분 사이 무작위 출현. 평균 30분이라 방송 1시간당 약 2회.
-  return (20 + Math.random() * 20) * 60 * 1000;
+function nextDelayMs(perHour: number) {
+  if (!Number.isFinite(perHour) || perHour <= 0) return 0;
+  return (60 * 60 * 1000) / perHour;
 }
 
 async function post<T>(
@@ -56,6 +57,26 @@ async function post<T>(
   return data as T;
 }
 
+async function postEvent<T>(
+  pin: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const response = await fetch("/api/cash-event-settings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-admin-pin": pin,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || "이벤트 설정을 불러오지 못했어.");
+  }
+  return data as T;
+}
+
 export default function RedButtonEvent({
   pin,
   users,
@@ -67,7 +88,9 @@ export default function RedButtonEvent({
   const [rewardNick, setRewardNick] = useState("");
   const [rewarding, setRewarding] = useState(false);
   const [rewardDone, setRewardDone] = useState(false);
+  const [redButtonPerHour, setRedButtonPerHour] = useState(0);
   const timerRef = useRef<number | null>(null);
+  const rateRef = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
 
   const matchingUsers = useMemo(() => {
@@ -78,45 +101,117 @@ export default function RedButtonEvent({
       .slice(0, 8);
   }, [rewardNick, users]);
 
-  function scheduleNext() {
-    const nextAt = Date.now() + nextDelayMs();
-    window.localStorage.setItem(STORAGE_KEY, String(nextAt));
-
+  function clearTimer() {
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  function openOffer() {
+    setOutcome("");
+    setRewardNick("");
+    setRewardDone(false);
+    setPhase("offer");
+  }
+
+  function armTimer(nextAt: number) {
+    clearTimer();
+    timerRef.current = window.setTimeout(
+      openOffer,
+      Math.max(1000, nextAt - Date.now())
+    );
+  }
+
+  function applyRate(perHour: number, resetSchedule: boolean) {
+    const rate = Math.max(0, Math.min(60, Math.round(Number(perHour || 0))));
+    rateRef.current = rate;
+    setRedButtonPerHour(rate);
+    clearTimer();
+
+    if (rate <= 0) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.setItem(RATE_KEY, "0");
+      setPhase((current) => (current === "offer" ? "idle" : current));
+      return;
     }
 
-    timerRef.current = window.setTimeout(() => {
-      setOutcome("");
-      setRewardNick("");
-      setRewardDone(false);
-      setPhase("offer");
-    }, Math.max(1000, nextAt - Date.now()));
+    const storedRate = Number(window.localStorage.getItem(RATE_KEY) || -1);
+    const storedNextAt = Number(window.localStorage.getItem(STORAGE_KEY) || 0);
+    const sameRate = storedRate === rate;
+    const validStored =
+      Number.isFinite(storedNextAt) && storedNextAt > Date.now();
+
+    if (!resetSchedule && sameRate && validStored) {
+      armTimer(storedNextAt);
+      return;
+    }
+
+    if (!resetSchedule && sameRate && storedNextAt > 0 && storedNextAt <= Date.now()) {
+      openOffer();
+      return;
+    }
+
+    const nextAt = Date.now() + nextDelayMs(rate);
+    window.localStorage.setItem(RATE_KEY, String(rate));
+    window.localStorage.setItem(STORAGE_KEY, String(nextAt));
+    armTimer(nextAt);
+  }
+
+  function scheduleNext() {
+    const rate = rateRef.current;
+    if (rate <= 0) {
+      clearTimer();
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+
+    const nextAt = Date.now() + nextDelayMs(rate);
+    window.localStorage.setItem(RATE_KEY, String(rate));
+    window.localStorage.setItem(STORAGE_KEY, String(nextAt));
+    armTimer(nextAt);
   }
 
   useEffect(() => {
-    const stored = Number(window.localStorage.getItem(STORAGE_KEY) || 0);
-    const now = Date.now();
+    let active = true;
 
-    if (!Number.isFinite(stored) || stored <= 0) {
-      scheduleNext();
-    } else if (stored <= now) {
-      setPhase("offer");
-    } else {
-      timerRef.current = window.setTimeout(() => {
-        setPhase("offer");
-      }, stored - now);
-    }
+    const loadRate = async (resetSchedule = false) => {
+      try {
+        const settings = await postEvent<{
+          ok: boolean;
+          red_button_per_hour: number;
+        }>(pin, { action: "load" });
+        if (!active) return;
+        applyRate(
+          Number(settings.red_button_per_hour ?? 0),
+          resetSchedule
+        );
+      } catch {}
+    };
+
+    void loadRate(false);
+
+    const handleSettingsChanged = () => {
+      void loadRate(true);
+    };
+
+    window.addEventListener(
+      "cash-event-settings-updated",
+      handleSettingsChanged
+    );
 
     return () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-      }
+      active = false;
+      window.removeEventListener(
+        "cash-event-settings-updated",
+        handleSettingsChanged
+      );
+      clearTimer();
       try {
         void audioRef.current?.close();
       } catch {}
     };
-  }, []);
+  }, [pin]);
 
   function playImpact() {
     try {
