@@ -50,7 +50,7 @@ export default function CashBoardPage() {
   const [pin, setPin] = useState("");
   const [authed, setAuthed] = useState(false);
   const [data, setData] = useState<Bootstrap>({ users: [], roulettes: [], contents: [], discount_percent: 0 });
-  const [tab, setTab] = useState<"charge" | "roulette" | "content" | "users" | "settings">("charge");
+  const [tab, setTab] = useState<"charge" | "roulette" | "users" | "settings">("charge");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -494,10 +494,9 @@ export default function CashBoardPage() {
   }
 
   const tabs = [
-    ["charge", "+ 충전"],
+    ["charge", "충전"],
     ["roulette", "게임"],
-    ["content", "룰렛 설정"],
-    ["users", "사용자"],
+    ["users", "시청자"],
     ["settings", "설정"],
   ] as const;
 
@@ -520,7 +519,7 @@ export default function CashBoardPage() {
           </button>
         </header>
 
-        <nav className="mb-4 grid grid-cols-5 gap-2">
+        <nav className="mb-4 grid grid-cols-4 gap-2">
           {tabs.map(([key, label]) => (
             <button
               key={key}
@@ -591,14 +590,6 @@ export default function CashBoardPage() {
             onChanged={reload}
             onNotice={setNotice}
             discountPercent={data.discount_percent}
-          />
-        )}
-
-        {tab === "content" && (
-          <RouletteSettings
-            pin={pin}
-            onSaved={reload}
-            onNotice={setNotice}
           />
         )}
 
@@ -819,11 +810,18 @@ export default function CashBoardPage() {
         )}
 
         {tab === "settings" && (
-          <SettingsPanel
-            pin={pin}
-            onNotice={setNotice}
-            onChanged={reload}
-          />
+          <div className="space-y-3">
+            <RouletteSettings
+              pin={pin}
+              onSaved={reload}
+              onNotice={setNotice}
+            />
+            <SettingsPanel
+              pin={pin}
+              onNotice={setNotice}
+              onChanged={reload}
+            />
+          </div>
         )}
 
       </div>
