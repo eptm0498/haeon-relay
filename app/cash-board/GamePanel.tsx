@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import fx from "./effects.module.css";
@@ -429,6 +430,7 @@ export default function GamePanel({
   const totalCost = effectiveCost * spinCount;
   const activeRouletteName = config?.name || fallback?.name || "";
   const isEatRoulette = activeRouletteName === "먹어/먹지마";
+  const isSmokingRoulette = activeRouletteName === "흡연/금연";
   const isCashRoulette = activeRouletteName === "캐시 룰렛";
   const busy = spinning || Boolean(scratchBatch);
   const eatResultSrc =
@@ -436,6 +438,12 @@ export default function GamePanel({
       ? "/cash-board/eat-yes.webp"
       : currentResult?.label === "먹지마"
         ? "/cash-board/eat-no.webp"
+        : null;
+  const smokingResultSrc =
+    currentResult?.label === "흡연"
+      ? "/cash-board/smoking-yes.png"
+      : currentResult?.label === "금연"
+        ? "/cash-board/smoking-no.png"
         : null;
 
   const activeIndex = itemIndexAt(items, cursorPct);
@@ -657,8 +665,8 @@ export default function GamePanel({
 
     playLaunchSound();
 
-    if (isEatRoulette) {
-      setCurrentPick("먹을까 · 말까");
+    if (isEatRoulette || isSmokingRoulette) {
+      setCurrentPick(isEatRoulette ? "먹을까 · 말까" : "피울까 · 말까");
     }
 
     const target = resultCenter(items, hit.label);
@@ -710,7 +718,7 @@ export default function GamePanel({
     }
 
     let lastTickLabel = labelAt(items, startPosition);
-    let lastEatBeat = -1;
+    let lastSceneBeat = -1;
 
     await new Promise<void>((resolve) => {
       const animate = (now: number) => {
@@ -720,12 +728,12 @@ export default function GamePanel({
 
         setCursorPct(position);
 
-        if (isEatRoulette) {
-          setCurrentPick("먹을까 · 말까");
-          const eatBeat = Math.floor(t * 18);
-          if (eatBeat !== lastEatBeat) {
-            playTickSound(t, eatBeat % 6);
-            lastEatBeat = eatBeat;
+        if (isEatRoulette || isSmokingRoulette) {
+          setCurrentPick(isEatRoulette ? "먹을까 · 말까" : "피울까 · 말까");
+          const sceneBeat = Math.floor(t * 18);
+          if (sceneBeat !== lastSceneBeat) {
+            playTickSound(t, sceneBeat % 6);
+            lastSceneBeat = sceneBeat;
           }
         } else {
           setCurrentPick(nextLabel);
@@ -747,7 +755,7 @@ export default function GamePanel({
         setReveal(true);
         setBurst((value) => value + 1);
 
-        if (isEatRoulette) {
+        if (isEatRoulette || isSmokingRoulette) {
           playPositiveResultSound("keep", false);
         } else if (
           hit.result_type === "nothing" ||
@@ -839,6 +847,8 @@ export default function GamePanel({
     setCurrentPick(
       isEatRoulette
         ? "먹을까 · 말까"
+        : isSmokingRoulette
+          ? "피울까 · 말까"
         : isCashRoulette
           ? "새 복권 발급 중"
           : labelAt(items, cursorPct)
@@ -1270,9 +1280,11 @@ export default function GamePanel({
           <div className={fx.eatSceneShell}>
             <div className={fx.eatScene}>
               {reveal && eatResultSrc ? (
-                <img
+                <Image
                   src={eatResultSrc}
                   alt={currentResult?.label || "먹어 먹지마 결과"}
+                  fill
+                  sizes="(max-width: 404px) 100vw, 404px"
                   className={fx.eatResultImage}
                 />
               ) : (
@@ -1293,6 +1305,40 @@ export default function GamePanel({
               {spinning && (
                 <div className={fx.eatMotionLabel}>
                   음식이 입 안팎을 오가는 중
+                </div>
+              )}
+            </div>
+          </div>
+        ) : isSmokingRoulette ? (
+          <div className={fx.smokingSceneShell}>
+            <div className={fx.smokingScene}>
+              {reveal && smokingResultSrc ? (
+                <Image
+                  src={smokingResultSrc}
+                  alt={currentResult?.label || "흡연 금연 결과"}
+                  fill
+                  sizes="(max-width: 404px) 100vw, 404px"
+                  className={fx.smokingResultImage}
+                />
+              ) : (
+                <div
+                  className={
+                    fx.smokingAnimationArt +
+                    (spinning ? " " + fx.smokingAnimationSpinning : "")
+                  }
+                />
+              )}
+
+              <div className={fx.smokingSweep} />
+              <div className={fx.smokingSceneGlow} />
+              <div className={fx.smokingChoiceBadges}>
+                <span>흡연 50%</span>
+                <span>금연 50%</span>
+              </div>
+
+              {spinning && (
+                <div className={fx.smokingMotionLabel}>
+                  담배가 흡연과 금연 사이를 오가는 중
                 </div>
               )}
             </div>
