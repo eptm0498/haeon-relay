@@ -48,6 +48,7 @@ const dateTime = (value: string) =>
 
 export default function CashBoardPage() {
   const [pin, setPin] = useState("");
+  const [broadcastEndTime, setBroadcastEndTime] = useState("");
   const [authed, setAuthed] = useState(false);
   const [data, setData] = useState<Bootstrap>({ users: [], roulettes: [], contents: [], discount_percent: 0 });
   const [tab, setTab] = useState<"charge" | "roulette" | "users" | "settings">("charge");
@@ -91,6 +92,23 @@ export default function CashBoardPage() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result?.error || "사용자 요청을 처리하지 못했어.");
+    return result as T;
+  }
+
+  async function broadcastApi<T>(
+    action: string,
+    payload: Record<string, unknown> = {}
+  ): Promise<T> {
+    const response = await fetch("/api/cash-broadcast-state", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-pin": pin },
+      body: JSON.stringify({ action, ...payload }),
+      cache: "no-store",
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || "방송 종료 시각을 처리하지 못했어.");
+    }
     return result as T;
   }
 
@@ -152,13 +170,26 @@ export default function CashBoardPage() {
 
   async function login() {
     if (!pin.trim()) return;
+    if (!/^\d{2}:\d{2}$/.test(broadcastEndTime)) {
+      setNotice("오늘 방송을 몇 시에 끝낼지 24시간 기준으로 입력해줘.");
+      return;
+    }
+
     setBusy(true);
     setNotice("");
     try {
       await reload();
+      await broadcastApi("set_end_time", {
+        end_time: broadcastEndTime,
+      });
       setAuthed(true);
-    } catch {
-      setNotice("비밀번호를 확인해줘.");
+      window.dispatchEvent(new Event("cash-broadcast-updated"));
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "비밀번호와 방송 종료 시각을 확인해줘."
+      );
     } finally {
       setBusy(false);
     }
@@ -468,24 +499,37 @@ export default function CashBoardPage() {
           </div>
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
             <label className="text-sm font-bold">관리자 비밀번호</label>
-            <div className="mt-3 flex gap-2">
-              <input
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && login()}
-                inputMode="numeric"
-                type="password"
-                placeholder="4자리 비밀번호"
-                className="min-w-0 flex-1 rounded-2xl border border-zinc-200 px-4 py-3 outline-none focus:border-zinc-500"
-              />
-              <button
-                onClick={login}
-                disabled={busy}
-                className="rounded-2xl bg-zinc-950 px-5 py-3 font-bold text-white disabled:opacity-40"
-              >
-                입장
-              </button>
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              inputMode="numeric"
+              type="password"
+              placeholder="4자리 비밀번호"
+              className="mt-3 w-full rounded-2xl border border-zinc-200 px-4 py-3 outline-none focus:border-zinc-500"
+            />
+
+            <label className="mt-4 block text-sm font-bold">
+              오늘 방송 종료 시각
+            </label>
+            <div className="mt-1 text-xs font-semibold text-zinc-400">
+              24시간 기준으로 입력 · 예: 밤 11시 30분 → 23:30
             </div>
+            <input
+              value={broadcastEndTime}
+              onChange={(e) => setBroadcastEndTime(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && login()}
+              type="time"
+              step={60}
+              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-lg font-black outline-none focus:border-zinc-500"
+            />
+
+            <button
+              onClick={login}
+              disabled={busy || !pin.trim() || !broadcastEndTime}
+              className="mt-4 w-full rounded-2xl bg-zinc-950 px-5 py-3 font-bold text-white disabled:opacity-40"
+            >
+              {busy ? "입장 중..." : "입장"}
+            </button>
             {notice && <p className="mt-3 text-sm font-semibold text-red-500">{notice}</p>}
           </div>
         </div>
@@ -511,6 +555,7 @@ export default function CashBoardPage() {
             onClick={() => {
               setAuthed(false);
               setPin("");
+              setBroadcastEndTime("");
               setSelectedUser(null);
             }}
             className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-zinc-500 ring-1 ring-zinc-200"
