@@ -125,6 +125,21 @@ export default function RedButtonEvent({
   }, [phase]);
 
   useEffect(() => {
+    if (!eventStage || phase !== "result") return;
+
+    const previousStageHeight = eventStage.style.height;
+    const previousStageMinHeight = eventStage.style.minHeight;
+
+    eventStage.style.height = "342px";
+    eventStage.style.minHeight = "342px";
+
+    return () => {
+      eventStage.style.height = previousStageHeight;
+      eventStage.style.minHeight = previousStageMinHeight;
+    };
+  }, [eventStage, phase]);
+
+  useEffect(() => {
     const syncEventStage = () => {
       setEventStage(document.getElementById("cash-game-stage"));
     };
