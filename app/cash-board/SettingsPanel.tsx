@@ -24,6 +24,11 @@ type SettingsData = {
   timeline: TimelineItem[];
 };
 
+type EventSettings = {
+  golden_ticket_percent: number;
+  red_button_per_hour: number;
+};
+
 const dateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -52,6 +57,26 @@ async function post<T>(
   return data as T;
 }
 
+async function postEvent<T>(
+  pin: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const response = await fetch("/api/cash-event-settings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-admin-pin": pin,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || "이벤트 설정을 처리하지 못했어.");
+  }
+  return data as T;
+}
+
 export default function SettingsPanel({
   pin,
   onNotice,
@@ -67,14 +92,27 @@ export default function SettingsPanel({
     timeline: [],
   });
   const [discount, setDiscount] = useState(0);
+  const [goldenTicketPercent, setGoldenTicketPercent] = useState(100);
+  const [redButtonPerHour, setRedButtonPerHour] = useState(12);
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const next = await post<SettingsData & { ok: boolean }>(pin, {
-      action: "admin_settings_load",
-    });
+    const [next, eventSettings] = await Promise.all([
+      post<SettingsData & { ok: boolean }>(pin, {
+        action: "admin_settings_load",
+      }),
+      postEvent<EventSettings & { ok: boolean }>(pin, {
+        action: "load",
+      }),
+    ]);
     setData(next);
     setDiscount(Number(next.discount_percent || 0));
+    setGoldenTicketPercent(
+      Math.max(0, Math.min(100, Number(eventSettings.golden_ticket_percent ?? 5)))
+    );
+    setRedButtonPerHour(
+      Math.max(0, Math.min(60, Number(eventSettings.red_button_per_hour ?? 2)))
+    );
   }
 
   useEffect(() => {
@@ -94,6 +132,51 @@ export default function SettingsPanel({
       onNotice(value > 0 ? `현재 할인율을 ${value}%로 설정했어.` : "할인을 해제했어.");
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "할인율 저장에 실패했어.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEventSettings() {
+    setBusy(true);
+    onNotice("");
+    try {
+      const golden = Math.max(
+        0,
+        Math.min(100, Math.round(Number(goldenTicketPercent || 0)))
+      );
+      const red = Math.max(
+        0,
+        Math.min(60, Math.round(Number(redButtonPerHour || 0)))
+      );
+
+      await postEvent<EventSettings & { ok: boolean }>(pin, {
+        action: "save",
+        golden_ticket_percent: golden,
+        red_button_per_hour: red,
+      });
+
+      setGoldenTicketPercent(golden);
+      setRedButtonPerHour(red);
+      window.dispatchEvent(new Event("cash-event-settings-updated"));
+
+      const intervalText =
+        red <= 0
+          ? "빨간 버튼 꺼짐"
+          : `빨간 버튼 시간당 ${red}회 · 약 ${Math.max(
+              1,
+              Math.round(60 / red)
+            )}분마다`;
+
+      onNotice(
+        `황금티켓 ${golden}% · ${intervalText}로 저장했어.`
+      );
+    } catch (error) {
+      onNotice(
+        error instanceof Error
+          ? error.message
+          : "이벤트 설정 저장에 실패했어."
+      );
     } finally {
       setBusy(false);
     }
@@ -195,6 +278,133 @@ export default function SettingsPanel({
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="text-lg font-black">이벤트 확률</div>
+        <div className="mt-1 text-xs font-bold text-zinc-400">
+          저장하면 다음 룰렛 추첨과 다음 빨간 버튼 예약부터 바로 적용돼.
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">황금티켓 확률</div>
+              <div className="mt-0.5 text-[10px] font-bold text-zinc-400">
+                룰렛 1회 결과가 ‘원하는 컨텐츠 룰렛 하나 킵’이 될 확률
+              </div>
+            </div>
+            <div className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+              {goldenTicketPercent}%
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={goldenTicketPercent}
+                onChange={(e) =>
+                  setGoldenTicketPercent(Number(e.target.value || 0))
+                }
+                className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-10 text-lg font-black outline-none focus:border-amber-300"
+              />
+              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-black text-zinc-400">
+                %
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-2 grid grid-cols-5 gap-1.5">
+            {[0, 5, 25, 50, 100].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setGoldenTicketPercent(value)}
+                className={
+                  "rounded-xl px-2 py-2 text-xs font-black " +
+                  (goldenTicketPercent === value
+                    ? "bg-amber-500 text-white"
+                    : "bg-amber-50 text-amber-700")
+                }
+              >
+                {value}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 border-t border-zinc-100 pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-black">빨간 버튼 등장 횟수</div>
+              <div className="mt-0.5 text-[10px] font-bold text-zinc-400">
+                1시간에 몇 번 나타날지 설정 · 0이면 꺼짐
+              </div>
+            </div>
+            <div className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-600">
+              {redButtonPerHour <= 0
+                ? "꺼짐"
+                : `${redButtonPerHour}회/시간 · 약 ${Math.max(
+                    1,
+                    Math.round(60 / redButtonPerHour)
+                  )}분`}
+            </div>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={redButtonPerHour}
+                onChange={(e) =>
+                  setRedButtonPerHour(Number(e.target.value || 0))
+                }
+                className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-16 text-lg font-black outline-none focus:border-red-300"
+              />
+              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-zinc-400">
+                회/시간
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-2 grid grid-cols-5 gap-1.5">
+            {[
+              [0, "끔"],
+              [1, "1회"],
+              [2, "2회"],
+              [6, "10분"],
+              [12, "5분"],
+            ].map(([value, label]) => (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => setRedButtonPerHour(Number(value))}
+                className={
+                  "rounded-xl px-2 py-2 text-xs font-black " +
+                  (redButtonPerHour === Number(value)
+                    ? "bg-red-600 text-white"
+                    : "bg-red-50 text-red-600")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={saveEventSettings}
+          disabled={busy}
+          className="mt-5 w-full rounded-2xl bg-zinc-950 px-5 py-3.5 text-sm font-black text-white disabled:opacity-40"
+        >
+          이벤트 설정 저장
+        </button>
       </section>
 
       <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
