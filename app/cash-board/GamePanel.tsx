@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import fx from "./effects.module.css";
 
 type User = {
@@ -39,6 +39,8 @@ type SpinResult = {
   cost?: number;
   handled?: boolean;
   handled_mode?: "use" | "keep";
+  golden_ticket?: boolean;
+  golden_ticket_label?: string | null;
 };
 
 type SpinResponse = {
@@ -386,6 +388,7 @@ export default function GamePanel({
     results: SpinResult[];
     balance: number;
   } | null>(null);
+  const [goldenTicketReveal, setGoldenTicketReveal] = useState(0);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
 
@@ -648,6 +651,22 @@ export default function GamePanel({
     playNoise(85, 0.008, 20);
   }
 
+  async function showGoldenTicket(count = 1) {
+    if (count <= 0) return;
+
+    playTone(82, 520, 0.04, "sine", 0, 46);
+    playTone(392, 620, 0.028, "triangle", 40, 784);
+    playTone(523.25, 720, 0.028, "sine", 130, 1046.5);
+    playTone(659.25, 760, 0.024, "triangle", 220, 1318.5);
+    playTone(1046.5, 920, 0.02, "sine", 360, 2093);
+    playNoise(260, 0.018, 20);
+
+    setGoldenTicketReveal(count);
+    await delay(2850);
+    setGoldenTicketReveal(0);
+    await delay(180);
+  }
+
   function chooseUser(user: User) {
     setNickname(user.nickname);
     setOpenUsers(false);
@@ -832,9 +851,19 @@ export default function GamePanel({
     }
 
     await onChanged();
-    setScratchBatch(null);
     window.dispatchEvent(new Event("cash-effect-updated"));
     window.dispatchEvent(new Event("cash-timer-updated"));
+
+    const goldenCount = batch.results.filter(
+      (result) => result.golden_ticket
+    ).length;
+
+    if (goldenCount > 0) {
+      await delay(900);
+      await showGoldenTicket(goldenCount);
+    }
+
+    setScratchBatch(null);
   }
 
   async function spin() {
@@ -937,6 +966,11 @@ export default function GamePanel({
           Number(results[index].cash_delta || 0) -
           Number(results[index].cost ?? response.effective_cost ?? 0);
         setVisualBalance(runningBalance);
+
+        if (results[index].golden_ticket) {
+          await delay(900);
+          await showGoldenTicket(1);
+        }
       }
 
       setBatchResults(results);
@@ -1065,7 +1099,7 @@ export default function GamePanel({
 
   function resultHint(item: SpinResult) {
     if (item.label === SPECIAL_CHOICE_KEEP) {
-      return "5% 특수 결과 · 원하는 콘텐츠 룰렛 하나를 골라 받을 수 있어";
+      return "황금티켓 보너스 · 원하는 콘텐츠 룰렛 하나를 골라 받을 수 있어";
     }
     if (item.label.includes("00체")) {
       return "사용하면 말투 입력 후 10분 시작";
@@ -1095,6 +1129,50 @@ export default function GamePanel({
 
   return (
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
+      {goldenTicketReveal > 0 && (
+        <div className={fx.goldenTicketOverlay} role="status" aria-live="assertive">
+          <div className={fx.goldenTicketFlash} />
+          <div className={fx.goldenTicketRays} />
+          <div className={fx.goldenTicketRing} />
+          <div className={fx.goldenTicketRingAlt} />
+
+          {Array.from({ length: 58 }).map((_, index) => {
+            const angle = (index / 58) * Math.PI * 2;
+            const distance = 180 + (index % 8) * 36;
+            const palette = ["#fff8bd", "#ffd54f", "#ffb300", "#fff", "#ffea70"];
+
+            return (
+              <span
+                key={"gold-" + index}
+                className={fx.goldenTicketParticle}
+                style={
+                  {
+                    "--x": `${Math.cos(angle) * distance}px`,
+                    "--y": `${Math.sin(angle) * distance}px`,
+                    "--delay": `${(index % 12) * 24}ms`,
+                    color: palette[index % palette.length],
+                  } as CSSProperties
+                }
+              />
+            );
+          })}
+
+          <div className={fx.goldenTicketCard}>
+            <div className={fx.goldenTicketInner}>
+              <div className={fx.goldenTicketKicker}>SURPRISE BONUS</div>
+              <div className={fx.goldenTicketTitle}>황금티켓</div>
+              <div className={fx.goldenTicketSub}>
+                {SPECIAL_CHOICE_KEEP}
+              </div>
+              <div className={fx.goldenTicketCount}>
+                {goldenTicketReveal > 1
+                  ? `보너스 ${goldenTicketReveal}장 획득`
+                  : "보너스 1장 획득"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="relative z-30">
         {chosen && (
           <div className="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-600">
