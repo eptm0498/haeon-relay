@@ -47,20 +47,6 @@ function formatBroadcastClock(value: string) {
   }).format(new Date(value));
 }
 
-function formatBroadcastRemaining(endsAt: string, now: number) {
-  const totalSeconds = Math.max(
-    0,
-    Math.ceil((new Date(endsAt).getTime() - now) / 1000)
-  );
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
-    2,
-    "0"
-  )}:${String(seconds).padStart(2, "0")}`;
-}
-
 function formatElapsed(startedAt: string, now: number) {
   const totalSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -260,14 +246,8 @@ export default function TimerOverlay({ pin }: { pin: string }) {
             <div className="text-[8px] font-black tracking-[.08em] text-sky-200">
               오늘 방종시간
             </div>
-            <div className="mt-1 text-[18px] font-black leading-none tracking-tight">
+            <div className="mt-1.5 text-[20px] font-black leading-none tracking-tight">
               {formatBroadcastClock(broadcastEndAt)}
-            </div>
-            <div className="mt-2 border-t border-white/10 pt-1.5">
-              <div className="text-[8px] font-black text-white/40">남은 시간</div>
-              <div className="mt-0.5 tabular-nums text-[11px] font-black text-sky-100">
-                {formatBroadcastRemaining(broadcastEndAt, now)}
-              </div>
             </div>
           </div>
         </div>
@@ -401,7 +381,11 @@ export default function TimerOverlay({ pin }: { pin: string }) {
             <div className="flex flex-col items-stretch gap-1.5">
               <div className="min-w-0 flex-1">
                 <div className={"text-[9px] font-black tracking-[.08em] " + (urgent ? "text-rose-100" : "text-amber-200")}>{isSpeech ? "현재 말투" : "사용 중"}</div>
-                <div className="mt-0.5 truncate text-[12px] font-black">{isSpeech ? timer.result_label : `${timer.nickname} · ${timer.result_label}`}</div>
+                <div className="mt-0.5 truncate text-[12px] font-black">
+                  {isSpeech
+                    ? `${timer.nickname}님 · ${timer.result_label}`
+                    : `${timer.nickname} · ${timer.result_label}`}
+                </div>
               </div>
               <div className={"tabular-nums text-[20px] font-black leading-none tracking-tight " + (urgent ? "animate-pulse" : "")}>{formatRemaining(left)}</div>
             </div>
@@ -416,13 +400,10 @@ export default function TimerOverlay({ pin }: { pin: string }) {
             <div className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[9px] font-black text-violet-100">{queue.length}</div>
           </div>
           <div className="divide-y divide-white/5 px-3">
-            {queue.slice(0, 6).map((item, index) => (
+            {queue.slice(0, 6).map((item) => (
               <div key={item.id} className="flex items-center gap-2 py-2">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-black text-zinc-300">
-                  {index + 1}
-                </div>
                 <div className="min-w-0 flex-1 truncate text-[10px] font-black text-white">
-                  {item.nickname} · {item.item_name}
+                  {item.item_name}
                 </div>
                 <button
                   type="button"
