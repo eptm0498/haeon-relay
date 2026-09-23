@@ -547,10 +547,31 @@ export default function CashBoardPage() {
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-3 py-5 text-[#111318] sm:px-5">
       <div className="mx-auto max-w-[640px]">
-        <header className="mb-4 flex items-end justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">온유의 캐시 보드</h1>
-          </div>
+        <header className="mb-3 flex items-center gap-2">
+          <h1 className="shrink-0 text-[18px] font-extrabold tracking-tight sm:text-xl">
+            온유의 캐시 보드
+          </h1>
+
+          <nav className="ml-auto flex min-w-0 items-center justify-end gap-1">
+            {tabs.map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setTab(key);
+                  setNotice("");
+                }}
+                className={
+                  "rounded-xl px-2.5 py-2 text-[11px] font-extrabold transition sm:px-3 sm:text-xs " +
+                  (tab === key
+                    ? "bg-zinc-950 text-white"
+                    : "bg-white text-zinc-600 ring-1 ring-zinc-200")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+
           <button
             onClick={() => {
               setAuthed(false);
@@ -558,29 +579,11 @@ export default function CashBoardPage() {
               setBroadcastEndTime("");
               setSelectedUser(null);
             }}
-            className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-zinc-500 ring-1 ring-zinc-200"
+            className="shrink-0 rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-zinc-400 ring-1 ring-zinc-200"
           >
             나가기
           </button>
         </header>
-
-        <nav className="mb-4 grid grid-cols-4 gap-2">
-          {tabs.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => {
-                setTab(key);
-                setNotice("");
-              }}
-              className={
-                "rounded-2xl px-2 py-3 text-sm font-extrabold transition " +
-                (tab === key ? "bg-zinc-950 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200")
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
 
         {notice && (
           <div className="mb-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-bold">
