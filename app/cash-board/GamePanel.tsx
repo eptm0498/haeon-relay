@@ -1379,20 +1379,6 @@ export default function GamePanel({
                 </div>
               )}
 
-              {reveal && currentResult && (
-                <div
-                  className={
-                    fx.smokingResultTitle +
-                    (currentResult.label === "금연"
-                      ? " " + fx.smokingResultTitleNo
-                      : " " + fx.smokingResultTitleYes)
-                  }
-                >
-                  <strong>{currentResult.label}</strong>
-                  <span>결과 확정</span>
-                </div>
-              )}
-
               {spinning && (
                 <div className={fx.smokingMotionLabel}>
                   결정 토큰 회전 중

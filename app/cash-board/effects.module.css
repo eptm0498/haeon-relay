@@ -940,7 +940,8 @@
 
 .smokingResultImage {
   z-index: 2;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   background: #070b12;
   animation: smokingResultReveal .58s cubic-bezier(.16,.84,.26,1.12) both;
 }
