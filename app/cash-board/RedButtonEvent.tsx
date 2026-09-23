@@ -110,6 +110,8 @@ export default function RedButtonEvent({
   const [rewardDone, setRewardDone] = useState(false);
   const timerRef = useRef<number | null>(null);
   const rateRef = useRef(0);
+  const rouletteBusyRef = useRef(false);
+  const rouletteBlockedUntilRef = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
 
   const matchingUsers = useMemo(() => {
@@ -128,6 +130,15 @@ export default function RedButtonEvent({
   }
 
   function openOffer() {
+    const now = Date.now();
+    if (rouletteBusyRef.current || now < rouletteBlockedUntilRef.current) {
+      armTimer(
+        rouletteBusyRef.current
+          ? now + 1000
+          : rouletteBlockedUntilRef.current
+      );
+      return;
+    }
     setOutcome("");
     setRewardNick("");
     setRewardDone(false);
@@ -218,11 +229,46 @@ export default function RedButtonEvent({
       handleSettingsChanged
     );
 
+    const handleRouletteActivity = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const activeRoulette = Boolean(detail.active);
+      rouletteBusyRef.current = activeRoulette;
+
+      if (activeRoulette) {
+        clearTimer();
+        setPhase((current) => (current === "offer" ? "idle" : current));
+        return;
+      }
+
+      rouletteBlockedUntilRef.current = Math.max(
+        rouletteBlockedUntilRef.current,
+        Number(detail.blockedUntil || Date.now() + 10000)
+      );
+
+      const stored = Number(
+        window.localStorage.getItem(STORAGE_KEY) || 0
+      );
+      const target = Math.max(
+        rouletteBlockedUntilRef.current,
+        Number.isFinite(stored) ? stored : 0
+      );
+      armTimer(target > Date.now() ? target : Date.now() + 1000);
+    };
+
+    window.addEventListener(
+      "cash-roulette-activity",
+      handleRouletteActivity
+    );
+
     return () => {
       active = false;
       window.removeEventListener(
         "cash-event-settings-updated",
         handleSettingsChanged
+      );
+      window.removeEventListener(
+        "cash-roulette-activity",
+        handleRouletteActivity
       );
       clearTimer();
       try {
