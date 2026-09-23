@@ -1335,7 +1335,7 @@ export default function GamePanel({
 
           <div className={fx.goldenTicketCard}>
             <div className={fx.goldenTicketInner}>
-              <div className={fx.goldenTicketKicker}>SURPRISE BONUS</div>
+              <div className={fx.goldenTicketKicker}>깜짝 보너스</div>
               <div className={fx.goldenTicketTitle}>황금티켓</div>
               <div className={fx.goldenTicketSub}>
                 {SPECIAL_CHOICE_KEEP}
