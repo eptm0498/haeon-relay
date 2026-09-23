@@ -652,6 +652,18 @@ export default function GamePanel({
     playNoise(85, 0.008, 20);
   }
 
+  async function applyBroadcastTimeOutcome(label: string) {
+    if (!/방송\s*(연장|단축)\s*\d+\s*분/.test(label)) return;
+
+    await post("/api/cash-broadcast-state", pin, {
+      action: "apply_outcome",
+      outcome: label,
+      source: "룰렛",
+    });
+
+    window.dispatchEvent(new Event("cash-broadcast-updated"));
+  }
+
   async function showGoldenTicket(count = 1) {
     if (count <= 0) return;
 
@@ -861,6 +873,10 @@ export default function GamePanel({
       playPositiveResultSound("cash", rare);
     }
 
+    for (const result of batch.results) {
+      await applyBroadcastTimeOutcome(result.label);
+    }
+
     await onChanged();
     window.dispatchEvent(new Event("cash-effect-updated"));
     window.dispatchEvent(new Event("cash-timer-updated"));
@@ -963,6 +979,8 @@ export default function GamePanel({
           index,
           results.length
         );
+
+        await applyBroadcastTimeOutcome(results[index].label);
 
         if (revealsPersistentState) {
           await afterVisiblePaint();
