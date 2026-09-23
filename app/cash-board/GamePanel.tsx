@@ -51,6 +51,8 @@ type SpinResponse = {
   balance: number;
 };
 
+const SPECIAL_CHOICE_KEEP = "원하는 컨텐츠 룰렛 하나 킵";
+
 const colors = [
   "#ff4fa3",
   "#7b5cff",
@@ -463,10 +465,11 @@ export default function GamePanel({
     ? items.find((item) => item.label === currentResult.label)
     : undefined;
   const rareWin =
-    Boolean(resultItem) &&
-    currentResult?.result_type !== "nothing" &&
-    currentResult?.result_type !== "cash_loss" &&
-    Number(resultItem?.weight || 0) <= 5;
+    currentResult?.label === SPECIAL_CHOICE_KEEP ||
+    (Boolean(resultItem) &&
+      currentResult?.result_type !== "nothing" &&
+      currentResult?.result_type !== "cash_loss" &&
+      Number(resultItem?.weight || 0) <= 5);
   const positiveReveal = Boolean(
     reveal &&
       currentResult &&
@@ -780,7 +783,8 @@ export default function GamePanel({
           );
           playPositiveResultSound(
             hit.result_type,
-            Number(hitItem?.weight || 100) <= 5
+            hit.label === SPECIAL_CHOICE_KEEP ||
+              Number(hitItem?.weight || 100) <= 5
           );
         }
 
@@ -820,6 +824,7 @@ export default function GamePanel({
       playNegativeResultSound("cash_loss");
     } else {
       const rare = batch.results.some((result) => {
+        if (result.label === SPECIAL_CHOICE_KEEP) return true;
         const item = items.find((entry) => entry.label === result.label);
         return Number(item?.weight || 100) <= 5;
       });
@@ -1059,6 +1064,9 @@ export default function GamePanel({
   }
 
   function resultHint(item: SpinResult) {
+    if (item.label === SPECIAL_CHOICE_KEEP) {
+      return "5% 특수 결과 · 원하는 콘텐츠 룰렛 하나를 골라 받을 수 있어";
+    }
     if (item.label.includes("00체")) {
       return "사용하면 말투 입력 후 10분 시작";
     }
@@ -1614,10 +1622,13 @@ export default function GamePanel({
                   (rouletteItem) =>
                     rouletteItem.label === item.label
                 )?.weight;
+                const specialChoice =
+                  item.label === SPECIAL_CHOICE_KEEP;
                 const rare =
-                  item.result_type !== "nothing" &&
-                  item.result_type !== "cash_loss" &&
-                  Number(weight || 100) <= 5;
+                  specialChoice ||
+                  (item.result_type !== "nothing" &&
+                    item.result_type !== "cash_loss" &&
+                    Number(weight || 100) <= 5);
 
                 return (
                   <div
@@ -1635,7 +1646,7 @@ export default function GamePanel({
                           </div>
                           {rare && (
                             <div className="rounded-full bg-fuchsia-500/20 px-2 py-0.5 text-[9px] font-black text-fuchsia-100">
-                              희귀 {weight}%
+                              {specialChoice ? "특수 5%" : `희귀 ${weight}%`}
                             </div>
                           )}
                         </div>
@@ -1734,9 +1745,11 @@ export default function GamePanel({
                         {item.result_type === "keep" &&
                           item.handled && (
                             <div className="mt-2 inline-flex rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-black text-emerald-200">
-                              {item.handled_mode === "keep"
-                                ? "킵 저장 완료"
-                                : "즉시사용 완료"}
+                              {item.label === SPECIAL_CHOICE_KEEP
+                                ? "선택권 저장 완료"
+                                : item.handled_mode === "keep"
+                                  ? "킵 저장 완료"
+                                  : "즉시사용 완료"}
                             </div>
                           )}
                       </div>
