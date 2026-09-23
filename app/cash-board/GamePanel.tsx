@@ -737,10 +737,7 @@ export default function GamePanel({
   function notifyRouletteActivity(active: boolean) {
     window.dispatchEvent(
       new CustomEvent("cash-roulette-activity", {
-        detail: {
-          active,
-          blockedUntil: active ? 0 : Date.now() + 10_000,
-        },
+        detail: { active },
       })
     );
   }
@@ -1134,7 +1131,13 @@ export default function GamePanel({
 
       window.dispatchEvent(new Event("cash-effect-updated"));
       window.dispatchEvent(new Event("cash-timer-updated"));
-      notifyRouletteActivity(false);
+
+      const hasPendingResolution = results.some(
+        (item) => item.result_type === "keep" && !item.handled
+      );
+      if (!hasPendingResolution) {
+        notifyRouletteActivity(false);
+      }
     } catch (error) {
       setSpinning(false);
       setSpinProgress("");
@@ -1243,6 +1246,16 @@ export default function GamePanel({
       window.dispatchEvent(new Event("cash-timer-updated"));
       window.dispatchEvent(new Event("cash-queue-updated"));
       await onChanged();
+
+      const hasOtherPendingResolution = batchResults.some(
+        (item) =>
+          item.spin_id !== target.spin_id &&
+          item.result_type === "keep" &&
+          !item.handled
+      );
+      if (!hasOtherPendingResolution) {
+        notifyRouletteActivity(false);
+      }
     } catch (error) {
       onNotice(
         error instanceof Error
@@ -1365,7 +1378,7 @@ export default function GamePanel({
 
         <input
           value={nickname}
-          disabled={busy}
+          disabled={busy || unresolvedKeeps}
           onFocus={() =>
             nickname.trim() && setOpenUsers(true)
           }
@@ -1450,7 +1463,7 @@ export default function GamePanel({
             setCurrentPick("추첨 대기");
             setCursorPct(5);
           }}
-          disabled={busy}
+          disabled={busy || unresolvedKeeps}
           className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
         >
           {roulettes.map((roulette) => {
@@ -1477,7 +1490,7 @@ export default function GamePanel({
               min={1}
               max={50}
               value={spinCount}
-              disabled={busy}
+              disabled={busy || unresolvedKeeps}
               onChange={(event) =>
                 setSpinCount(
                   Math.max(
@@ -1497,7 +1510,7 @@ export default function GamePanel({
               <button
                 key={count}
                 type="button"
-                disabled={busy}
+                disabled={busy || unresolvedKeeps}
                 onClick={() => setSpinCount(count)}
                 className={
                   "min-w-9 rounded-xl px-2 py-2 text-xs font-black transition " +
