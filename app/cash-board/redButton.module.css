@@ -599,3 +599,184 @@
   58% { left: 112%; opacity: .85; }
   70%, 100% { left: 112%; opacity: 0; }
 }
+
+
+.pressingScene {
+  position: relative;
+  margin: 0 auto;
+  display: flex;
+  min-height: 430px;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+  animation: pressingSceneShake 420ms ease-in-out infinite alternate;
+}
+
+.pressingGlow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 360px;
+  height: 360px;
+  translate: -50% -50%;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle, rgba(255,255,210,.92) 0 4%, rgba(255,190,0,.62) 8%, rgba(255,20,0,.38) 28%, transparent 68%);
+  filter: blur(20px);
+  mix-blend-mode: screen;
+  animation: pressingGlowPulse 520ms ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.pressingOrbit,
+.pressingOrbitAlt {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 330px;
+  height: 330px;
+  translate: -50% -50%;
+  border-radius: 9999px;
+  border: 4px dashed rgba(255, 222, 113, .72);
+  box-shadow:
+    0 0 22px rgba(255, 196, 0, .65),
+    inset 0 0 28px rgba(255, 65, 0, .28);
+  animation: pressingOrbitSpin 1.05s linear infinite;
+  pointer-events: none;
+}
+
+.pressingOrbitAlt {
+  width: 285px;
+  height: 285px;
+  border-width: 3px;
+  border-style: solid;
+  border-color: rgba(255, 55, 35, .66) transparent rgba(255,255,255,.45) transparent;
+  animation-duration: .72s;
+  animation-direction: reverse;
+}
+
+.pressingSweep {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 430px;
+  height: 430px;
+  translate: -50% -50%;
+  border-radius: 9999px;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg 312deg,
+      rgba(255,255,255,.04) 316deg,
+      rgba(255,231,147,.72) 330deg,
+      rgba(255,64,0,.82) 342deg,
+      transparent 358deg
+    );
+  mask-image: radial-gradient(circle, transparent 0 44%, #000 48% 68%, transparent 72%);
+  filter: drop-shadow(0 0 14px rgba(255,95,0,.85));
+  animation: pressingOrbitSpin .86s linear infinite;
+  pointer-events: none;
+}
+
+.pressingStrobe {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,.16), transparent 36%),
+    linear-gradient(180deg, rgba(255,0,0,.04), rgba(255,148,0,.08));
+  animation: pressingStrobe 310ms steps(2,end) infinite;
+  pointer-events: none;
+}
+
+.pressingCore {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  width: 240px;
+  height: 240px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 14px solid rgba(255,236,166,.36);
+  background:
+    radial-gradient(circle at 42% 30%, #fff9c7 0 6%, #ff7b35 18%, #d31500 42%, #610000 68%, #1b0000 100%);
+  box-shadow:
+    0 0 0 10px rgba(255, 56, 0, .1),
+    0 0 70px rgba(255, 68, 0, .88),
+    0 0 130px rgba(255, 174, 0, .34),
+    inset 0 12px 22px rgba(255,255,255,.25);
+  animation: pressingCorePulse 430ms ease-in-out infinite alternate;
+}
+
+.pressingCoreInner {
+  text-align: center;
+  text-shadow: 0 2px 18px rgba(0,0,0,.55);
+}
+
+.pressingMeter {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  margin-top: 26px;
+  gap: 4px;
+}
+
+.pressingMeter span {
+  width: 9px;
+  height: 26px;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #fff6a8, #ff5a00);
+  box-shadow: 0 0 10px rgba(255,116,0,.75);
+  transform-origin: bottom;
+  animation: pressingMeterBeat .55s ease-in-out infinite alternate;
+}
+
+.pressingLabel {
+  position: relative;
+  z-index: 5;
+  margin-top: 18px;
+  color: #fff2ae;
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: .28em;
+  text-indent: .28em;
+  text-shadow: 0 0 18px rgba(255,117,0,.75);
+  animation: pressingLabelPulse .5s ease-in-out infinite alternate;
+}
+
+@keyframes pressingOrbitSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pressingGlowPulse {
+  from { opacity: .42; transform: scale(.82); }
+  to { opacity: 1; transform: scale(1.12); }
+}
+
+@keyframes pressingStrobe {
+  0%, 100% { opacity: .25; }
+  50% { opacity: .75; }
+}
+
+@keyframes pressingCorePulse {
+  from { transform: scale(.91) rotate(-1deg); filter: brightness(.95); }
+  to { transform: scale(1.045) rotate(1deg); filter: brightness(1.22); }
+}
+
+@keyframes pressingMeterBeat {
+  from { transform: scaleY(.32); opacity: .45; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes pressingLabelPulse {
+  from { opacity: .55; transform: scale(.96); }
+  to { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes pressingSceneShake {
+  from { transform: translate3d(-1px,0,0); }
+  to { transform: translate3d(1px,-1px,0); }
+}
