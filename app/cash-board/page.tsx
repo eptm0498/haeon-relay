@@ -5,6 +5,7 @@ import GamePanel from "./GamePanel";
 import RouletteSettings from "./RouletteSettings";
 import TimerOverlay from "./TimerOverlay";
 import SettingsPanel from "./SettingsPanel";
+import RedButtonEvent from "./RedButtonEvent";
 
 type User = {
   id: number;
@@ -31,6 +32,7 @@ type SpinResult = {
   balance: number;
 };
 
+const SPECIAL_CHOICE_KEEP = "원하는 컨텐츠 룰렛 하나 킵";
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
 const dateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
@@ -66,6 +68,7 @@ export default function CashBoardPage() {
   const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
   const [keepOptions, setKeepOptions] = useState<KeepOption[]>([]);
   const [restoreKeep, setRestoreKeep] = useState("");
+  const [choiceKeep, setChoiceKeep] = useState("");
 
   async function api<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
     const response = await fetch("/api/cash-board", {
@@ -264,6 +267,7 @@ export default function CashBoardPage() {
       });
       setKeepOptions(optionData.options || []);
       setRestoreKeep("");
+      setChoiceKeep("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "사용자 정보를 불러오지 못했어.");
     } finally {
@@ -367,6 +371,48 @@ export default function CashBoardPage() {
       setRestoreKeep("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "킵을 다시 넣지 못했어.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function redeemChoiceKeep() {
+    if (!selectedUser || !choiceKeep) {
+      setNotice("지급할 콘텐츠 룰렛 킵을 선택해줘.");
+      return;
+    }
+
+    setBusy(true);
+    setNotice("");
+    try {
+      await api("redeem_choice_keep", {
+        user_id: selectedUser.user.id,
+        item_name: choiceKeep,
+      });
+      const detail = await userApi<UserDetail>("detail", {
+        user_id: selectedUser.user.id,
+      });
+      const next = await reload();
+      const titled = next.users.find(
+        (user) => user.id === selectedUser.user.id
+      );
+      setSelectedUser({
+        ...detail,
+        user: {
+          ...detail.user,
+          title_text: titled?.title_text ?? null,
+          title_count: titled?.title_count ?? 0,
+        },
+      });
+      setNotice(`${choiceKeep} 킵을 선택해서 지급했어.`);
+      setChoiceKeep("");
+      window.dispatchEvent(new Event("cash-queue-updated"));
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "특수 선택권 지급에 실패했어."
+      );
     } finally {
       setBusy(false);
     }
@@ -636,15 +682,63 @@ export default function CashBoardPage() {
                               </div>
                             ) : null}
                           </div>
-                          <button
-                            onClick={() => useKeep(keep.item_name)}
-                            disabled={busy}
-                            className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-extrabold text-blue-700 disabled:opacity-40"
-                          >
-                            사용
-                          </button>
+                          {keep.item_name === SPECIAL_CHOICE_KEEP ? (
+                            <span className="rounded-xl bg-fuchsia-50 px-3 py-2 text-xs font-black text-fuchsia-700">
+                              선택권
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => useKeep(keep.item_name)}
+                              disabled={busy}
+                              className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-extrabold text-blue-700 disabled:opacity-40"
+                            >
+                              사용
+                            </button>
+                          )}
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {selectedUser.keeps.some(
+                    (keep) =>
+                      keep.item_name === SPECIAL_CHOICE_KEEP &&
+                      Number(keep.quantity || 0) > 0
+                  ) && (
+                    <div className="mt-3 rounded-2xl bg-fuchsia-50 p-3 ring-1 ring-fuchsia-100">
+                      <div className="text-[11px] font-black text-fuchsia-700">
+                        특수 선택권으로 원하는 콘텐츠 룰렛 킵 지급
+                      </div>
+                      <div className="mt-1 text-[10px] font-bold text-fuchsia-500">
+                        온유가 아래에서 하나를 골라 수동으로 넣어줘.
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <select
+                          value={choiceKeep}
+                          onChange={(e) => setChoiceKeep(e.target.value)}
+                          className="min-w-0 flex-1 rounded-xl border border-fuchsia-100 bg-white px-3 py-2.5 text-xs font-bold outline-none"
+                        >
+                          <option value="">콘텐츠 룰렛 항목 선택</option>
+                          {keepOptions
+                            .filter(
+                              (option) =>
+                                option.roulette_name === "콘텐츠 룰렛"
+                            )
+                            .map((option) => (
+                              <option key={option.label} value={option.label}>
+                                {option.label}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={redeemChoiceKeep}
+                          disabled={busy || !choiceKeep}
+                          className="shrink-0 rounded-xl bg-fuchsia-600 px-3 py-2.5 text-xs font-black text-white disabled:opacity-40"
+                        >
+                          선택 지급
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -733,6 +827,12 @@ export default function CashBoardPage() {
         )}
 
       </div>
+      <RedButtonEvent
+        pin={pin}
+        users={data.users}
+        onChanged={reload}
+        onNotice={setNotice}
+      />
       <TimerOverlay pin={pin} />
     </main>
   );
