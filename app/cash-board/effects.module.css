@@ -556,15 +556,93 @@
   background-repeat: no-repeat;
   background-position: center;
   background-size: cover;
-  filter: saturate(1.05) contrast(1.03);
+  filter: saturate(.92) contrast(1.04) brightness(.72);
   transform: scale(1.01);
-  will-change: transform, filter;
+  will-change: filter;
 }
 
 .smokingAnimationSpinning {
-  animation:
-    smokingDecision 740ms cubic-bezier(.45,.03,.55,.97) infinite alternate,
-    smokingPulse 1120ms ease-in-out infinite alternate;
+  animation: smokingBackdropPulse 1120ms ease-in-out infinite alternate;
+}
+
+.smokingCenterMask {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 51%;
+  width: 76%;
+  height: 28%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(15,17,23,.96) 0 34%, rgba(15,17,23,.82) 55%, transparent 76%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.smokingPendulum {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 51%;
+  width: 62%;
+  height: 8.5%;
+  transform: translate(-50%, -50%) rotate(-2deg);
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 8px 8px rgba(0,0,0,.5));
+  will-change: transform, filter;
+}
+
+.smokingPendulumSpinning {
+  animation: smokingPendulumTravel 900ms cubic-bezier(.42,.02,.58,.98) infinite alternate;
+}
+
+.smokingCigarette {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.68);
+  border-radius: 999px 8px 8px 999px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.08) 28%, transparent 62%),
+    linear-gradient(90deg, #5f656a 0 4%, #c5c9c9 5% 8%, #fff 9% 72%, #e8b969 73% 100%);
+  box-shadow:
+    inset 0 -7px 10px rgba(82,54,26,.18),
+    0 0 20px rgba(255,255,255,.2);
+}
+
+.smokingCigarette::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8%;
+  bottom: 8%;
+  width: 7%;
+  border-radius: 999px 0 0 999px;
+  background: radial-gradient(circle at 25% 50%, #fff2d6 0 10%, #ff7a31 28%, #d51e20 48%, #393b3c 75%);
+  box-shadow: -4px 0 15px rgba(255,57,31,.9);
+  animation: smokingEmber 420ms ease-in-out infinite alternate;
+}
+
+.smokingCigarette::after {
+  content: "";
+  position: absolute;
+  right: 25%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(175,120,55,.5);
+  box-shadow: 3px 0 7px rgba(90,55,20,.2);
+}
+
+.smokingCigarette span {
+  position: absolute;
+  left: 17%;
+  right: 31%;
+  top: 25%;
+  height: 16%;
+  border-radius: 999px;
+  background: rgba(255,255,255,.8);
 }
 
 .smokingResultImage {
@@ -593,7 +671,7 @@
   mix-blend-mode: screen;
 }
 
-.smokingAnimationSpinning + .smokingSweep {
+.smokingSweepSpinning {
   animation: smokingSweep 1180ms ease-in-out infinite;
 }
 
@@ -660,14 +738,29 @@
   animation: eatLabelPulse 720ms ease-in-out infinite alternate;
 }
 
-@keyframes smokingDecision {
-  0% { transform: translateX(-2.4%) rotate(-1.3deg) scale(1.04); }
-  100% { transform: translateX(2.4%) rotate(1.3deg) scale(1.04); }
+@keyframes smokingPendulumTravel {
+  0% {
+    transform: translate(-78%, -54%) rotate(-13deg) scale(.92);
+    filter: drop-shadow(-12px 10px 12px rgba(255,35,58,.48));
+  }
+  48% {
+    transform: translate(-50%, -42%) rotate(1deg) scale(1.08);
+    filter: drop-shadow(0 14px 11px rgba(255,255,255,.28));
+  }
+  100% {
+    transform: translate(-22%, -54%) rotate(13deg) scale(.92);
+    filter: drop-shadow(12px 10px 12px rgba(46,158,255,.52));
+  }
 }
 
-@keyframes smokingPulse {
-  0% { filter: saturate(1.02) brightness(.94); }
-  100% { filter: saturate(1.2) brightness(1.08); }
+@keyframes smokingBackdropPulse {
+  0% { filter: saturate(.88) contrast(1.02) brightness(.68); }
+  100% { filter: saturate(1.04) contrast(1.08) brightness(.8); }
+}
+
+@keyframes smokingEmber {
+  from { opacity: .7; filter: brightness(.85); }
+  to { opacity: 1; filter: brightness(1.5); }
 }
 
 @keyframes smokingSweep {
@@ -679,7 +772,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .smokingAnimationSpinning,
-  .smokingAnimationSpinning + .smokingSweep,
+  .smokingPendulumSpinning,
+  .smokingSweepSpinning,
+  .smokingCigarette::before,
   .smokingMotionLabel {
     animation: none !important;
   }

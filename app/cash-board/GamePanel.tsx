@@ -65,6 +65,14 @@ const colors = [
 const money = (v: number) => Number(v || 0).toLocaleString("ko-KR");
 const delay = (ms: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+const afterVisiblePaint = () =>
+  new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(resolve, 100);
+      });
+    });
+  });
 
 async function post<T>(
   url: string,
@@ -432,6 +440,10 @@ export default function GamePanel({
   const isEatRoulette = activeRouletteName === "먹어/먹지마";
   const isSmokingRoulette = activeRouletteName === "흡연/금연";
   const isCashRoulette = activeRouletteName === "캐시 룰렛";
+  const revealsPersistentState =
+    isEatRoulette ||
+    isSmokingRoulette ||
+    activeRouletteName === "콘텐츠 룰렛";
   const busy = spinning || Boolean(scratchBatch);
   const eatResultSrc =
     currentResult?.label === "먹어"
@@ -907,6 +919,15 @@ export default function GamePanel({
           results.length
         );
 
+        if (revealsPersistentState) {
+          await afterVisiblePaint();
+          await post("/api/cash-board", pin, {
+            action: "reveal_spin",
+            spin_id: results[index].spin_id,
+          });
+          window.dispatchEvent(new Event("cash-timer-updated"));
+        }
+
         runningBalance +=
           Number(results[index].cash_delta || 0) -
           Number(results[index].cost ?? response.effective_cost ?? 0);
@@ -1321,15 +1342,33 @@ export default function GamePanel({
                   className={fx.smokingResultImage}
                 />
               ) : (
-                <div
-                  className={
-                    fx.smokingAnimationArt +
-                    (spinning ? " " + fx.smokingAnimationSpinning : "")
-                  }
-                />
+                <>
+                  <div
+                    className={
+                      fx.smokingAnimationArt +
+                      (spinning ? " " + fx.smokingAnimationSpinning : "")
+                    }
+                  />
+                  <div className={fx.smokingCenterMask} />
+                  <div
+                    className={
+                      fx.smokingPendulum +
+                      (spinning ? " " + fx.smokingPendulumSpinning : "")
+                    }
+                  >
+                    <div className={fx.smokingCigarette}>
+                      <span />
+                    </div>
+                  </div>
+                </>
               )}
 
-              <div className={fx.smokingSweep} />
+              <div
+                className={
+                  fx.smokingSweep +
+                  (spinning ? " " + fx.smokingSweepSpinning : "")
+                }
+              />
               <div className={fx.smokingSceneGlow} />
               <div className={fx.smokingChoiceBadges}>
                 <span>흡연 50%</span>
