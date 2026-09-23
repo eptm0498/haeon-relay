@@ -88,7 +88,6 @@ export default function RedButtonEvent({
   const [rewardNick, setRewardNick] = useState("");
   const [rewarding, setRewarding] = useState(false);
   const [rewardDone, setRewardDone] = useState(false);
-  const [redButtonPerHour, setRedButtonPerHour] = useState(0);
   const timerRef = useRef<number | null>(null);
   const rateRef = useRef(0);
   const audioRef = useRef<AudioContext | null>(null);
@@ -126,7 +125,6 @@ export default function RedButtonEvent({
   function applyRate(perHour: number, resetSchedule: boolean) {
     const rate = Math.max(0, Math.min(60, Math.round(Number(perHour || 0))));
     rateRef.current = rate;
-    setRedButtonPerHour(rate);
     clearTimer();
 
     if (rate <= 0) {
