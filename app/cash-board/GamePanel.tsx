@@ -391,6 +391,7 @@ export default function GamePanel({
   const [goldenTicketReveal, setGoldenTicketReveal] = useState(0);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
+  const goldenTicketResolveRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!rouletteId && roulettes[0]) setRouletteId(roulettes[0].id);
@@ -662,9 +663,19 @@ export default function GamePanel({
     playNoise(260, 0.018, 20);
 
     setGoldenTicketReveal(count);
-    await delay(2850);
-    setGoldenTicketReveal(0);
+    await new Promise<void>((resolve) => {
+      goldenTicketResolveRef.current = resolve;
+    });
     await delay(180);
+  }
+
+  function confirmGoldenTicket() {
+    if (goldenTicketReveal <= 0) return;
+
+    setGoldenTicketReveal(0);
+    const resolve = goldenTicketResolveRef.current;
+    goldenTicketResolveRef.current = null;
+    resolve?.();
   }
 
   function chooseUser(user: User) {
@@ -1169,6 +1180,13 @@ export default function GamePanel({
                   ? `보너스 ${goldenTicketReveal}장 획득`
                   : "보너스 1장 획득"}
               </div>
+              <button
+                type="button"
+                onClick={confirmGoldenTicket}
+                className="relative z-10 mt-4 min-w-36 rounded-2xl bg-[#5c3400] px-6 py-3 text-sm font-black text-amber-50 shadow-[0_8px_22px_rgba(92,52,0,.28)] transition active:scale-[.97]"
+              >
+                확인
+              </button>
             </div>
           </div>
         </div>
