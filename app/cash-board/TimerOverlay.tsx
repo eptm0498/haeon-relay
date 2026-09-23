@@ -235,6 +235,10 @@ export default function TimerOverlay({ pin }: { pin: string }) {
 
   const hasRightPanel =
     active.length > 0 || Boolean(gag) || Boolean(smoking) || Boolean(eating) || queue.length > 0;
+  const broadcastOverdue = Boolean(
+    broadcastEndAt &&
+      now > new Date(broadcastEndAt).getTime()
+  );
 
   if (!broadcastEndAt && !hasRightPanel) return null;
 
@@ -242,13 +246,35 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     <>
       {broadcastEndAt && (
         <div className="pointer-events-none fixed top-5 z-[110] w-[132px] max-[920px]:hidden" style={{ left: "calc(50% - 464px)" }}>
-          <div className="rounded-2xl border border-sky-300/40 bg-zinc-950/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl">
-            <div className="text-[8px] font-black tracking-[.08em] text-sky-200">
+          <div
+            className={
+              "rounded-2xl border px-3 py-2.5 text-white backdrop-blur-xl " +
+              (broadcastOverdue
+                ? "animate-pulse border-red-300/80 bg-red-600/95 shadow-[0_12px_32px_rgba(220,38,38,.42)]"
+                : "border-sky-300/40 bg-zinc-950/95 shadow-[0_12px_32px_rgba(20,18,40,.25)]")
+            }
+          >
+            <div
+              className={
+                "text-[8px] font-black tracking-[.08em] " +
+                (broadcastOverdue ? "text-red-50" : "text-sky-200")
+              }
+            >
               오늘 방종시간
             </div>
             <div className="mt-1.5 text-[20px] font-black leading-none tracking-tight">
               {formatBroadcastClock(broadcastEndAt)}
             </div>
+            {broadcastOverdue && (
+              <div className="mt-2 border-t border-white/20 pt-1.5">
+                <div className="text-[8px] font-black text-red-100">
+                  초과 시간
+                </div>
+                <div className="mt-0.5 tabular-nums text-[12px] font-black text-white">
+                  +{formatElapsed(broadcastEndAt, now)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
