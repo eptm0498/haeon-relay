@@ -1349,35 +1349,53 @@ export default function GamePanel({
                       (spinning ? " " + fx.smokingAnimationSpinning : "")
                     }
                   />
-                  <div className={fx.smokingCenterMask} />
                   <div
                     className={
-                      fx.smokingPendulum +
-                      (spinning ? " " + fx.smokingPendulumSpinning : "")
+                      fx.smokingTokenRig +
+                      (spinning ? " " + fx.smokingTokenRigSpinning : "")
                     }
                   >
-                    <div className={fx.smokingCigarette}>
-                      <span />
+                    <div className={fx.smokingDecisionToken}>
+                      <div className={fx.smokingTokenFront}>
+                        <div className={fx.smokingCigaretteIcon} />
+                      </div>
+                      <div className={fx.smokingTokenBack}>
+                        <div className={fx.smokingNoRing}>
+                          <div className={fx.smokingCigaretteIcon} />
+                        </div>
+                      </div>
                     </div>
                   </div>
+                  <div className={fx.smokingEnergyRing} />
+                  <div className={fx.smokingEnergyRingAlt} />
                 </>
               )}
 
-              <div
-                className={
-                  fx.smokingSweep +
-                  (spinning ? " " + fx.smokingSweepSpinning : "")
-                }
-              />
               <div className={fx.smokingSceneGlow} />
-              <div className={fx.smokingChoiceBadges}>
-                <span>흡연 50%</span>
-                <span>금연 50%</span>
-              </div>
+              {!reveal && (
+                <div className={fx.smokingChoiceBadges}>
+                  <span>흡연</span>
+                  <span>금연</span>
+                </div>
+              )}
+
+              {reveal && currentResult && (
+                <div
+                  className={
+                    fx.smokingResultTitle +
+                    (currentResult.label === "금연"
+                      ? " " + fx.smokingResultTitleNo
+                      : " " + fx.smokingResultTitleYes)
+                  }
+                >
+                  <strong>{currentResult.label}</strong>
+                  <span>결과 확정</span>
+                </div>
+              )}
 
               {spinning && (
                 <div className={fx.smokingMotionLabel}>
-                  담배가 흡연과 금연 사이를 오가는 중
+                  결정 토큰 회전 중
                 </div>
               )}
             </div>

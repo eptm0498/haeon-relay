@@ -779,3 +779,296 @@
     animation: none !important;
   }
 }
+
+/* Smoking roulette v2: portal chamber + flipping decision token. */
+.smokingSceneShell {
+  padding: 6px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255,76,30,.48), rgba(24,28,38,.65) 48%, rgba(0,154,255,.5));
+  border: 1px solid rgba(255,255,255,.22);
+  box-shadow:
+    inset 0 0 30px rgba(255,255,255,.08),
+    0 14px 42px rgba(0,0,0,.36),
+    -10px 0 30px rgba(255,54,20,.12),
+    10px 0 30px rgba(0,145,255,.14);
+}
+
+.smokingScene {
+  border-radius: 19px;
+  background: #070b12;
+}
+
+.smokingAnimationArt {
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  filter: saturate(1.08) contrast(1.04) brightness(.9);
+  transform: none;
+  will-change: filter, transform;
+}
+
+.smokingAnimationSpinning {
+  animation: smokingChamberBreath 1.4s ease-in-out infinite alternate;
+}
+
+.smokingTokenRig {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 47.5%;
+  width: 34%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  perspective: 900px;
+  filter: drop-shadow(0 18px 18px rgba(0,0,0,.7));
+}
+
+.smokingTokenRigSpinning {
+  animation: smokingTokenOrbit 1.15s cubic-bezier(.42,.02,.58,.98) infinite alternate;
+}
+
+.smokingDecisionToken {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  animation: smokingTokenFlip .78s cubic-bezier(.42,.05,.58,.95) infinite;
+}
+
+.smokingTokenFront,
+.smokingTokenBack {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  border: 3px solid rgba(255,255,255,.65);
+  box-shadow:
+    inset 0 0 0 8px rgba(5,8,13,.48),
+    inset 0 0 30px rgba(255,255,255,.18),
+    0 0 26px currentColor;
+}
+
+.smokingTokenFront {
+  color: #ff5a31;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,225,184,.52), transparent 18%),
+    radial-gradient(circle, #e84a20 0, #95180e 62%, #3c0907 100%);
+}
+
+.smokingTokenBack {
+  color: #32b8ff;
+  transform: rotateY(180deg);
+  background:
+    radial-gradient(circle at 34% 28%, rgba(218,247,255,.55), transparent 18%),
+    radial-gradient(circle, #119bea 0, #07558d 62%, #031e3a 100%);
+}
+
+.smokingCigaretteIcon {
+  position: relative;
+  width: 61%;
+  height: 15%;
+  border-radius: 999px 5px 5px 999px;
+  transform: rotate(-12deg);
+  background: linear-gradient(90deg, #4c5052 0 8%, #fbfbf5 9% 70%, #d89b43 71% 100%);
+  border: 1px solid rgba(255,255,255,.7);
+  box-shadow: 0 5px 9px rgba(0,0,0,.34);
+}
+
+.smokingTokenFront .smokingCigaretteIcon::before {
+  content: "";
+  position: absolute;
+  left: -2%;
+  top: 8%;
+  width: 11%;
+  height: 84%;
+  border-radius: 999px;
+  background: radial-gradient(circle, #fff4c2 0 10%, #ff7a1c 28%, #e3271b 58%, #343638 82%);
+  box-shadow: -2px 0 11px rgba(255,53,25,.95);
+  animation: smokingTokenEmber .35s ease-in-out infinite alternate;
+}
+
+.smokingNoRing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 67%;
+  aspect-ratio: 1 / 1;
+  border: 9px solid rgba(230,249,255,.96);
+  border-radius: 50%;
+  box-shadow: 0 0 16px rgba(105,218,255,.72);
+}
+
+.smokingNoRing::after {
+  content: "";
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  top: 50%;
+  height: 9px;
+  border-radius: 999px;
+  background: #effcff;
+  transform: translateY(-50%) rotate(45deg);
+  box-shadow: 0 0 13px rgba(105,218,255,.8);
+}
+
+.smokingNoRing .smokingCigaretteIcon {
+  width: 74%;
+  height: 18%;
+  opacity: .82;
+}
+
+.smokingEnergyRing,
+.smokingEnergyRingAlt {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 47.5%;
+  width: 37%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(255,255,255,.58);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: smokingEnergyPulse 1.15s ease-out infinite;
+}
+
+.smokingEnergyRingAlt {
+  animation-delay: .56s;
+}
+
+.smokingResultImage {
+  z-index: 2;
+  object-fit: cover;
+  background: #070b12;
+  animation: smokingResultReveal .58s cubic-bezier(.16,.84,.26,1.12) both;
+}
+
+.smokingResultTitle {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 9%;
+  min-width: 42%;
+  padding: 8px 18px 9px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255,255,255,.42);
+  border-radius: 16px;
+  color: #fff;
+  text-align: center;
+  backdrop-filter: blur(11px);
+  animation: smokingTitleReveal .48s .16s cubic-bezier(.2,.9,.28,1.18) both;
+}
+
+.smokingResultTitle strong {
+  display: block;
+  font-size: clamp(24px, 7vw, 34px);
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: -.05em;
+  text-shadow: 0 3px 12px rgba(0,0,0,.72);
+}
+
+.smokingResultTitle span {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .22em;
+  opacity: .72;
+}
+
+.smokingResultTitleYes {
+  background: linear-gradient(135deg, rgba(163,24,10,.88), rgba(70,9,5,.72));
+  box-shadow: 0 0 28px rgba(255,58,22,.42);
+}
+
+.smokingResultTitleNo {
+  background: linear-gradient(135deg, rgba(4,103,171,.9), rgba(1,31,67,.76));
+  box-shadow: 0 0 28px rgba(30,169,255,.48);
+}
+
+.smokingSceneGlow {
+  z-index: 4;
+  box-shadow: inset 0 0 52px rgba(0,0,0,.28);
+  background: linear-gradient(180deg, rgba(255,255,255,.04), transparent 60%, rgba(0,0,0,.32));
+}
+
+.smokingChoiceBadges {
+  top: auto;
+  bottom: 12px;
+}
+
+.smokingChoiceBadges span {
+  min-width: 56px;
+  text-align: center;
+  background: rgba(5,8,14,.7);
+}
+
+.smokingChoiceBadges span:first-child {
+  border-color: rgba(255,97,48,.58);
+  color: #ffd3c3;
+}
+
+.smokingChoiceBadges span:last-child {
+  border-color: rgba(57,177,255,.62);
+  color: #d8f3ff;
+}
+
+.smokingMotionLabel {
+  bottom: 14px;
+  background: rgba(4,7,12,.86);
+  border-color: rgba(255,255,255,.3);
+  letter-spacing: .04em;
+  box-shadow: 0 0 22px rgba(255,255,255,.1);
+}
+
+@keyframes smokingChamberBreath {
+  from { filter: saturate(1) contrast(1.03) brightness(.82); transform: scale(1); }
+  to { filter: saturate(1.18) contrast(1.08) brightness(1); transform: scale(1.025); }
+}
+
+@keyframes smokingTokenOrbit {
+  0% { transform: translate(-57%, -51%) rotate(-6deg) scale(.92); }
+  50% { transform: translate(-50%, -46%) rotate(0) scale(1.06); }
+  100% { transform: translate(-43%, -51%) rotate(6deg) scale(.92); }
+}
+
+@keyframes smokingTokenFlip {
+  from { transform: rotateY(0deg) rotateZ(-2deg); }
+  to { transform: rotateY(360deg) rotateZ(2deg); }
+}
+
+@keyframes smokingTokenEmber {
+  from { filter: brightness(.8); opacity: .72; }
+  to { filter: brightness(1.6); opacity: 1; }
+}
+
+@keyframes smokingEnergyPulse {
+  0% { opacity: .7; transform: translate(-50%, -50%) scale(.82); }
+  80%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.72); }
+}
+
+@keyframes smokingResultReveal {
+  0% { opacity: 0; transform: scale(1.13); filter: brightness(1.7) blur(5px); }
+  60% { opacity: 1; transform: scale(.985); filter: brightness(1.08) blur(0); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1) blur(0); }
+}
+
+@keyframes smokingTitleReveal {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px) scale(.82); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smokingAnimationSpinning,
+  .smokingTokenRigSpinning,
+  .smokingDecisionToken,
+  .smokingTokenFront .smokingCigaretteIcon::before,
+  .smokingEnergyRing,
+  .smokingEnergyRingAlt,
+  .smokingMotionLabel {
+    animation: none !important;
+  }
+}
