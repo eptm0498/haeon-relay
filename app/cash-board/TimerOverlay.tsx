@@ -255,41 +255,36 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   return (
     <>
       {broadcastEndAt && (
-        <div className="pointer-events-none fixed left-3 top-5 z-[110] w-[280px] xl:left-auto xl:right-[calc(50%+332px)]">
-          <div className="rounded-2xl border border-sky-300/40 bg-zinc-950/95 px-4 py-3 text-white shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl">
-            <div className="text-[9px] font-black tracking-[.1em] text-sky-200">
+        <div className="pointer-events-none fixed right-[calc(50%+328px)] top-5 z-[110] w-[132px] max-[820px]:hidden">
+          <div className="rounded-2xl border border-sky-300/40 bg-zinc-950/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl">
+            <div className="text-[8px] font-black tracking-[.08em] text-sky-200">
               오늘 방종시간
             </div>
-            <div className="mt-1 flex items-end justify-between gap-3">
-              <div className="text-[32px] font-black leading-none tracking-tight">
-                {formatBroadcastClock(broadcastEndAt)}
-              </div>
-              <div className="text-right">
-                <div className="text-[9px] font-black text-white/45">남은 시간</div>
-                <div className="mt-0.5 tabular-nums text-[15px] font-black text-sky-100">
-                  {formatBroadcastRemaining(broadcastEndAt, now)}
-                </div>
-              </div>
+            <div className="mt-1 text-[18px] font-black leading-none tracking-tight">
+              {formatBroadcastClock(broadcastEndAt)}
             </div>
-            <div className="mt-2 text-[9px] font-bold text-white/45">
-              방송 연장·단축 결과가 나오면 즉시 자동 반영
+            <div className="mt-2 border-t border-white/10 pt-1.5">
+              <div className="text-[8px] font-black text-white/40">남은 시간</div>
+              <div className="mt-0.5 tabular-nums text-[11px] font-black text-sky-100">
+                {formatBroadcastRemaining(broadcastEndAt, now)}
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {hasRightPanel && (
-        <div className="pointer-events-none fixed top-5 right-3 z-[110] flex w-[280px] flex-col gap-1.5 xl:left-[calc(50%+332px)] xl:right-auto">
+        <div className="pointer-events-none fixed left-[calc(50%+328px)] top-5 z-[110] flex w-[132px] flex-col gap-1.5 max-[820px]:hidden">
       {gag && (
         <div className="rounded-2xl border border-rose-300/50 bg-rose-600/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(190,24,93,.28)] backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-stretch gap-2">
             <div className="min-w-0">
               <div className="text-[9px] font-black tracking-[.08em] text-rose-100">말하기 금지</div>
-              <div className="mt-0.5 text-[16px] font-black leading-none">현재 아봉중</div>
+              <div className="mt-0.5 text-[13px] font-black leading-none">현재 아봉중</div>
               <div className="mt-1 text-[9px] font-bold text-rose-100/85">{gag.nickname}님이 걸었음</div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="tabular-nums text-[24px] font-black leading-none">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="tabular-nums text-[18px] font-black leading-none">
                 {formatElapsed(gag.started_at, now)}
               </div>
               <button
@@ -301,7 +296,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
                   )
                 }
                 disabled={clearingEffect === "gag"}
-                className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
+                className="pointer-events-auto rounded-lg bg-white/15 px-2 py-1 text-[8px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
               >
                 {clearingEffect === "gag" ? "해제중" : "해제"}
               </button>
@@ -312,14 +307,14 @@ export default function TimerOverlay({ pin }: { pin: string }) {
 
       {smoking && (
         <div className="rounded-2xl border border-emerald-300/40 bg-emerald-950/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(5,150,105,.22)] backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-stretch gap-2">
             <div className="min-w-0">
               <div className="text-[9px] font-black tracking-[.08em] text-emerald-200">현재 상태</div>
-              <div className="mt-0.5 text-[16px] font-black leading-none">금연중</div>
+              <div className="mt-0.5 text-[13px] font-black leading-none">금연중</div>
               <div className="mt-1 text-[9px] font-bold text-emerald-100/80">{smoking.nickname}님이 시작</div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="tabular-nums text-[24px] font-black leading-none text-emerald-100">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="tabular-nums text-[18px] font-black leading-none text-emerald-100">
                 {formatElapsed(smoking.started_at, now)}
               </div>
               <button
@@ -331,7 +326,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
                   )
                 }
                 disabled={clearingEffect === "smoking"}
-                className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
+                className="pointer-events-auto rounded-lg bg-white/15 px-2 py-1 text-[8px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
               >
                 {clearingEffect === "smoking" ? "해제중" : "해제"}
               </button>
@@ -349,7 +344,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
               : "border-sky-300/40 bg-sky-950/95")
           }
         >
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-stretch gap-2">
             <div className="min-w-0">
               <div
                 className={
@@ -361,7 +356,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
               >
                 먹어/먹지마
               </div>
-              <div className="mt-0.5 text-[16px] font-black leading-none">
+              <div className="mt-0.5 text-[13px] font-black leading-none">
                 현재 {eating.label} 상태
               </div>
               <div
@@ -375,8 +370,8 @@ export default function TimerOverlay({ pin }: { pin: string }) {
                 {eating.nickname}님 결과
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="tabular-nums text-[24px] font-black leading-none">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="tabular-nums text-[18px] font-black leading-none">
                 {formatElapsed(eating.started_at, now)}
               </div>
               <button
@@ -388,7 +383,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
                   )
                 }
                 disabled={clearingEffect === "eating"}
-                className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
+                className="pointer-events-auto rounded-lg bg-white/15 px-2 py-1 text-[8px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
               >
                 {clearingEffect === "eating" ? "해제중" : "해제"}
               </button>
@@ -403,12 +398,12 @@ export default function TimerOverlay({ pin }: { pin: string }) {
         const isSpeech = timer.roulette_name === "말투";
         return (
           <div key={timer.id} className={"rounded-2xl border px-3 py-2 shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl " + (urgent ? "border-rose-300 bg-rose-600/95 text-white" : isSpeech ? "border-fuchsia-300/40 bg-fuchsia-950/94 text-white" : "border-white/20 bg-zinc-950/94 text-white")}>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col items-stretch gap-1.5">
               <div className="min-w-0 flex-1">
                 <div className={"text-[9px] font-black tracking-[.08em] " + (urgent ? "text-rose-100" : "text-amber-200")}>{isSpeech ? "현재 말투" : "사용 중"}</div>
                 <div className="mt-0.5 truncate text-[12px] font-black">{isSpeech ? timer.result_label : `${timer.nickname} · ${timer.result_label}`}</div>
               </div>
-              <div className={"shrink-0 tabular-nums text-[26px] font-black leading-none tracking-tight " + (urgent ? "animate-pulse" : "")}>{formatRemaining(left)}</div>
+              <div className={"tabular-nums text-[20px] font-black leading-none tracking-tight " + (urgent ? "animate-pulse" : "")}>{formatRemaining(left)}</div>
             </div>
           </div>
         );
