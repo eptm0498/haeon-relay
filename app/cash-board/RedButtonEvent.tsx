@@ -57,6 +57,26 @@ async function post<T>(
   return data as T;
 }
 
+async function postBroadcast<T>(
+  pin: string,
+  body: Record<string, unknown>
+): Promise<T> {
+  const response = await fetch("/api/cash-broadcast-state", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-admin-pin": pin,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || "방송 상태를 반영하지 못했어.");
+  }
+  return data as T;
+}
+
 async function postEvent<T>(
   pin: string,
   body: Record<string, unknown>
@@ -346,6 +366,34 @@ export default function RedButtonEvent({
       setRewardDone(false);
       setPhase("result");
       playResultReveal();
+
+      void (async () => {
+        try {
+          const applied = await postBroadcast<{
+            ok: boolean;
+            adjusted_minutes?: number;
+            smoking_changed?: boolean;
+          }>(pin, {
+            action: "apply_outcome",
+            outcome: result,
+            source: "빨간 버튼",
+          });
+
+          if (Number(applied.adjusted_minutes || 0) !== 0) {
+            window.dispatchEvent(new Event("cash-broadcast-updated"));
+          }
+          if (applied.smoking_changed) {
+            window.dispatchEvent(new Event("cash-effect-updated"));
+            window.dispatchEvent(new Event("cash-timer-updated"));
+          }
+        } catch (error) {
+          onNotice(
+            error instanceof Error
+              ? error.message
+              : "빨간 버튼 결과 자동 반영에 실패했어."
+          );
+        }
+      })();
     }, 1550);
   }
 
@@ -551,6 +599,18 @@ export default function RedButtonEvent({
                   </div>
                   <div className={fx.resultText}>{outcome}</div>
                 </div>
+
+                {(outcome.startsWith("방송 연장") ||
+                  outcome.startsWith("방송 단축")) && (
+                  <div className="relative z-10 mt-3 rounded-full bg-sky-400/15 px-3 py-1.5 text-[11px] font-black text-sky-100 ring-1 ring-sky-300/20">
+                    오늘 방종시간에 자동 반영
+                  </div>
+                )}
+                {(outcome === "즉시 금연" || outcome === "즉시 흡연") && (
+                  <div className="relative z-10 mt-3 rounded-full bg-emerald-400/15 px-3 py-1.5 text-[11px] font-black text-emerald-100 ring-1 ring-emerald-300/20">
+                    우측 상태 타이머에 자동 반영
+                  </div>
+                )}
 
                 <div className={fx.contentFadeIn}>
 
