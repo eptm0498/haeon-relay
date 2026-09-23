@@ -109,6 +109,7 @@ export default function RedButtonEvent({
   const [rewardNick, setRewardNick] = useState("");
   const [rewarding, setRewarding] = useState(false);
   const [rewardDone, setRewardDone] = useState(false);
+  const [eventStage, setEventStage] = useState<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const rateRef = useRef(0);
   const rouletteBusyRef = useRef(false);
@@ -117,6 +118,22 @@ export default function RedButtonEvent({
   const offerSoundIntervalRef = useRef<number | null>(null);
   const pressingSoundIntervalRef = useRef<number | null>(null);
   const pressingBeatRef = useRef(0);
+
+  useEffect(() => {
+    const syncEventStage = () => {
+      setEventStage(document.getElementById("cash-game-stage"));
+    };
+
+    syncEventStage();
+
+    const observer = new MutationObserver(syncEventStage);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   const matchingUsers = useMemo(() => {
     const query = rewardNick.trim().toLowerCase();
@@ -428,6 +445,8 @@ export default function RedButtonEvent({
   useEffect(() => {
     stopEventSoundLoops();
 
+    if (!eventStage) return;
+
     if (phase === "offer") {
       playOfferPulse();
       offerSoundIntervalRef.current = window.setInterval(
@@ -446,7 +465,7 @@ export default function RedButtonEvent({
     return () => {
       stopEventSoundLoops();
     };
-  }, [phase]);
+  }, [phase, eventStage]);
 
   function playImpact() {
     try {
@@ -645,11 +664,6 @@ export default function RedButtonEvent({
     }
   }
 
-  const eventStage =
-    typeof document !== "undefined"
-      ? document.getElementById("cash-game-stage")
-      : null;
-
   if (phase === "idle" || !eventStage) return null;
 
   const resultIsReward = outcome === REWARD_OUTCOME;
@@ -677,7 +691,12 @@ export default function RedButtonEvent({
         ))}
       </div>
 
-      <div className="relative z-10 w-full max-w-[520px] text-center text-white">
+      <div
+        className={
+          "relative z-10 w-full max-w-[520px] text-center text-white " +
+          (phase === "result" ? fx.resultViewport : "")
+        }
+      >
         {phase === "offer" && (
           <>
             <div className="mb-3 text-xs font-black tracking-[.34em] text-red-200">
@@ -821,7 +840,7 @@ export default function RedButtonEvent({
                 <div className={fx.cardGlowB} />
 
                 <div className={fx.resultLabel}>온유의 미션</div>
-                <div className="relative z-10 mt-2 text-sm font-black text-white/75">
+                <div className="relative z-10 mt-1 text-[10px] font-black leading-tight text-white/75">
                   온유가 버튼을 눌렀으니, 이 미션은 온유가 해야 해.
                 </div>
                 <div className={fx.resultTextShell}>
@@ -849,24 +868,24 @@ export default function RedButtonEvent({
                 <div className={fx.contentFadeIn}>
 
             {resultIsReward && !rewardDone && (
-              <div className="relative mt-6 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                <div className="text-left text-xs font-black text-white/65">
+              <div className="relative mt-2 rounded-xl bg-black/30 p-2.5 ring-1 ring-white/10">
+                <div className="text-left text-[10px] font-black text-white/65">
                   5,000 캐시를 받을 시청자
                 </div>
                 <input
                   value={rewardNick}
                   onChange={(event) => setRewardNick(event.target.value)}
                   placeholder="닉네임 검색"
-                  className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-black text-white outline-none placeholder:text-white/35 focus:border-red-300/60"
+                  className="mt-1.5 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-black text-white outline-none placeholder:text-white/35 focus:border-red-300/60"
                 />
                 {matchingUsers.length > 0 && (
-                  <div className="mt-2 max-h-36 overflow-auto rounded-xl bg-black/30 p-1.5">
+                  <div className="mt-1.5 max-h-16 overflow-auto rounded-lg bg-black/30 p-1">
                     {matchingUsers.map((user) => (
                       <button
                         key={user.id}
                         type="button"
                         onClick={() => setRewardNick(user.nickname)}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-black hover:bg-white/10"
+                        className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[10px] font-black hover:bg-white/10"
                       >
                         <span>{user.nickname}</span>
                         <span className="text-white/45">
@@ -880,7 +899,7 @@ export default function RedButtonEvent({
                   type="button"
                   onClick={grantReward}
                   disabled={rewarding || !rewardNick.trim()}
-                  className="mt-3 w-full rounded-xl bg-yellow-300 px-4 py-3 text-sm font-black text-zinc-950 disabled:opacity-40"
+                  className="mt-1.5 w-full rounded-lg bg-yellow-300 px-3 py-2 text-xs font-black text-zinc-950 disabled:opacity-40"
                 >
                   {rewarding ? "지급 중..." : "5,000 캐시 지급"}
                 </button>
@@ -888,7 +907,7 @@ export default function RedButtonEvent({
             )}
 
             {rewardDone && (
-              <div className="relative mt-5 rounded-2xl bg-emerald-400/15 px-4 py-3 text-sm font-black text-emerald-100 ring-1 ring-emerald-300/20">
+              <div className="relative mt-2 rounded-xl bg-emerald-400/15 px-3 py-2 text-xs font-black text-emerald-100 ring-1 ring-emerald-300/20">
                 {rewardNick}에게 5,000 캐시 지급 완료
               </div>
             )}
@@ -899,7 +918,7 @@ export default function RedButtonEvent({
                       setPhase("idle");
                       setOutcome("");
                     }}
-                    className="relative mt-6 w-full rounded-2xl bg-white px-4 py-3.5 text-sm font-black text-zinc-950 shadow-[0_0_35px_rgba(255,255,255,.18)] transition hover:scale-[1.01] active:scale-[.98]"
+                    className="relative mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-xs font-black text-zinc-950 shadow-[0_0_35px_rgba(255,255,255,.18)] transition hover:scale-[1.01] active:scale-[.98]"
                   >
                     확인
                   </button>
