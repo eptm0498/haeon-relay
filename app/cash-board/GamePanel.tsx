@@ -54,6 +54,25 @@ type SpinResponse = {
 };
 
 const SPECIAL_CHOICE_KEEP = "원하는 컨텐츠 룰렛 하나 킵";
+const CONTENT_AUTO_KEEP = new Set([
+  "오늘의 셀카",
+  "음성메세지 1분",
+  "원할 때 1시간 방송",
+  "30분 보이스톡",
+]);
+
+function isHundredCashImmediate(label: string) {
+  return (
+    label.startsWith("퉤") ||
+    label.startsWith("손가락 하트") ||
+    label.startsWith("머리 위로 하트") ||
+    label === "안경 쓰기/벗기" ||
+    label === "200 캐시" ||
+    label === "200캐시" ||
+    label === "윙크" ||
+    label.includes("아봉")
+  );
+}
 
 const colors = [
   "#ff4fa3",
@@ -446,6 +465,7 @@ export default function GamePanel({
   const isEatRoulette = activeRouletteName === "먹어/먹지마";
   const isSmokingRoulette = activeRouletteName === "흡연/금연";
   const isCashRoulette = activeRouletteName === "캐시 룰렛";
+  const isHundredCashRoulette = activeRouletteName === "100캐시 룰렛";
   const revealsPersistentState =
     isEatRoulette ||
     isSmokingRoulette ||
@@ -690,6 +710,71 @@ export default function GamePanel({
     resolve?.();
   }
 
+  function notifyRouletteActivity(active: boolean) {
+    window.dispatchEvent(
+      new CustomEvent("cash-roulette-activity", {
+        detail: {
+          active,
+          blockedUntil: active ? 0 : Date.now() + 10_000,
+        },
+      })
+    );
+  }
+
+  async function autoProcessResult(result: SpinResult) {
+    if (!chosen) return result;
+
+    if (
+      activeRouletteName === "콘텐츠 룰렛" &&
+      result.result_type === "keep" &&
+      CONTENT_AUTO_KEEP.has(result.label) &&
+      !result.handled
+    ) {
+      await post("/api/cash-board", pin, {
+        action: "resolve_spin",
+        spin_id: result.spin_id,
+        mode: "keep",
+      });
+
+      return {
+        ...result,
+        handled: true,
+        handled_mode: "keep" as const,
+      };
+    }
+
+    if (
+      isHundredCashRoulette &&
+      isHundredCashImmediate(result.label)
+    ) {
+      if (result.result_type === "keep" && !result.handled) {
+        await post("/api/cash-board", pin, {
+          action: "resolve_spin",
+          spin_id: result.spin_id,
+          mode: "use",
+        });
+      }
+
+      if (result.label.includes("아봉")) {
+        await post("/api/cash-broadcast-state", pin, {
+          action: "toggle_gag",
+          user_id: chosen.id,
+          source: "100캐시 룰렛 · 아봉",
+        });
+        window.dispatchEvent(new Event("cash-effect-updated"));
+        window.dispatchEvent(new Event("cash-timer-updated"));
+      }
+
+      return {
+        ...result,
+        handled: true,
+        handled_mode: "use" as const,
+      };
+    }
+
+    return result;
+  }
+
   function chooseUser(user: User) {
     setNickname(user.nickname);
     setOpenUsers(false);
@@ -728,7 +813,13 @@ export default function GamePanel({
 
     const target = resultCenter(items, hit.label);
     const startedAt = performance.now();
-    const duration = total > 1 ? 4000 : 4900;
+    const duration = isHundredCashRoulette
+      ? total > 1
+        ? 850
+        : 2800
+      : total > 1
+        ? 4000
+        : 4900;
     const seed = Number(hit.spin_id || 0) % 7;
     const leftA = 1.2 + seed * 0.16;
     const rightA = 98.8 - seed * 0.14;
@@ -838,7 +929,9 @@ export default function GamePanel({
         window.requestAnimationFrame(animate);
     });
 
-    if (index < total - 1) await delay(650);
+    if (index < total - 1) {
+      await delay(isHundredCashRoulette ? 180 : 650);
+    }
     return target;
   }
 
@@ -891,6 +984,7 @@ export default function GamePanel({
     }
 
     setScratchBatch(null);
+    notifyRouletteActivity(false);
   }
 
   async function spin() {
@@ -911,6 +1005,7 @@ export default function GamePanel({
       return;
     }
 
+    notifyRouletteActivity(true);
     prepareAudio();
     setCurrentResult(null);
     setBatchResults([]);
@@ -982,6 +1077,8 @@ export default function GamePanel({
 
         await applyBroadcastTimeOutcome(results[index].label);
 
+        results[index] = await autoProcessResult(results[index]);
+
         if (revealsPersistentState) {
           await afterVisiblePaint();
           await post("/api/cash-board", pin, {
@@ -1010,11 +1107,13 @@ export default function GamePanel({
 
       window.dispatchEvent(new Event("cash-effect-updated"));
       window.dispatchEvent(new Event("cash-timer-updated"));
+      notifyRouletteActivity(false);
     } catch (error) {
       setSpinning(false);
       setSpinProgress("");
       setCurrentPick("추첨 대기");
       setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
+      notifyRouletteActivity(false);
       onNotice(
         error instanceof Error
           ? error.message
@@ -1127,6 +1226,20 @@ export default function GamePanel({
   }
 
   function resultHint(item: SpinResult) {
+    if (
+      activeRouletteName === "콘텐츠 룰렛" &&
+      CONTENT_AUTO_KEEP.has(item.label)
+    ) {
+      return "즉시 사용 불가 항목 · 자동으로 킵에 저장";
+    }
+    if (
+      isHundredCashRoulette &&
+      isHundredCashImmediate(item.label)
+    ) {
+      return item.label.includes("아봉")
+        ? "즉시 적용 · 기존 아봉과 동일하게 상태 전환"
+        : "즉시 적용 완료";
+    }
     if (item.label === SPECIAL_CHOICE_KEEP) {
       return "황금티켓 보너스 · 원하는 콘텐츠 룰렛 하나를 골라 받을 수 있어";
     }
@@ -1296,6 +1409,7 @@ export default function GamePanel({
           value={rouletteId ?? ""}
           onChange={(e) => {
             setRouletteId(Number(e.target.value));
+            setSpinCount(1);
             setCurrentResult(null);
             setBatchResults([]);
             setReveal(false);
@@ -1322,24 +1436,47 @@ export default function GamePanel({
           })}
         </select>
 
-        <div className="flex rounded-2xl bg-zinc-100 p-1">
-          {[1, 2, 3, 5].map((count) => (
-            <button
-              key={count}
-              type="button"
+        {isHundredCashRoulette ? (
+          <div className="flex items-center gap-2 rounded-2xl bg-zinc-100 p-1.5">
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={spinCount}
               disabled={busy}
-              onClick={() => setSpinCount(count)}
-              className={
-                "min-w-9 rounded-xl px-2 py-2 text-xs font-black transition " +
-                (spinCount === count
-                  ? "bg-zinc-950 text-white"
-                  : "text-zinc-500")
+              onChange={(event) =>
+                setSpinCount(
+                  Math.max(
+                    1,
+                    Math.min(50, Math.round(Number(event.target.value || 1)))
+                  )
+                )
               }
-            >
-              {count}회
-            </button>
-          ))}
-        </div>
+              className="w-20 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-center text-sm font-black outline-none disabled:opacity-50"
+              aria-label="100캐시 룰렛 횟수"
+            />
+            <span className="pr-2 text-xs font-black text-zinc-500">회</span>
+          </div>
+        ) : (
+          <div className="flex rounded-2xl bg-zinc-100 p-1">
+            {[1, 2, 3, 5].map((count) => (
+              <button
+                key={count}
+                type="button"
+                disabled={busy}
+                onClick={() => setSpinCount(count)}
+                className={
+                  "min-w-9 rounded-xl px-2 py-2 text-xs font-black transition " +
+                  (spinCount === count
+                    ? "bg-zinc-950 text-white"
+                    : "text-zinc-500")
+                }
+              >
+                {count}회
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
