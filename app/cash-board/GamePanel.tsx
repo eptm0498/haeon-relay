@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import fx from "./effects.module.css";
 
@@ -59,6 +60,10 @@ const CONTENT_AUTO_KEEP = new Set([
   "음성메세지 1분",
   "원할 때 1시간 방송",
   "30분 보이스톡",
+]);
+
+const HUNDRED_CASH_AUTO_KEEP = new Set([
+  "음성메세지 10초",
 ]);
 
 function isHundredCashImmediate(label: string) {
@@ -725,10 +730,14 @@ export default function GamePanel({
     if (!chosen) return result;
 
     if (
-      activeRouletteName === "콘텐츠 룰렛" &&
       result.result_type === "keep" &&
-      CONTENT_AUTO_KEEP.has(result.label) &&
-      !result.handled
+      !result.handled &&
+      (
+        (activeRouletteName === "콘텐츠 룰렛" &&
+          CONTENT_AUTO_KEEP.has(result.label)) ||
+        (isHundredCashRoulette &&
+          HUNDRED_CASH_AUTO_KEEP.has(result.label))
+      )
     ) {
       await post("/api/cash-board", pin, {
         action: "resolve_spin",
@@ -1227,8 +1236,10 @@ export default function GamePanel({
 
   function resultHint(item: SpinResult) {
     if (
-      activeRouletteName === "콘텐츠 룰렛" &&
-      CONTENT_AUTO_KEEP.has(item.label)
+      (activeRouletteName === "콘텐츠 룰렛" &&
+        CONTENT_AUTO_KEEP.has(item.label)) ||
+      (isHundredCashRoulette &&
+        HUNDRED_CASH_AUTO_KEEP.has(item.label))
     ) {
       return "즉시 사용 불가 항목 · 자동으로 킵에 저장";
     }
@@ -1269,9 +1280,14 @@ export default function GamePanel({
     return "";
   }
 
+  const eventStage =
+    typeof document !== "undefined"
+      ? document.getElementById("cash-game-stage")
+      : null;
+
   return (
     <section className="rounded-[26px] border border-zinc-200 bg-white p-4 shadow-[0_14px_45px_rgba(30,20,60,.08)]">
-      {goldenTicketReveal > 0 && (
+      {goldenTicketReveal > 0 && eventStage && createPortal((
         <div className={fx.goldenTicketOverlay} role="status" aria-live="assertive">
           <div className={fx.goldenTicketFlash} />
           <div className={fx.goldenTicketRays} />
@@ -1321,7 +1337,7 @@ export default function GamePanel({
             </div>
           </div>
         </div>
-      )}
+      ), eventStage)}
       <div className="relative z-30">
         {chosen && (
           <div className="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-600">
@@ -1480,6 +1496,7 @@ export default function GamePanel({
       </div>
 
       <div
+        id="cash-game-stage"
         className={
           fx.stage +
           " mt-3 " +
