@@ -1076,8 +1076,9 @@
 
 
 .goldenTicketOverlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
+  border-radius: inherit;
   z-index: 260;
   display: grid;
   place-items: center;
@@ -1144,7 +1145,7 @@
 .goldenTicketCard {
   position: relative;
   z-index: 6;
-  width: min(84vw, 470px);
+  width: min(88%, 470px);
   aspect-ratio: 1.75 / 1;
   border-radius: 28px;
   overflow: hidden;
