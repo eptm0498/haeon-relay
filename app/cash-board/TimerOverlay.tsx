@@ -255,7 +255,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   return (
     <>
       {broadcastEndAt && (
-        <div className="pointer-events-none fixed right-[calc(50%+328px)] top-5 z-[110] w-[132px] max-[820px]:hidden">
+        <div className="pointer-events-none fixed right-[max(12px,calc((100vw-640px)/2))] top-5 z-[110] w-[132px] max-[820px]:hidden">
           <div className="rounded-2xl border border-sky-300/40 bg-zinc-950/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl">
             <div className="text-[8px] font-black tracking-[.08em] text-sky-200">
               오늘 방종시간
@@ -274,7 +274,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
       )}
 
       {hasRightPanel && (
-        <div className="pointer-events-none fixed left-[calc(50%+328px)] top-5 z-[110] flex w-[132px] flex-col gap-1.5 max-[820px]:hidden">
+        <div className="pointer-events-none fixed left-[max(12px,calc((100vw-640px)/2))] top-5 z-[110] flex w-[132px] flex-col gap-1.5 max-[820px]:hidden">
       {gag && (
         <div className="rounded-2xl border border-rose-300/50 bg-rose-600/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(190,24,93,.28)] backdrop-blur-xl">
           <div className="flex flex-col items-stretch gap-2">
