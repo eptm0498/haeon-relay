@@ -110,14 +110,19 @@ export default function RedButtonEvent({
   const [rewarding, setRewarding] = useState(false);
   const [rewardDone, setRewardDone] = useState(false);
   const [eventStage, setEventStage] = useState<HTMLElement | null>(null);
+  const [resultApplying, setResultApplying] = useState(false);
   const timerRef = useRef<number | null>(null);
   const rateRef = useRef(0);
   const rouletteBusyRef = useRef(false);
-  const rouletteBlockedUntilRef = useRef(0);
+  const phaseRef = useRef<Phase>("idle");
   const audioRef = useRef<AudioContext | null>(null);
   const offerSoundIntervalRef = useRef<number | null>(null);
   const pressingSoundIntervalRef = useRef<number | null>(null);
   const pressingBeatRef = useRef(0);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
 
   useEffect(() => {
     const syncEventStage = () => {
@@ -151,18 +156,17 @@ export default function RedButtonEvent({
   }
 
   function openOffer() {
-    const now = Date.now();
-    if (rouletteBusyRef.current || now < rouletteBlockedUntilRef.current) {
-      armTimer(
-        rouletteBusyRef.current
-          ? now + 1000
-          : rouletteBlockedUntilRef.current
-      );
+    if (
+      rouletteBusyRef.current ||
+      phaseRef.current !== "idle"
+    ) {
       return;
     }
+
     setOutcome("");
     setRewardNick("");
     setRewardDone(false);
+    setResultApplying(false);
     setPhase("offer");
   }
 
@@ -257,23 +261,25 @@ export default function RedButtonEvent({
 
       if (activeRoulette) {
         clearTimer();
-        setPhase((current) => (current === "offer" ? "idle" : current));
+        setPhase((current) =>
+          current === "offer" ? "idle" : current
+        );
         return;
       }
 
-      rouletteBlockedUntilRef.current = Math.max(
-        rouletteBlockedUntilRef.current,
-        Number(detail.blockedUntil || Date.now() + 10000)
-      );
+      if (phaseRef.current !== "idle") return;
 
       const stored = Number(
         window.localStorage.getItem(STORAGE_KEY) || 0
       );
-      const target = Math.max(
-        rouletteBlockedUntilRef.current,
-        Number.isFinite(stored) ? stored : 0
-      );
-      armTimer(target > Date.now() ? target : Date.now() + 1000);
+
+      if (!Number.isFinite(stored) || stored <= 0) {
+        scheduleNext();
+      } else if (stored <= Date.now()) {
+        openOffer();
+      } else {
+        armTimer(stored);
+      }
     };
 
     window.addEventListener(
@@ -586,15 +592,16 @@ export default function RedButtonEvent({
 
   function giveUp() {
     stopEventSoundLoops();
-    scheduleNext();
     setPhase("idle");
     setOutcome("");
+    scheduleNext();
   }
 
   function pressButton() {
     if (phase !== "offer") return;
     stopEventSoundLoops();
-    scheduleNext();
+    clearTimer();
+    window.localStorage.removeItem(STORAGE_KEY);
     setPhase("pressing");
     playImpact();
 
@@ -602,6 +609,7 @@ export default function RedButtonEvent({
       const result = OUTCOMES[Math.floor(Math.random() * OUTCOMES.length)];
       setOutcome(result);
       setRewardDone(false);
+      setResultApplying(true);
       setPhase("result");
       playResultReveal();
 
@@ -630,9 +638,29 @@ export default function RedButtonEvent({
               ? error.message
               : "빨간 버튼 결과 자동 반영에 실패했어."
           );
+        } finally {
+          setResultApplying(false);
         }
       })();
     }, 2400);
+  }
+
+  function confirmResult() {
+    if (resultApplying) {
+      onNotice("빨간 버튼 결과를 반영하는 중이야.");
+      return;
+    }
+
+    if (outcome === REWARD_OUTCOME && !rewardDone) {
+      onNotice("5,000 캐시 지급을 먼저 완료해줘.");
+      return;
+    }
+
+    setPhase("idle");
+    setOutcome("");
+    setRewardNick("");
+    setRewardDone(false);
+    scheduleNext();
   }
 
   async function grantReward() {
@@ -914,13 +942,14 @@ export default function RedButtonEvent({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setPhase("idle");
-                      setOutcome("");
-                    }}
-                    className="relative mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-xs font-black text-zinc-950 shadow-[0_0_35px_rgba(255,255,255,.18)] transition hover:scale-[1.01] active:scale-[.98]"
+                    onClick={confirmResult}
+                    disabled={
+                      resultApplying ||
+                      (resultIsReward && !rewardDone)
+                    }
+                    className="relative mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-xs font-black text-zinc-950 shadow-[0_0_35px_rgba(255,255,255,.18)] transition hover:scale-[1.01] active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    확인
+                    {resultApplying ? "반영 중..." : "확인"}
                   </button>
                 </div>
               </div>
