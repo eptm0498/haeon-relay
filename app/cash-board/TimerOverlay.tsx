@@ -54,7 +54,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   const [eating, setEating] = useState<ActiveState | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
-  const [clearingGag, setClearingGag] = useState(false);
+  const [clearingEffect, setClearingEffect] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
 
   async function refreshTimers() {
@@ -137,12 +137,14 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     }
   }
 
-  async function clearGag() {
-    if (!gag || clearingGag) return;
+  async function clearEffect(
+    effectType: "gag" | "smoking" | "eating",
+    confirmMessage: string
+  ) {
+    if (clearingEffect) return;
+    if (!window.confirm(confirmMessage)) return;
 
-    if (!window.confirm("외부 후원 등으로 아봉을 해제할까?")) return;
-
-    setClearingGag(true);
+    setClearingEffect(effectType);
 
     try {
       const response = await fetch("/api/cash-board", {
@@ -151,24 +153,27 @@ export default function TimerOverlay({ pin }: { pin: string }) {
           "content-type": "application/json",
           "x-admin-pin": pin,
         },
-        body: JSON.stringify({ action: "admin_clear_gag" }),
+        body: JSON.stringify({
+          action: "admin_clear_effect",
+          effect_type: effectType,
+        }),
         cache: "no-store",
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.error || "아봉 해제에 실패했어.");
+        throw new Error(data?.error || "상태 해제에 실패했어.");
       }
 
       await refreshAll();
       window.dispatchEvent(new Event("cash-effect-updated"));
     } catch (error) {
       window.alert(
-        error instanceof Error ? error.message : "아봉 해제에 실패했어."
+        error instanceof Error ? error.message : "상태 해제에 실패했어."
       );
     } finally {
-      setClearingGag(false);
+      setClearingEffect(null);
     }
   }
 
@@ -212,11 +217,16 @@ export default function TimerOverlay({ pin }: { pin: string }) {
               </div>
               <button
                 type="button"
-                onClick={() => void clearGag()}
-                disabled={clearingGag}
+                onClick={() =>
+                  void clearEffect(
+                    "gag",
+                    "외부 후원 등으로 아봉을 해제할까?"
+                  )
+                }
+                disabled={clearingEffect === "gag"}
                 className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
               >
-                {clearingGag ? "해제중" : "해제"}
+                {clearingEffect === "gag" ? "해제중" : "해제"}
               </button>
             </div>
           </div>
@@ -231,7 +241,24 @@ export default function TimerOverlay({ pin }: { pin: string }) {
               <div className="mt-0.5 text-[16px] font-black leading-none">금연중</div>
               <div className="mt-1 text-[9px] font-bold text-emerald-100/80">{smoking.nickname}님이 시작</div>
             </div>
-            <div className="shrink-0 tabular-nums text-[24px] font-black leading-none text-emerald-100">{formatElapsed(smoking.started_at, now)}</div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="tabular-nums text-[24px] font-black leading-none text-emerald-100">
+                {formatElapsed(smoking.started_at, now)}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  void clearEffect(
+                    "smoking",
+                    "금연 상태를 해제하고 흡연 가능 상태로 돌릴까?"
+                  )
+                }
+                disabled={clearingEffect === "smoking"}
+                className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
+              >
+                {clearingEffect === "smoking" ? "해제중" : "해제"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -271,8 +298,23 @@ export default function TimerOverlay({ pin }: { pin: string }) {
                 {eating.nickname}님 결과
               </div>
             </div>
-            <div className="shrink-0 tabular-nums text-[24px] font-black leading-none">
-              {formatElapsed(eating.started_at, now)}
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="tabular-nums text-[24px] font-black leading-none">
+                {formatElapsed(eating.started_at, now)}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  void clearEffect(
+                    "eating",
+                    "먹어/먹지마 상태를 해제할까?"
+                  )
+                }
+                disabled={clearingEffect === "eating"}
+                className="pointer-events-auto rounded-lg bg-white/15 px-2.5 py-1.5 text-[9px] font-black text-white ring-1 ring-white/20 disabled:opacity-40"
+              >
+                {clearingEffect === "eating" ? "해제중" : "해제"}
+              </button>
             </div>
           </div>
         </div>

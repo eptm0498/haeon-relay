@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import fx from "./effects.module.css";
 
 type User = {
@@ -113,6 +114,228 @@ function itemIndexAt(items: RouletteItem[], position: number) {
   return Math.max(0, items.length - 1);
 }
 
+function ScratchTicket({
+  results,
+  onComplete,
+}: {
+  results: SpinResult[];
+  onComplete: () => void;
+}) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scratchingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const completedRef = useRef(false);
+  const moveCountRef = useRef(0);
+  const completeRef = useRef(onComplete);
+  const [painted, setPainted] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [coin, setCoin] = useState<{ x: number; y: number } | null>(null);
+  const [completed, setCompleted] = useState(false);
+
+  useEffect(() => {
+    completeRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    const canvas = canvasRef.current;
+    if (!shell || !canvas) return;
+
+    function paintCover() {
+      if (!shell || !canvas) return;
+      const rect = shell.getBoundingClientRect();
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(rect.width * ratio));
+      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.globalCompositeOperation = "source-over";
+      const gradient = context.createLinearGradient(0, 0, rect.width, rect.height);
+      gradient.addColorStop(0, "#d9dce3");
+      gradient.addColorStop(0.34, "#8d93a0");
+      gradient.addColorStop(0.58, "#eef0f4");
+      gradient.addColorStop(1, "#777d89");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, rect.width, rect.height);
+
+      context.strokeStyle = "rgba(255,255,255,.26)";
+      context.lineWidth = 2;
+      for (let x = -rect.height; x < rect.width; x += 18) {
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x + rect.height, rect.height);
+        context.stroke();
+      }
+
+      context.textAlign = "center";
+      context.fillStyle = "rgba(22,24,30,.8)";
+      context.font = "900 18px system-ui, sans-serif";
+      context.fillText("동전으로 긁어주세요", rect.width / 2, rect.height / 2 - 3);
+      context.fillStyle = "rgba(22,24,30,.55)";
+      context.font = "800 11px system-ui, sans-serif";
+      context.fillText("SCRATCH TO REVEAL", rect.width / 2, rect.height / 2 + 19);
+      setPainted(true);
+    }
+
+    paintCover();
+    const observer = new ResizeObserver(paintCover);
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [results]);
+
+  function point(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+    };
+  }
+
+  function scratchedPercent() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return 0;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const step = Math.max(4, Math.round((window.devicePixelRatio || 1) * 8));
+    let cleared = 0;
+    let sampled = 0;
+    for (let y = 0; y < canvas.height; y += step) {
+      for (let x = 0; x < canvas.width; x += step) {
+        sampled += 1;
+        if (pixels[(y * canvas.width + x) * 4 + 3] < 32) cleared += 1;
+      }
+    }
+    return sampled ? (cleared / sampled) * 100 : 0;
+  }
+
+  function scratch(event: ReactPointerEvent<HTMLCanvasElement>, force = false) {
+    if ((!scratchingRef.current && !force) || completedRef.current) return;
+    const canvas = event.currentTarget;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const next = point(event);
+    const previous = lastPointRef.current || next;
+    setCoin(next);
+
+    context.save();
+    context.globalCompositeOperation = "destination-out";
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.lineWidth = 46;
+    context.beginPath();
+    context.moveTo(previous.x, previous.y);
+    context.lineTo(next.x, next.y);
+    context.stroke();
+    context.restore();
+    lastPointRef.current = next;
+
+    moveCountRef.current += 1;
+    if (moveCountRef.current % 3 !== 0 && !force) return;
+    const nextProgress = scratchedPercent();
+    setProgress(Math.min(100, Math.round(nextProgress)));
+    if (nextProgress >= 58) {
+      completedRef.current = true;
+      scratchingRef.current = false;
+      setCompleted(true);
+      setProgress(100);
+      canvas.style.transition = "opacity 420ms ease, transform 420ms ease";
+      canvas.style.opacity = "0";
+      canvas.style.transform = "scale(1.02)";
+      window.setTimeout(() => completeRef.current(), 430);
+    }
+  }
+
+  const resultTotal = results.reduce(
+    (sum, item) => sum + Number(item.cash_delta || 0),
+    0
+  );
+
+  return (
+    <div className="relative z-[3] mt-4">
+      <div className="mb-2 flex items-center justify-between text-[10px] font-black text-white/70">
+        <span>동전을 움직여 은박을 긁어줘</span>
+        <span className="tabular-nums text-amber-200">{progress}%</span>
+      </div>
+      <div
+        ref={shellRef}
+        className="relative min-h-[238px] overflow-hidden rounded-[24px] border-2 border-amber-200/70 bg-[linear-gradient(145deg,#fff8d8,#fff,#ffe89c)] shadow-[0_18px_48px_rgba(0,0,0,.28)]"
+      >
+        <div
+          aria-hidden={!completed}
+          className={
+            "absolute inset-0 flex flex-col p-5 text-zinc-900 transition-opacity " +
+            (painted ? "opacity-100" : "opacity-0")
+          }
+        >
+          <div className="flex items-start justify-between gap-3 border-b-2 border-dashed border-amber-300 pb-3">
+            <div>
+              <div className="text-[9px] font-black tracking-[.24em] text-amber-700">CASH LUCKY</div>
+              <div className="mt-0.5 text-xl font-black">즉석 당첨 복권</div>
+            </div>
+            <div className="rounded-full bg-amber-400 px-3 py-1 text-[10px] font-black text-zinc-950">결과 {results.length}개</div>
+          </div>
+          <div className="grid flex-1 content-center gap-1.5 py-3">
+            {results.map((item, index) => (
+              <div key={item.spin_id} className="flex items-center justify-between rounded-xl bg-white/75 px-3 py-2 shadow-sm">
+                <span className="text-[10px] font-black text-zinc-500">{index + 1}번째</span>
+                <span className={"text-base font-black " + (Number(item.cash_delta || 0) >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                  {item.label}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t-2 border-dashed border-amber-300 pt-3 text-xs font-black">
+            <span>총 결과</span>
+            <span className={resultTotal >= 0 ? "text-emerald-600" : "text-rose-600"}>
+              {resultTotal >= 0 ? "+" : ""}{money(resultTotal)} 캐시
+            </span>
+          </div>
+        </div>
+
+        <canvas
+          ref={canvasRef}
+          onPointerDown={(event) => {
+            scratchingRef.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            lastPointRef.current = point(event);
+            scratch(event, true);
+          }}
+          onPointerMove={(event) => scratch(event)}
+          onPointerUp={(event) => {
+            scratch(event, true);
+            scratchingRef.current = false;
+            lastPointRef.current = null;
+            setCoin(null);
+          }}
+          onPointerCancel={() => {
+            scratchingRef.current = false;
+            lastPointRef.current = null;
+            setCoin(null);
+          }}
+          className="absolute inset-0 z-10 h-full w-full cursor-grab touch-none active:cursor-grabbing"
+          aria-label="동전으로 긁는 즉석 복권"
+        />
+
+        {coin && !completed && (
+          <div
+            className="pointer-events-none absolute z-20 flex h-11 w-11 items-center justify-center rounded-full border-2 border-amber-100 bg-[radial-gradient(circle_at_35%_30%,#fff8bd,#e5a900_52%,#8a5a00)] text-lg font-black text-amber-950 shadow-[0_5px_12px_rgba(0,0,0,.38)]"
+            style={{
+              left: coin.x,
+              top: coin.y,
+              transform: "translate(-50%, -50%) rotate(-18deg)",
+            }}
+          >
+            ₩
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GamePanel({
   pin,
   users,
@@ -148,6 +371,10 @@ export default function GamePanel({
   const [spinProgress, setSpinProgress] = useState("");
   const [soundOn, setSoundOn] = useState(true);
   const [visualBalance, setVisualBalance] = useState<number | null>(null);
+  const [scratchBatch, setScratchBatch] = useState<{
+    results: SpinResult[];
+    balance: number;
+  } | null>(null);
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
 
@@ -186,10 +413,10 @@ export default function GamePanel({
   const chosen = users.find((user) => user.nickname === nickname);
 
   useEffect(() => {
-    if (!spinning) {
+    if (!spinning && !scratchBatch) {
       setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
     }
-  }, [chosen?.id, chosen?.cash_balance, spinning]);
+  }, [chosen?.id, chosen?.cash_balance, spinning, scratchBatch]);
 
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
@@ -202,6 +429,8 @@ export default function GamePanel({
   const totalCost = effectiveCost * spinCount;
   const activeRouletteName = config?.name || fallback?.name || "";
   const isEatRoulette = activeRouletteName === "먹어/먹지마";
+  const isCashRoulette = activeRouletteName === "캐시 룰렛";
+  const busy = spinning || Boolean(scratchBatch);
   const eatResultSrc =
     currentResult?.label === "먹어"
       ? "/cash-board/eat-yes.webp"
@@ -547,8 +776,44 @@ export default function GamePanel({
     return target;
   }
 
+  async function finishScratch() {
+    const batch = scratchBatch;
+    if (!batch) return;
+
+    const last = batch.results[batch.results.length - 1] || null;
+    const totalDelta = batch.results.reduce(
+      (sum, item) => sum + Number(item.cash_delta || 0),
+      0
+    );
+    setCurrentResult(last);
+    setBatchResults(batch.results);
+    setCurrentPick(
+      batch.results.length > 1
+        ? `총 ${totalDelta >= 0 ? "+" : ""}${money(totalDelta)} 캐시`
+        : last?.label || "복권 공개 완료"
+    );
+    setReveal(true);
+    setBurst((value) => value + 1);
+    setVisualBalance(batch.balance);
+
+    if (totalDelta < 0) {
+      playNegativeResultSound("cash_loss");
+    } else {
+      const rare = batch.results.some((result) => {
+        const item = items.find((entry) => entry.label === result.label);
+        return Number(item?.weight || 100) <= 5;
+      });
+      playPositiveResultSound("cash", rare);
+    }
+
+    await onChanged();
+    setScratchBatch(null);
+    window.dispatchEvent(new Event("cash-effect-updated"));
+    window.dispatchEvent(new Event("cash-timer-updated"));
+  }
+
   async function spin() {
-    if (!nickname.trim() || !rouletteId || spinning) {
+    if (!nickname.trim() || !rouletteId || busy) {
       if (!nickname.trim()) {
         onNotice("사용자를 먼저 선택해줘.");
       }
@@ -571,7 +836,13 @@ export default function GamePanel({
     setReveal(false);
     setSpinning(true);
     setSpinProgress("");
-    setCurrentPick(isEatRoulette ? "먹을까 · 말까" : labelAt(items, cursorPct));
+    setCurrentPick(
+      isEatRoulette
+        ? "먹을까 · 말까"
+        : isCashRoulette
+          ? "새 복권 발급 중"
+          : labelAt(items, cursorPct)
+    );
     setVisualBalance(chosen ? Number(chosen.cash_balance || 0) : null);
     onNotice("");
 
@@ -601,6 +872,17 @@ export default function GamePanel({
       );
       let runningBalance = Number(response.balance || 0) - totalNet;
       setVisualBalance(runningBalance);
+
+      if (isCashRoulette) {
+        setScratchBatch({
+          results,
+          balance: Number(response.balance || 0),
+        });
+        setSpinning(false);
+        setSpinProgress("");
+        setCurrentPick("동전으로 복권을 긁어줘");
+        return;
+      }
 
       for (let index = 0; index < results.length; index += 1) {
         setSpinProgress(
@@ -750,10 +1032,16 @@ export default function GamePanel({
       return "사용하면 말투 입력 후 10분 시작";
     }
     if (item.label.includes("아봉")) {
-      return "사용하면 아봉 상태 전환";
+      return "추첨 즉시 아봉 상태 전환";
     }
     if (item.label === "금연") {
-      return "사용하면 금연 경과시간 시작";
+      return "추첨 즉시 금연 경과시간 시작";
+    }
+    if (item.label === "흡연") {
+      return "추첨 즉시 금연 상태 해제";
+    }
+    if (item.label === "먹어" || item.label === "먹지마") {
+      return "추첨 즉시 현재 상태에 반영";
     }
 
     const configItem = items.find(
@@ -777,6 +1065,7 @@ export default function GamePanel({
 
         <input
           value={nickname}
+          disabled={busy}
           onFocus={() =>
             nickname.trim() && setOpenUsers(true)
           }
@@ -812,10 +1101,10 @@ export default function GamePanel({
             }
           }}
           placeholder="닉네임 검색"
-          className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-28 text-sm font-bold outline-none focus:border-violet-300 focus:bg-white"
+          className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 pr-28 text-sm font-bold outline-none focus:border-violet-300 focus:bg-white disabled:opacity-60"
         />
 
-        {openUsers && suggestions.length > 0 && (
+        {!busy && openUsers && suggestions.length > 0 && (
           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-xl">
             {suggestions.map((user, index) => (
               <button
@@ -860,7 +1149,7 @@ export default function GamePanel({
             setCurrentPick("추첨 대기");
             setCursorPct(5);
           }}
-          disabled={spinning}
+          disabled={busy}
           className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
         >
           {roulettes.map((roulette) => {
@@ -885,7 +1174,7 @@ export default function GamePanel({
             <button
               key={count}
               type="button"
-              disabled={spinning}
+              disabled={busy}
               onClick={() => setSpinCount(count)}
               className={
                 "min-w-9 rounded-xl px-2 py-2 text-xs font-black transition " +
@@ -937,7 +1226,7 @@ export default function GamePanel({
               onClick={() =>
                 setSoundOn((value) => !value)
               }
-              disabled={spinning}
+              disabled={busy}
               className="rounded-full bg-white/10 px-2.5 py-1.5 text-[10px] font-black text-white/75 disabled:opacity-40"
             >
               효과음 {soundOn ? "켜짐" : "꺼짐"}
@@ -959,7 +1248,25 @@ export default function GamePanel({
           </div>
         </div>
 
-        {isEatRoulette ? (
+        {isCashRoulette ? (
+          scratchBatch ? (
+            <ScratchTicket
+              key={scratchBatch.results.map((item) => item.spin_id).join("-")}
+              results={scratchBatch.results}
+              onComplete={() => void finishScratch()}
+            />
+          ) : (
+            <div className="relative z-[3] mt-4 overflow-hidden rounded-[24px] border-2 border-dashed border-amber-300/65 bg-[linear-gradient(145deg,rgba(255,248,216,.14),rgba(255,255,255,.06))] px-5 py-10 text-center shadow-inner">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border-2 border-amber-200 bg-[radial-gradient(circle_at_35%_30%,#fff8bd,#e5a900_52%,#8a5a00)] text-2xl font-black text-amber-950 shadow-lg">
+                ₩
+              </div>
+              <div className="mt-4 text-lg font-black text-white">캐시 즉석복권</div>
+              <div className="mt-1 text-[11px] font-bold text-white/55">
+                추첨하면 동전으로 긁을 복권이 발급돼
+              </div>
+            </div>
+          )
+        ) : isEatRoulette ? (
           <div className={fx.eatSceneShell}>
             <div className={fx.eatScene}>
               {reveal && eatResultSrc ? (
@@ -1082,14 +1389,18 @@ export default function GamePanel({
           type="button"
           onClick={spin}
           disabled={
-            spinning ||
+            busy ||
             !rouletteId ||
             unresolvedKeeps
           }
           className="relative z-[3] mt-3 w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-3.5 text-sm font-black text-white shadow-[0_10px_30px_rgba(166,79,255,.28)] disabled:opacity-45"
         >
           {spinning
-            ? "연속 추첨 중..."
+            ? isCashRoulette
+              ? "복권 발급 중..."
+              : "연속 추첨 중..."
+            : scratchBatch
+              ? "복권을 먼저 끝까지 긁어줘"
             : `${spinCount}회 시작 · ${money(totalCost)} 캐시`}
         </button>
 
