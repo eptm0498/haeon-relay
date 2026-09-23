@@ -689,6 +689,25 @@ export default function GamePanel({
     window.dispatchEvent(new Event("cash-broadcast-updated"));
   }
 
+  async function applySmokingRouletteOutcome(label: string) {
+    if (
+      !isSmokingRoulette ||
+      !chosen ||
+      (label !== "금연" && label !== "흡연")
+    ) {
+      return;
+    }
+
+    await post("/api/cash-broadcast-state", pin, {
+      action: "set_smoking_from_roulette",
+      user_id: chosen.id,
+      outcome: label,
+    });
+
+    window.dispatchEvent(new Event("cash-effect-updated"));
+    window.dispatchEvent(new Event("cash-timer-updated"));
+  }
+
   async function showGoldenTicket(count = 1) {
     if (count <= 0) return;
 
@@ -1088,6 +1107,11 @@ export default function GamePanel({
             action: "reveal_spin",
             spin_id: results[index].spin_id,
           });
+
+          await applySmokingRouletteOutcome(
+            results[index].label
+          );
+
           window.dispatchEvent(new Event("cash-timer-updated"));
         }
 
