@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import fx from "./redButton.module.css";
 
 type User = {
@@ -472,11 +473,16 @@ export default function RedButtonEvent({
     }
   }
 
-  if (phase === "idle") return null;
+  const eventStage =
+    typeof document !== "undefined"
+      ? document.getElementById("cash-game-stage")
+      : null;
+
+  if (phase === "idle" || !eventStage) return null;
 
   const resultIsReward = outcome === REWARD_OUTCOME;
 
-  return (
+  return createPortal(
     <div className={fx.screen + (phase === "result" ? " " + fx.resultScreen : "")}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-1/2 h-[76vmin] w-[76vmin] -translate-x-1/2 -translate-y-1/2 rounded-full border-[10px] border-red-500/20 animate-ping" />
@@ -521,22 +527,13 @@ export default function RedButtonEvent({
               </span>
             </button>
 
-            <div className="mt-8 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={pressButton}
-                className="rounded-2xl bg-red-600 px-4 py-4 text-lg font-black shadow-[0_10px_35px_rgba(239,68,68,.35)]"
-              >
-                누르기
-              </button>
-              <button
-                type="button"
-                onClick={giveUp}
-                className="rounded-2xl bg-white/10 px-4 py-4 text-lg font-black text-white/80 ring-1 ring-white/20 backdrop-blur"
-              >
-                포기하기
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={giveUp}
+              className="mt-7 w-full rounded-2xl bg-white/10 px-4 py-3.5 text-base font-black text-white/80 ring-1 ring-white/20 backdrop-blur"
+            >
+              포기하기
+            </button>
           </>
         )}
 
@@ -721,6 +718,7 @@ export default function RedButtonEvent({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    eventStage
   );
 }
