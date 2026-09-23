@@ -3,13 +3,20 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const UPSTREAM = "https://ckesuyinmcqemgeemzlh.supabase.co/functions/v1/cash-board";
+const SPIN_UPSTREAM = "https://ckesuyinmcqemgeemzlh.supabase.co/functions/v1/cash-spin";
 
 export async function POST(request: NextRequest) {
   const pin = request.headers.get("x-admin-pin") ?? "";
   const body = await request.text();
 
+  let target = UPSTREAM;
   try {
-    const response = await fetch(UPSTREAM, {
+    const parsed = JSON.parse(body || "{}");
+    if (parsed?.action === "spin") target = SPIN_UPSTREAM;
+  } catch {}
+
+  try {
+    const response = await fetch(target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
