@@ -38,6 +38,29 @@ function formatRemaining(ms: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatBroadcastClock(value: string) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function formatBroadcastRemaining(endsAt: string, now: number) {
+  const totalSeconds = Math.max(
+    0,
+    Math.ceil((new Date(endsAt).getTime() - now) / 1000)
+  );
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+    2,
+    "0"
+  )}:${String(seconds).padStart(2, "0")}`;
+}
+
 function formatElapsed(startedAt: string, now: number) {
   const totalSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -53,6 +76,7 @@ export default function TimerOverlay({ pin }: { pin: string }) {
   const [smoking, setSmoking] = useState<ActiveState | null>(null);
   const [eating, setEating] = useState<ActiveState | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [broadcastEndAt, setBroadcastEndAt] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [clearingEffect, setClearingEffect] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -90,9 +114,31 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     } catch {}
   }
 
+  async function refreshBroadcast() {
+    if (!pin) return;
+    try {
+      const response = await fetch("/api/cash-broadcast-state", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-admin-pin": pin,
+        },
+        body: JSON.stringify({ action: "get" }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setBroadcastEndAt(data.broadcast_end_at ?? null);
+      }
+    } catch {}
+  }
+
   async function refreshAll() {
-    await refreshStatus();
-    await refreshTimers();
+    await Promise.all([
+      refreshStatus(),
+      refreshTimers(),
+      refreshBroadcast(),
+    ]);
   }
 
   async function cancelQueue(item: QueueItem) {
@@ -185,12 +231,14 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     window.addEventListener("cash-timer-updated", onUpdated);
     window.addEventListener("cash-effect-updated", onUpdated);
     window.addEventListener("cash-queue-updated", onUpdated);
+    window.addEventListener("cash-broadcast-updated", onUpdated);
     return () => {
       window.clearInterval(clock);
       window.clearInterval(poll);
       window.removeEventListener("cash-timer-updated", onUpdated);
       window.removeEventListener("cash-effect-updated", onUpdated);
       window.removeEventListener("cash-queue-updated", onUpdated);
+      window.removeEventListener("cash-broadcast-updated", onUpdated);
     };
   }, [pin]);
 
@@ -199,10 +247,39 @@ export default function TimerOverlay({ pin }: { pin: string }) {
     [timers, now]
   );
 
-  if (active.length === 0 && !gag && !smoking && !eating && queue.length === 0) return null;
+  const hasRightPanel =
+    active.length > 0 || Boolean(gag) || Boolean(smoking) || Boolean(eating) || queue.length > 0;
+
+  if (!broadcastEndAt && !hasRightPanel) return null;
 
   return (
-    <div className="pointer-events-none fixed top-5 right-3 z-[110] flex w-[280px] flex-col gap-1.5 xl:left-[calc(50%+332px)] xl:right-auto">
+    <>
+      {broadcastEndAt && (
+        <div className="pointer-events-none fixed left-3 top-5 z-[110] w-[280px] xl:left-auto xl:right-[calc(50%+332px)]">
+          <div className="rounded-2xl border border-sky-300/40 bg-zinc-950/95 px-4 py-3 text-white shadow-[0_12px_32px_rgba(20,18,40,.25)] backdrop-blur-xl">
+            <div className="text-[9px] font-black tracking-[.1em] text-sky-200">
+              오늘 방종시간
+            </div>
+            <div className="mt-1 flex items-end justify-between gap-3">
+              <div className="text-[32px] font-black leading-none tracking-tight">
+                {formatBroadcastClock(broadcastEndAt)}
+              </div>
+              <div className="text-right">
+                <div className="text-[9px] font-black text-white/45">남은 시간</div>
+                <div className="mt-0.5 tabular-nums text-[15px] font-black text-sky-100">
+                  {formatBroadcastRemaining(broadcastEndAt, now)}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-[9px] font-bold text-white/45">
+              방송 연장·단축 결과가 나오면 즉시 자동 반영
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasRightPanel && (
+        <div className="pointer-events-none fixed top-5 right-3 z-[110] flex w-[280px] flex-col gap-1.5 xl:left-[calc(50%+332px)] xl:right-auto">
       {gag && (
         <div className="rounded-2xl border border-rose-300/50 bg-rose-600/95 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(190,24,93,.28)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3">
@@ -366,6 +443,8 @@ export default function TimerOverlay({ pin }: { pin: string }) {
           {queue.length > 6 && <div className="border-t border-white/10 px-3 py-1.5 text-right text-[9px] font-black text-zinc-400">+{queue.length - 6}개</div>}
         </div>
       )}
-    </div>
+        </div>
+      )}
+    </>
   );
 }
