@@ -822,13 +822,7 @@ export default function GamePanel({
 
     const target = resultCenter(items, hit.label);
     const startedAt = performance.now();
-    const duration = isHundredCashRoulette
-      ? total > 1
-        ? 850
-        : 2800
-      : total > 1
-        ? 4000
-        : 4900;
+    const duration = total > 1 ? 4000 : 4900;
     const seed = Number(hit.spin_id || 0) % 7;
     const leftA = 1.2 + seed * 0.16;
     const rightA = 98.8 - seed * 0.14;
@@ -939,7 +933,7 @@ export default function GamePanel({
     });
 
     if (index < total - 1) {
-      await delay(isHundredCashRoulette ? 180 : 650);
+      await delay(650);
     }
     return target;
   }
