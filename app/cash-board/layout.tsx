@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "온유의 캐시 보드",
+  title: "온유의 게임기",
   description: "온유의 캐시와 킵 관리",
   robots: {
     index: false,

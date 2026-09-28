@@ -494,7 +494,7 @@ export default function CashBoardPage() {
       <main className="min-h-screen bg-[#f6f7f9] px-4 py-10 text-[#111318]">
         <div className="mx-auto max-w-md">
           <div className="mb-5">
-            <h1 className="text-2xl font-extrabold tracking-tight">온유의 캐시 보드</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">온유의 게임기</h1>
             <p className="mt-1 text-sm text-zinc-500">관리자 전용</p>
           </div>
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -549,7 +549,7 @@ export default function CashBoardPage() {
       <div className="mx-auto max-w-[640px]">
         <header className="mb-3 flex items-center gap-2">
           <h1 className="shrink-0 text-[18px] font-extrabold tracking-tight sm:text-xl">
-            온유의 캐시 보드
+            온유의 게임기
           </h1>
 
           <nav className="ml-auto flex min-w-0 items-center justify-end gap-1">
