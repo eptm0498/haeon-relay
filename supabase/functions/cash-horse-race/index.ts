@@ -26,6 +26,28 @@ Deno.serve(async (req: Request) => {
     });
     if (!auth.ok) return json({ error: "관리자 인증을 확인해줘." }, 401);
     const body = await req.json();
+    if (body.action === "settings_load") {
+      const { data, error } = await db.from("cash_horse_settings")
+        .select("probabilities,multipliers").eq("id", 1).single();
+      if (error || !data) return json({ error: "경마 설정을 불러오지 못했어." }, 500);
+      return json({ ok: true, ...data });
+    }
+    if (body.action === "settings_save") {
+      const probabilities = body.probabilities;
+      const multipliers = body.multipliers;
+      if (!Array.isArray(probabilities) || probabilities.length !== 5 ||
+          probabilities.some((value: unknown) => !Number.isInteger(value) || value < 0 || value > 100) ||
+          probabilities.reduce((total: number, value: number) => total + value, 0) !== 100 ||
+          !Array.isArray(multipliers) || multipliers.length !== 5 ||
+          multipliers.some((value: unknown) => !Number.isInteger(value) || value < 1 || value > 100000)) {
+        return json({ error: "우승 확률 합계는 100%, 배율은 0.01~1000.00배로 입력해줘." }, 400);
+      }
+      const { data, error } = await db.from("cash_horse_settings")
+        .update({ probabilities, multipliers, updated_at: new Date().toISOString() })
+        .eq("id", 1).select("probabilities,multipliers").single();
+      if (error || !data) return json({ error: "경마 설정을 저장하지 못했어." }, 500);
+      return json({ ok: true, ...data });
+    }
     const nickname = String(body.nickname ?? "").trim();
     const pick = Number(body.pick);
     const wager = Number(body.wager);

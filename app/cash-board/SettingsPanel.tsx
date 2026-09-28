@@ -29,6 +29,25 @@ type EventSettings = {
   red_button_per_hour: number;
 };
 
+type HorseSettings = {
+  probabilities: number[];
+  multipliers: number[];
+};
+
+const horseNames = ["날쌘돌이", "태풍", "번개", "질풍", "흑마"];
+
+async function postHorse(pin: string, body: Record<string, unknown>): Promise<HorseSettings> {
+  const response = await fetch("/api/cash-horse-race", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-admin-pin": pin },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || "경마 설정을 처리하지 못했어.");
+  return data as HorseSettings;
+}
+
 const dateTime = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -94,16 +113,20 @@ export default function SettingsPanel({
   const [discount, setDiscount] = useState(0);
   const [goldenTicketPercent, setGoldenTicketPercent] = useState(100);
   const [redButtonPerHour, setRedButtonPerHour] = useState(12);
+  const [horseProbabilities, setHorseProbabilities] = useState([30, 25, 20, 15, 10]);
+  const [horseMultipliers, setHorseMultipliers] = useState(["3.07", "3.68", "4.60", "6.13", "9.20"]);
+  const [horseLoaded, setHorseLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [next, eventSettings] = await Promise.all([
+    const [next, eventSettings, horseSettings] = await Promise.all([
       post<SettingsData & { ok: boolean }>(pin, {
         action: "admin_settings_load",
       }),
       postEvent<EventSettings & { ok: boolean }>(pin, {
         action: "load",
       }),
+      postHorse(pin, { action: "settings_load" }),
     ]);
     setData(next);
     setDiscount(Number(next.discount_percent || 0));
@@ -113,6 +136,9 @@ export default function SettingsPanel({
     setRedButtonPerHour(
       Math.max(0, Math.min(60, Number(eventSettings.red_button_per_hour ?? 2)))
     );
+    setHorseProbabilities(horseSettings.probabilities);
+    setHorseMultipliers(horseSettings.multipliers.map((value) => (value / 100).toFixed(2)));
+    setHorseLoaded(true);
   }
 
   useEffect(() => {
@@ -177,6 +203,36 @@ export default function SettingsPanel({
           ? error.message
           : "이벤트 설정 저장에 실패했어."
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveHorseSettings() {
+    if (horseProbabilities.some((value) => !Number.isInteger(value) || value < 0 || value > 100) ||
+        horseProbabilities.reduce((total, value) => total + value, 0) !== 100) {
+      onNotice("다섯 말의 우승 확률 합계를 100%로 맞춰줘.");
+      return;
+    }
+    if (horseMultipliers.some((value) => !/^\d+(?:\.\d{1,2})?$/.test(value) ||
+        Number(value) < 0.01 || Number(value) > 1000)) {
+      onNotice("총 지급 배율은 0.01~1000.00배로 입력해줘.");
+      return;
+    }
+    setBusy(true);
+    onNotice("");
+    try {
+      const saved = await postHorse(pin, {
+        action: "settings_save",
+        probabilities: horseProbabilities,
+        multipliers: horseMultipliers.map((value) => Math.round(Number(value) * 100)),
+      });
+      setHorseProbabilities(saved.probabilities);
+      setHorseMultipliers(saved.multipliers.map((value) => (value / 100).toFixed(2)));
+      window.dispatchEvent(new Event("cash-horse-settings-updated"));
+      onNotice("경마 확률과 총 지급 배율을 저장했어. 다음 경주부터 적용돼.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "경마 설정 저장에 실패했어.");
     } finally {
       setBusy(false);
     }
@@ -405,6 +461,31 @@ export default function SettingsPanel({
         >
           이벤트 설정 저장
         </button>
+      </section>
+
+      <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="text-lg font-black">경마 게임 확률·배율</div>
+        <p className="mt-1 text-xs font-bold text-zinc-400">배율은 판돈을 포함한 총 지급액 기준이야. 저장하면 다음 경주부터 적용돼.</p>
+        <div className="mt-4 space-y-2">
+          {horseNames.map((name, index) => (
+            <div key={name} className="grid grid-cols-[minmax(0,1fr)_76px_88px] items-center gap-2 text-sm font-bold">
+              <span>{index + 1}번 {name}</span>
+              <label className="min-w-0 text-[10px] text-zinc-500">확률 %
+                <input type="number" min={0} max={100} step={1} value={horseProbabilities[index]}
+                  onChange={(event) => setHorseProbabilities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))}
+                  className="mt-1 w-full rounded-xl border border-zinc-200 px-2 py-2 text-sm font-black text-zinc-900" />
+              </label>
+              <label className="min-w-0 text-[10px] text-zinc-500">총 배율 ×
+                <input type="number" min={0.01} max={1000} step={0.01} value={horseMultipliers[index]}
+                  onChange={(event) => setHorseMultipliers((current) => current.map((value, i) => i === index ? event.target.value : value))}
+                  className="mt-1 w-full rounded-xl border border-zinc-200 px-2 py-2 text-sm font-black text-zinc-900" />
+              </label>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 text-right text-xs font-black text-zinc-600">우승 확률 합계 {horseProbabilities.reduce((total, value) => total + value, 0)}% / 100%</div>
+        <button type="button" onClick={saveHorseSettings} disabled={busy || !horseLoaded}
+          className="mt-4 w-full rounded-2xl bg-zinc-950 px-5 py-3.5 text-sm font-black text-white disabled:opacity-40">경마 설정 저장</button>
       </section>
 
       <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">

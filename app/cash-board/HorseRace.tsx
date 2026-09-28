@@ -5,10 +5,8 @@ import type { CSSProperties } from "react";
 import style from "./horse-race.module.css";
 
 const horses = ["날쌘돌이", "태풍", "번개", "질풍", "흑마"];
-const chances = [30, 25, 20, 15, 10];
-const odds = [3.07, 3.68, 4.6, 6.13, 9.2];
-const multipliers = [307, 368, 460, 613, 920];
-type Result = { order: number[]; winner: number; pick: number; wager: number; balance: number; prize: number };
+type HorseSettings = { probabilities: number[]; multipliers: number[] };
+type Result = { order: number[]; winner: number; pick: number; wager: number; balance: number; prize: number } & HorseSettings;
 const money = (n: number) => n.toLocaleString("ko-KR");
 
 export default function HorseRace({ pin, nickname, balance, onChanged, onNotice, onBusy }: {
@@ -27,7 +25,35 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
   const [result, setResult] = useState<Result | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [selectedRank, setSelectedRank] = useState<number | null>(null);
+  const [settings, setSettings] = useState<HorseSettings | null>(null);
   const frame = useRef<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSettings = async () => {
+      try {
+        const response = await fetch("/api/cash-horse-race", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-admin-pin": pin },
+          body: JSON.stringify({ action: "settings_load" }),
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "경마 설정을 불러오지 못했어.");
+        if (mounted) setSettings({ probabilities: data.probabilities, multipliers: data.multipliers });
+      } catch (error) {
+        if (mounted) onNotice(error instanceof Error ? error.message : "경마 설정을 불러오지 못했어.");
+      }
+    };
+    void loadSettings();
+    window.addEventListener("cash-horse-settings-updated", loadSettings);
+    window.addEventListener("focus", loadSettings);
+    return () => {
+      mounted = false;
+      window.removeEventListener("cash-horse-settings-updated", loadSettings);
+      window.removeEventListener("focus", loadSettings);
+    };
+  }, [pin, onNotice]);
 
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -43,6 +69,7 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
 
   async function start() {
     if (running) return;
+    if (!settings) return onNotice("경마 설정을 불러오는 중이야. 잠시 후 다시 눌러줘.");
     if (!nickname.trim()) return onNotice("사용자를 먼저 선택해줘.");
     if (balance === null) return onNotice("목록에서 사용자를 선택해줘.");
     const amount = Number(wager);
@@ -67,6 +94,7 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
       if (!response.ok) throw new Error(data.error || "경마 게임을 시작하지 못했어.");
       const outcome = data as Result;
       if (!Array.isArray(outcome.order) || outcome.order.length !== 5) throw new Error("경마 결과가 올바르지 않아.");
+      setSettings({ probabilities: outcome.probabilities, multipliers: outcome.multipliers });
       const seed = Array.from({ length: 5 }, () => Math.random() * 6.28);
       const began = performance.now();
       const previous = [0, 0, 0, 0, 0];
@@ -187,15 +215,15 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
       </div>
       <div className={style.picks}>
         {horses.map((name, index) => <button key={name} type="button" disabled={running || showResult} onClick={() => { setPick(index + 1); setResult(null); }} className={pick === index + 1 ? style.selected : ""}>
-          <span>{index + 1}번 {name}</span><small>{chances[index]}% · {odds[index].toFixed(2)}배</small>
+          <span>{index + 1}번 {name}</span><small>{settings ? `${settings.probabilities[index]}% · ${(settings.multipliers[index] / 100).toFixed(2)}배` : "불러오는 중"}</small>
         </button>)}
       </div>
       <div className={style.betting}>
         <label htmlFor="horse-wager">판돈 <span>100캐시 단위</span></label>
         <div><input id="horse-wager" type="number" inputMode="numeric" min="100" step="100" value={wager} disabled={running || showResult} onChange={(event) => { setWager(event.target.value); setResult(null); }} /><span>캐시</span></div>
-        <p>선택한 말 당첨 시 총 <strong>{Number.isSafeInteger(Number(wager)) && Number(wager) > 0 ? money(Math.floor(Number(wager) * multipliers[pick - 1] / 100)) : "—"} 캐시</strong> 지급</p>
+        <p>선택한 말 당첨 시 총 <strong>{settings && Number.isSafeInteger(Number(wager)) && Number(wager) > 0 ? money(Math.floor(Number(wager) * settings.multipliers[pick - 1] / 100)) : "—"} 캐시</strong> 지급</p>
       </div>
-      <button type="button" disabled={running || showResult || balance === null} onClick={() => void start()} className={style.start}>
+      <button type="button" disabled={running || showResult || balance === null || !settings} onClick={() => void start()} className={style.start}>
         {running ? "말들이 달리는 중..." : `경마 시작 · ${money(Number(wager) || 0)} 캐시`}
       </button>
     </div>

@@ -451,6 +451,10 @@ export default function CashBoardPage() {
 
   async function deleteUser() {
     if (!selectedUser) return;
+    if (selectedUser.user.nickname === "재경이") {
+      setNotice("재경이 사용자는 사이트에서 삭제할 수 없어.");
+      return;
+    }
 
     const nickname = selectedUser.user.nickname;
     const confirmed = window.confirm(
@@ -838,7 +842,7 @@ export default function CashBoardPage() {
                   )}
                 </div>
 
-                <div className="mt-6 border-t border-zinc-100 pt-4">
+                {selectedUser.user.nickname !== "재경이" && <div className="mt-6 border-t border-zinc-100 pt-4">
                   <button
                     type="button"
                     onClick={deleteUser}
@@ -850,7 +854,7 @@ export default function CashBoardPage() {
                   <div className="mt-2 text-center text-[10px] font-bold text-zinc-400">
                     삭제하면 이 사용자의 캐시·킵·거래 이력이 함께 삭제돼.
                   </div>
-                </div>
+                </div>}
               </div>
             )}
 
