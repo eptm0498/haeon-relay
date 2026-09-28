@@ -1,6 +1,6 @@
 begin;
 
-update public.cash_roulettes set cost = 0, active = false where name = '경마 게임';
+update public.cash_roulettes set cost = 0, active = true where name = '경마 게임';
 
 update public.cash_roulette_items
 set label = case sort_order
@@ -85,5 +85,7 @@ end $$;
 
 revoke all on function public.cash_horse_race_wager(text, integer, bigint) from public, anon, authenticated;
 grant execute on function public.cash_horse_race_wager(text, integer, bigint) to service_role;
+
+drop function if exists public.cash_horse_race(text, integer);
 
 commit;
