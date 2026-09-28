@@ -1,10 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import fx from "./effects.module.css";
+import HorseRace from "./HorseRace";
 
 type User = {
   id: number;
@@ -396,6 +397,8 @@ export default function GamePanel({
     roulettes[0]?.id ?? null
   );
   const [spinCount, setSpinCount] = useState(1);
+  const [horseBusy, setHorseBusy] = useState(false);
+  const setHorseRaceBusy = useCallback((value: boolean) => setHorseBusy(value), []);
 
   const [cursorPct, setCursorPct] = useState(5);
   const [currentPick, setCurrentPick] = useState("추첨 대기");
@@ -460,22 +463,23 @@ export default function GamePanel({
   const config = configs.find((item) => item.id === rouletteId);
   const fallback = roulettes.find((item) => item.id === rouletteId);
   const items = config?.items || [];
+  const activeRouletteName = config?.name || fallback?.name || "";
   const rawCost = Number(config?.cost ?? fallback?.cost ?? 0);
-  const effectiveCost = Math.max(
+  const effectiveCost = activeRouletteName === "경마 게임" ? 5000 : Math.max(
     0,
     Math.round(rawCost * (100 - Math.max(0, discountPercent || 0)) / 100)
   );
   const totalCost = effectiveCost * spinCount;
-  const activeRouletteName = config?.name || fallback?.name || "";
   const isEatRoulette = activeRouletteName === "먹어/먹지마";
   const isSmokingRoulette = activeRouletteName === "흡연/금연";
-  const isCashRoulette = activeRouletteName === "캐시 룰렛";
+  const isCashRoulette = activeRouletteName === "복권 긁기";
+  const isHorseRace = activeRouletteName === "경마 게임";
   const isHundredCashRoulette = activeRouletteName === "100캐시 룰렛";
   const revealsPersistentState =
     isEatRoulette ||
     isSmokingRoulette ||
     activeRouletteName === "콘텐츠 룰렛";
-  const busy = spinning || Boolean(scratchBatch);
+  const busy = spinning || Boolean(scratchBatch) || horseBusy;
   const eatResultSrc =
     currentResult?.label === "먹어"
       ? "/cash-board/eat-yes.webp"
@@ -1467,7 +1471,7 @@ export default function GamePanel({
           className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
         >
           {roulettes.map((roulette) => {
-            const discounted = Math.max(
+            const discounted = roulette.name === "경마 게임" ? 5000 : Math.max(
               0,
               Math.round(
                 roulette.cost *
@@ -1483,7 +1487,7 @@ export default function GamePanel({
           })}
         </select>
 
-        {isHundredCashRoulette ? (
+        {isHorseRace ? null : isHundredCashRoulette ? (
           <div className="flex items-center gap-2 rounded-2xl bg-zinc-100 p-1.5">
             <input
               type="number"
@@ -1526,7 +1530,9 @@ export default function GamePanel({
         )}
       </div>
 
-      <div
+      {isHorseRace ? (
+        <HorseRace pin={pin} nickname={nickname} balance={chosen ? Number(chosen.cash_balance) : null} onChanged={onChanged} onNotice={onNotice} onBusy={setHorseRaceBusy} />
+      ) : <><div
         id="cash-game-stage"
         style={
           goldenTicketReveal > 0
@@ -2064,7 +2070,7 @@ export default function GamePanel({
             </div>
           </div>
         )}
-      </div>
+      </div></>}
     </section>
   );
 }
