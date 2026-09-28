@@ -256,15 +256,8 @@ export default function RouletteSettings({
 
       {draft && (draft.name === "경마 게임" ? (
         <div className="mt-3 rounded-2xl bg-zinc-50 p-4 text-xs font-bold text-zinc-600">
-          <p className="font-black text-zinc-900">경마 확률과 배당</p>
-          <p className="mt-1 text-zinc-400">판돈은 게임 화면에서 입력해. 배당은 판돈을 포함한 총 지급 배수야.</p>
-          <div className="mt-3 space-y-2">
-            {[["날쌘돌이", "30%", "3.07배"], ["태풍", "25%", "3.68배"], ["번개", "20%", "4.60배"], ["질풍", "15%", "6.13배"], ["흑마", "10%", "9.20배"]].map(([name, chance, odds], index) => (
-              <div key={name} className="flex justify-between rounded-xl bg-white px-3 py-2">
-                <span>{index + 1}번 {name}</span><span>{chance} · {odds}</span>
-              </div>
-            ))}
-          </div>
+          <p className="font-black text-zinc-900">경마 확률과 배율</p>
+          <p className="mt-1 text-zinc-500">아래 ‘경마 게임 확률·배율’에서 변경해줘. 판돈은 게임 화면에서 입력해.</p>
         </div>
       ) : (
         <div className="mt-3">
