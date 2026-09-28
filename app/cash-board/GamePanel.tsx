@@ -465,7 +465,7 @@ export default function GamePanel({
   const items = config?.items || [];
   const activeRouletteName = config?.name || fallback?.name || "";
   const rawCost = Number(config?.cost ?? fallback?.cost ?? 0);
-  const effectiveCost = activeRouletteName === "경마 게임" ? 5000 : Math.max(
+  const effectiveCost = activeRouletteName === "경마 게임" ? 0 : Math.max(
     0,
     Math.round(rawCost * (100 - Math.max(0, discountPercent || 0)) / 100)
   );
@@ -1471,7 +1471,7 @@ export default function GamePanel({
           className="min-w-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black outline-none"
         >
           {roulettes.map((roulette) => {
-            const discounted = roulette.name === "경마 게임" ? 5000 : Math.max(
+            const discounted = Math.max(
               0,
               Math.round(
                 roulette.cost *
@@ -1481,7 +1481,7 @@ export default function GamePanel({
             );
             return (
               <option key={roulette.id} value={roulette.id}>
-                {roulette.name} · {money(discounted)} 캐시
+                {roulette.name}{roulette.name === "경마 게임" ? " · 판돈 선택" : ` · ${money(discounted)} 캐시`}
               </option>
             );
           })}

@@ -28,12 +28,15 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const nickname = String(body.nickname ?? "").trim();
     const pick = Number(body.pick);
-    if (!nickname || !Number.isInteger(pick) || pick < 1 || pick > 5) {
-      return json({ error: "사용자와 말을 선택해줘." }, 400);
+    const wager = Number(body.wager);
+    if (!nickname || !Number.isInteger(pick) || pick < 1 || pick > 5 ||
+        !Number.isSafeInteger(wager) || wager < 100 || wager > 1000000000000 || wager % 100 !== 0) {
+      return json({ error: "사용자, 말과 판돈을 확인해줘. 판돈은 100캐시 단위야." }, 400);
     }
-    const { data, error } = await db.rpc("cash_horse_race", {
+    const { data, error } = await db.rpc("cash_horse_race_wager", {
       p_nickname: nickname,
       p_pick: pick,
+      p_wager: wager,
     });
     if (error) return json({ error: error.message }, 400);
     return json({ ok: true, ...data });
