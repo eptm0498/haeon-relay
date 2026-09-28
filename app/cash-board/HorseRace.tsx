@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import style from "./horse-race.module.css";
 
@@ -116,8 +115,8 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
   }
 
   return (
-    <>
-    {showResult && result && createPortal(
+    <div className={style.panel}>
+    {showResult && result && (
       <div className={`${style.resultOverlay} ${result.prize ? style.winOverlay : style.lossOverlay}`} role="dialog" aria-modal="true" aria-label={result.prize ? "경마 당첨 결과" : "경마 미당첨 결과"}>
         <div className={style.resultBackdrop} />
         {result.prize ? (
@@ -164,9 +163,8 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
           )}
           <button type="button" className={style.resultConfirm} onClick={closeResult}>결과 확인</button>
         </div>
-      </div>, document.body
+      </div>
     )}
-    <div className={style.panel}>
       <div className={style.top}><span>🏇 경마 게임</span><strong>판돈을 걸고 우승마를 골라줘</strong></div>
       <p className={style.help}>말마다 우승 확률과 총 지급 배수가 달라. 배당에는 건 판돈이 포함돼.</p>
       <div className={style.track}>
@@ -201,6 +199,5 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
         {running ? "말들이 달리는 중..." : `경마 시작 · ${money(Number(wager) || 0)} 캐시`}
       </button>
     </div>
-    </>
   );
 }
