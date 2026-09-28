@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { CSSProperties } from "react";
 import style from "./horse-race.module.css";
 
 const horses = ["날쌘돌이", "태풍", "번개", "질풍", "흑마"];
@@ -24,13 +26,21 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
   const [positions, setPositions] = useState([0, 0, 0, 0, 0]);
   const [ranking, setRanking] = useState<number[]>([]);
   const [result, setResult] = useState<Result | null>(null);
+  const [showResult, setShowResult] = useState(false);
   const [selectedRank, setSelectedRank] = useState<number | null>(null);
   const frame = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     onBusy(false);
+    window.dispatchEvent(new CustomEvent("cash-roulette-activity", { detail: { active: false } }));
   }, [onBusy]);
+
+  function closeResult() {
+    setShowResult(false);
+    onBusy(false);
+    window.dispatchEvent(new CustomEvent("cash-roulette-activity", { detail: { active: false } }));
+  }
 
   async function start() {
     if (running) return;
@@ -47,6 +57,7 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
     setSelectedRank(null);
     onNotice("");
     window.dispatchEvent(new CustomEvent("cash-roulette-activity", { detail: { active: true } }));
+    let completed = false;
     try {
       const response = await fetch("/api/cash-horse-race", {
         method: "POST",
@@ -90,17 +101,71 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
       setRanking(outcome.order);
       setSelectedRank(outcome.order.indexOf(pick) + 1);
       setResult(outcome);
+      setShowResult(true);
+      completed = true;
       await onChanged();
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "경마 게임을 처리하지 못했어.");
     } finally {
       setRunning(false);
-      onBusy(false);
-      window.dispatchEvent(new CustomEvent("cash-roulette-activity", { detail: { active: false } }));
+      if (!completed) {
+        onBusy(false);
+        window.dispatchEvent(new CustomEvent("cash-roulette-activity", { detail: { active: false } }));
+      }
     }
   }
 
   return (
+    <>
+    {showResult && result && createPortal(
+      <div className={`${style.resultOverlay} ${result.prize ? style.winOverlay : style.lossOverlay}`} role="dialog" aria-modal="true" aria-label={result.prize ? "경마 당첨 결과" : "경마 미당첨 결과"}>
+        <div className={style.resultBackdrop} />
+        {result.prize ? (
+          <>
+            <div className={style.lightRays} aria-hidden="true" />
+            <div className={style.winHalo} aria-hidden="true" />
+            <div className={style.particleField} aria-hidden="true">
+              {Array.from({ length: 64 }, (_, index) => {
+                const angle = index * 2.39996;
+                const distance = 170 + (index % 5) * 68;
+                return <span key={index} className={style.goldParticle} style={{
+                  "--dx": `${Math.cos(angle) * distance}px`,
+                  "--dy": `${Math.sin(angle) * distance}px`,
+                  "--delay": `${(index % 8) * 55}ms`,
+                  "--size": `${5 + index % 5 * 3}px`,
+                } as CSSProperties} />;
+              })}
+            </div>
+          </>
+        ) : (
+          <div className={style.rainField} aria-hidden="true">
+            {Array.from({ length: 32 }, (_, index) => <span key={index} className={style.rainLine} style={{
+              "--left": `${(index * 37) % 100}%`,
+              "--delay": `${(index % 9) * -170}ms`,
+              "--duration": `${800 + index % 6 * 150}ms`,
+            } as CSSProperties} />)}
+          </div>
+        )}
+        <div className={style.resultCard}>
+          <div className={style.resultEyebrow}>{result.prize ? "FINISH · 1ST PLACE" : "FINISH · RACE OVER"}</div>
+          <div className={style.resultIcon} aria-hidden="true">{result.prize ? "🏆" : "🐎"}</div>
+          <div className={style.resultTitle}>{result.prize ? "우승 적중!" : "아쉽게 빗나갔어"}</div>
+          <div className={style.resultHorse}>{result.pick}번 {horses[result.pick - 1]} <span>· {result.order.indexOf(result.pick) + 1}등</span></div>
+          {result.prize ? (
+            <>
+              <div className={style.resultAmount}><span>총 지급</span><strong>+{money(result.prize)}</strong><span>캐시</span></div>
+              <div className={style.resultDetail}>판돈 {money(result.wager)} 캐시 · 순이익 +{money(result.prize - result.wager)} 캐시</div>
+            </>
+          ) : (
+            <>
+              <div className={style.resultAmount}><span>판돈</span><strong>−{money(result.wager)}</strong><span>캐시</span></div>
+              <div className={style.resultDetail}>우승은 {result.winner}번 {horses[result.winner - 1]}</div>
+            </>
+          )}
+          <button type="button" className={style.resultConfirm} onClick={closeResult}>결과 확인</button>
+        </div>
+      </div>, document.body
+    )}
     <div className={style.panel}>
       <div className={style.top}><span>🏇 경마 게임</span><strong>판돈을 걸고 우승마를 골라줘</strong></div>
       <p className={style.help}>말마다 우승 확률과 총 지급 배수가 달라. 배당에는 건 판돈이 포함돼.</p>
@@ -122,20 +187,20 @@ export default function HorseRace({ pin, nickname, balance, onChanged, onNotice,
             `내 말은 ${selectedRank}등 · 우승은 ${result.winner}번 ${horses[result.winner - 1]} · ${money(result.wager)} 캐시 차감` :
               "말을 고르고 출발 버튼을 눌러줘"}
       </div>
-      {result?.prize ? <div className={style.confetti} aria-hidden="true">🎊 ✨ 🎉 💰 ✨ 🎊</div> : null}
       <div className={style.picks}>
-        {horses.map((name, index) => <button key={name} type="button" disabled={running} onClick={() => { setPick(index + 1); setResult(null); }} className={pick === index + 1 ? style.selected : ""}>
+        {horses.map((name, index) => <button key={name} type="button" disabled={running || showResult} onClick={() => { setPick(index + 1); setResult(null); }} className={pick === index + 1 ? style.selected : ""}>
           <span>{index + 1}번 {name}</span><small>{chances[index]}% · {odds[index].toFixed(2)}배</small>
         </button>)}
       </div>
       <div className={style.betting}>
         <label htmlFor="horse-wager">판돈 <span>100캐시 단위</span></label>
-        <div><input id="horse-wager" type="number" inputMode="numeric" min="100" step="100" value={wager} disabled={running} onChange={(event) => { setWager(event.target.value); setResult(null); }} /><span>캐시</span></div>
+        <div><input id="horse-wager" type="number" inputMode="numeric" min="100" step="100" value={wager} disabled={running || showResult} onChange={(event) => { setWager(event.target.value); setResult(null); }} /><span>캐시</span></div>
         <p>선택한 말 당첨 시 총 <strong>{Number.isSafeInteger(Number(wager)) && Number(wager) > 0 ? money(Math.floor(Number(wager) * multipliers[pick - 1] / 100)) : "—"} 캐시</strong> 지급</p>
       </div>
-      <button type="button" disabled={running || balance === null} onClick={() => void start()} className={style.start}>
+      <button type="button" disabled={running || showResult || balance === null} onClick={() => void start()} className={style.start}>
         {running ? "말들이 달리는 중..." : `경마 시작 · ${money(Number(wager) || 0)} 캐시`}
       </button>
     </div>
+    </>
   );
 }
