@@ -19,6 +19,14 @@ test('scene analysis uses an available 3.1 model before image generation',async(
  finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey}
 });
 
+test('empty scene analysis falls back to the latest dialogue and keeps generation moving',async()=>{
+ const oldFetch=globalThis.fetch,oldKey=process.env.GEMINI_API_KEY;
+ process.env.GEMINI_API_KEY='test-only';let attempts=0;
+ globalThis.fetch=async()=>{attempts++;return new Response(JSON.stringify({candidates:[{content:{parts:[]},finishReason:'MAX_TOKENS'}]}),{status:200})};
+ try{const result=await makeSceneSnapshot({character:{name:'지우',appearance:'검은 머리',opening:'어서 와'},persona:null,summary:'',memories:[],messages:[{role:'user',content:'*거실 소파에 앉았다.* 나 좀 봐.'}]});assert.equal(attempts,2);assert.equal(result.characters[0].name,'지우');assert.match(result.interaction,/거실 소파에 앉았다/)}
+ finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey}
+});
+
 test('provider sends references to the selected image model and reads image output',async()=>{
  const previous=globalThis.fetch,oldKey=process.env.GEMINI_API_KEY;
  process.env.GEMINI_API_KEY='test-only';

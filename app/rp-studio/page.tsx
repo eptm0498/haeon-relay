@@ -5,6 +5,7 @@ import {db} from '@/lib/rp/db';
 import {Character,Persona,Session,Message,Memory,Usage,Reference,RP_MODEL,won} from '@/lib/rp/types';
 import {RoleplayText} from './roleplay-text';
 import {characterFields,characterPayload} from '@/lib/rp/character-fields';
+import {readJsonResponse} from '@/lib/rp/read-json';
 import type {User} from '@supabase/supabase-js';
 type View='library'|'detail'|'chat'|'personas'|'usage';
 const blankCharacter={name:'',age:'',appearance:'',personality:'',world:'',secrets:'',opening:''};
@@ -49,7 +50,7 @@ export default function Home(){
   const channel=new BroadcastChannel('rp-scene-'+id);
   setImageBusy(true);setImageStage('현재 장면 분석 중…');setError('');channel.postMessage({type:'loading'});
   const stageTimer=setTimeout(()=>setImageStage('이미지 생성 중…'),2500);
-  try{const {data:{session:auth}}=await db.auth.getSession();const response=await fetch('/api/images/generate',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${auth?.access_token||''}`},body:JSON.stringify({sessionId:id,mode:imageMode})});const result=await response.json();if(!response.ok)throw new Error(result.error||'이미지를 생성하지 못했어.');channel.postMessage({type:'ready'});await load()}
+  try{const {data:{session:auth}}=await db.auth.getSession();const response=await fetch('/api/images/generate',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${auth?.access_token||''}`},body:JSON.stringify({sessionId:id,mode:imageMode})});const result=await readJsonResponse<{error?:string}>(response);if(!response.ok)throw new Error(result.error||'이미지를 생성하지 못했어.');channel.postMessage({type:'ready'});await load()}
   catch(e){const message=e instanceof Error?e.message:'이미지 요청에 실패했어.';setError(message);channel.postMessage({type:'error',message})}
   finally{clearTimeout(stageTimer);channel.close();setImageBusy(false);setImageStage('')}
  }

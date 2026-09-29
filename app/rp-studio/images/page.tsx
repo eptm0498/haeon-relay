@@ -3,6 +3,7 @@ import {useCallback,useEffect,useState} from 'react';
 import Image from 'next/image';
 import {db} from '@/lib/rp/db';
 import type {SceneImage} from '@/lib/rp/types';
+import {readJsonResponse} from '@/lib/rp/read-json';
 import './viewer.css';
 
 export default function SceneViewer(){
@@ -30,7 +31,7 @@ export default function SceneViewer(){
   try{
    const {data:{session}}=await db.auth.getSession();
    const response=await fetch('/api/images/generate',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session?.access_token||''}`},body:JSON.stringify({sessionId,mode,sourceImageId:image?.id,revision:extra})});
-   const result=await response.json();if(!response.ok)throw new Error(result.error||'이미지를 생성하지 못했어.');
+   const result=await readJsonResponse<{error?:string;image:SceneImage;softened?:boolean}>(response);if(!response.ok)throw new Error(result.error||'이미지를 생성하지 못했어.');
    setImage(result.image);setNote(result.softened?'이미지 모델 제한으로 장면을 일부 완화했어.':'');setEditing(false);setRevision('');
   }catch(e){setNote(e instanceof Error?e.message:'이미지를 생성하지 못했어.')}finally{setBusy(false)}
  }
