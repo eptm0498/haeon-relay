@@ -6,6 +6,9 @@ export type Reference={id:string;character_id:string;path:string;label:string;ur
 export type SceneImage={id:string;session_id:string;anchor_message_id:string|null;anchor_ordinal:number;path:string;model:string;softened:boolean;created_at:string;url?:string};
 export type Memory={id:string;session_id:string;content:string;created_at:string};
 export type Usage={id:string;session_id:string;character_id:string;model:string;input_tokens:number;output_tokens:number;thinking_tokens:number;cost_usd:number;created_at:string};
-export const models=['gemini-2.5-pro','gemini-3.1-pro-preview'] as const;
-export function cost(model:string,input:number,output:number){const p=model==='gemini-2.5-flash'?[0.3,2.5]:model==='gemini-2.5-pro'?[1.25,10]:[2,12];return (input*p[0]+output*p[1])/1e6}
+export const RP_MODEL='gemini-3.1-pro-preview';
+export const SCENE_MODEL='gemini-3.1-flash-lite';
+export const IMAGE_MODEL='gemini-3.1-flash-image';
+export function cost(model:string,input:number,output:number){const p=model===SCENE_MODEL?[.25,1.5]:model==='gemini-2.5-flash'?[.3,2.5]:model==='gemini-2.5-pro'?[1.25,10]:[2,12];return (input*p[0]+output*p[1])/1e6}
 export const money=(n:number)=>'$'+n.toFixed(n<.01?4:2);
+export const won=(usd:number,rate:number|null)=>rate?new Intl.NumberFormat('ko-KR',{style:'currency',currency:'KRW',maximumFractionDigits:usd*rate<10?1:0}).format(usd*rate):'환율 확인 중…';

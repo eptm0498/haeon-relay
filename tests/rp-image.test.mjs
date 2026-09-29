@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseSnapshot,scenePrompt} from '../lib/image-generation/scene.ts';
+import {parseSnapshot,scenePrompt,makeSceneSnapshot} from '../lib/image-generation/scene.ts';
 import {GeminiImageProvider,ImageBlockedError} from '../lib/image-generation/provider.ts';
 
 test('snapshot keeps current outfit and identity instruction',()=>{
@@ -11,12 +11,20 @@ test('snapshot keeps current outfit and identity instruction',()=>{
  assert.match(prompt,/조명을 더 어둡게/);
 });
 
+test('scene analysis uses an available 3.1 model before image generation',async()=>{
+ const oldFetch=globalThis.fetch,oldKey=process.env.GEMINI_API_KEY;
+ process.env.GEMINI_API_KEY='test-only';let requested='';
+ globalThis.fetch=async url=>{requested=String(url);return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({characters:[{name:'지우',appearance:'검은 머리'}],location:'거실'})}]}}]}),{status:200})};
+ try{const result=await makeSceneSnapshot({character:{name:'지우',age:'28',appearance:'검은 머리',personality:'차분함',world:'현대',opening:'안녕'},persona:null,summary:'',memories:[],messages:[{role:'user',content:'*거실에 앉았다.*'}]});assert.equal(result.location,'거실');assert.match(requested,/gemini-3\.1-flash-lite:generateContent/)}
+ finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey}
+});
+
 test('provider sends references to the selected image model and reads image output',async()=>{
  const previous=globalThis.fetch,oldKey=process.env.GEMINI_API_KEY;
  process.env.GEMINI_API_KEY='test-only';
  let captured;
  globalThis.fetch=async(url,options)=>{captured={url,body:JSON.parse(options.body)};return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:Buffer.from('image').toString('base64')}}]}}]}),{status:200})};
- try{const result=await new GeminiImageProvider().generateScene('scene',[{mimeType:'image/jpeg',data:'aGVsbG8='}],'quality');assert.equal(result.bytes.toString(),'image');assert.match(captured.url,/gemini-3-pro-image/);assert.equal(captured.body.contents[0].parts[1].inlineData.data,'aGVsbG8=');assert.equal(captured.body.generationConfig.responseFormat.image.imageSize,'2K')}
+ try{const result=await new GeminiImageProvider().generateScene('scene',[{mimeType:'image/jpeg',data:'aGVsbG8='}],'quality');assert.equal(result.bytes.toString(),'image');assert.match(captured.url,/gemini-3\.1-flash-image/);assert.equal(captured.body.contents[0].parts[1].inlineData.data,'aGVsbG8=');assert.equal(captured.body.generationConfig.responseFormat.image.imageSize,'2K')}
  finally{globalThis.fetch=previous;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey}
 });
 

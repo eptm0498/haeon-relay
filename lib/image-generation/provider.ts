@@ -1,3 +1,4 @@
+import {IMAGE_MODEL} from '../rp/types.ts';
 export type ReferenceImage={mimeType:string;data:string};
 export type GeneratedImage={bytes:Buffer;mimeType:string;model:string;blocked:boolean};
 export interface ImageProvider{
@@ -8,7 +9,7 @@ type GeminiReply={candidates?:Array<{finishReason?:string;content?:{parts?:Array
 export class ImageBlockedError extends Error{}
 export class GeminiImageProvider implements ImageProvider{
  async generateScene(prompt:string,references:ReferenceImage[],mode:'fast'|'quality'){
-  const model=mode==='quality'?'gemini-3-pro-image':'gemini-3.1-flash-image';
+  const model=IMAGE_MODEL;
   const key=process.env.GEMINI_API_KEY;
   if(!key)throw new Error('Gemini API 키가 서버에 설정되지 않았어.');
   const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),110000);
