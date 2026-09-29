@@ -33,4 +33,10 @@ The live character instructions are stored in `public.dokyeong_character_setting
 
 Apply `supabase/migrations/20260930_dokyeong_editor.sql`, then generate a random 32-byte hex token separately and store **only its SHA-256 hash** in `private.dokyeong_editor_key` at id 1. The production database was provisioned separately. The token is never committed. The RPC verifies it before saving. The public read RPC supplies the runtime character text; do not put private secrets in the character instructions.
 
+## Dialogue samples
+
+The editor has a separate **대화 샘플** menu. It accepts a KakaoTalk exported `.txt` file, asks which speaker is 도경, previews extracted turns, and imports them. Each sample keeps the previous message, the original reply, and an editable spoken version. Search or filter by enabled state to edit, switch on/off, add, or delete individual samples. Enabled examples are retrieved only for a closely matching cue and supplement the character instructions; historical events are not treated as current facts.
+
+The sample table and the runtime reader key are in the private Supabase schema. Apply `supabase/migrations/20260929194820_dokyeong_dialogue_samples.sql` to a fresh project. The editor token controls writes, and a server-derived reader key controls sample lookup. Raw KakaoTalk exports must not be committed to Git. Import can be repeated: content hashes skip duplicates. The initial import stores every eligible adjacent turn, while only individually reviewed examples start enabled. Review sensitive or context-dependent samples in the editor before enabling them.
+
 Test on an actual iPhone after environment setup: Safari microphone permission; speak and pause; interrupt while sound plays; mute/unmute; hide/reopen Safari; add to Home Screen. Mobile background capture is suspended and needs a tap to resume. The 3-second first-audio goal is a target, not a measured result until the real APIs and an iPhone are available.
