@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
 
       const segment = (flush = false) => {
         while (spoken.length) {
-          const boundary = spoken.search(/[.!?。！？\n]|[ㅋㅋㅎ]{2,}(?=\s|$)/);
+          const boundary = spoken.search(/[.!?。！？]|[ㅋㅋㅎ]{2,}(?=\s|$)/);
           let end = boundary >= 0 ? boundary + 1 : -1;
           if (end >= 0 && spoken.length < 8 && !flush) break;
           if (end < 0 && spoken.length >= 58) end = spoken.lastIndexOf(" ", 62) + 1;
@@ -113,11 +113,12 @@ export async function POST(request: NextRequest) {
 
       const emitText = (text: string) => {
         if (!text || limitReached) return;
+        text = text.replace(/\s*\n+\s*/g, " ");
 
         let cut = text.length;
         for (let i = 0; i < text.length; i++) {
           const ch = text[i];
-          const terminal = /[.!?。！？\n]/.test(ch);
+          const terminal = /[.!?。！？]/.test(ch);
           if (terminal) {
             if (!inTerminalRun) {
               sentenceCount++;
