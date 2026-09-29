@@ -10,6 +10,15 @@ const storageKey = "dokyeong-live-history-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
+function amplifySpeech(context: AudioContext, source: AudioNode) {
+  const gain = context.createGain(); gain.gain.value = 2;
+  const limiter = context.createDynamicsCompressor();
+  limiter.threshold.value = -8; limiter.knee.value = 0; limiter.ratio.value = 12;
+  limiter.attack.value = 0.003; limiter.release.value = 0.15;
+  source.connect(gain); gain.connect(limiter); limiter.connect(context.destination);
+  return () => { source.disconnect(); gain.disconnect(); limiter.disconnect(); };
+}
+
 export default function DokyeongLive() {
   const [status, setStatus] = useState<Status | null>(null);
   const [code, setCode] = useState("");
@@ -93,6 +102,9 @@ export default function DokyeongLive() {
     if (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported("audio/mpeg")) {
       const media = new MediaSource(); const url = URL.createObjectURL(media);
       const audio = new Audio(); audio.setAttribute("playsinline", ""); audio.src = url; playingRef.current = audio;
+      const outputContext = contextRef.current;
+      const disconnectOutput = outputContext?.state === "running"
+        ? amplifySpeech(outputContext, outputContext.createMediaElementSource(audio)) : null;
       try {
         await new Promise<void>((resolve, reject) => { media.addEventListener("sourceopen", () => resolve(), { once: true }); signal.addEventListener("abort", () => reject(Error("interrupted")), { once: true }); });
         const buffer = media.addSourceBuffer("audio/mpeg");
@@ -114,7 +126,7 @@ export default function DokyeongLive() {
           audio.addEventListener("error", () => reject(Error("재생이 끊겼어.")), { once: true });
           signal.addEventListener("abort", () => reject(Error("interrupted")), { once: true });
         });
-      } finally { audio.pause(); audio.src = ""; URL.revokeObjectURL(url); if (playingRef.current === audio) playingRef.current = null; }
+      } finally { audio.pause(); disconnectOutput?.(); audio.src = ""; URL.revokeObjectURL(url); if (playingRef.current === audio) playingRef.current = null; }
       return;
     }
     const chunks: Uint8Array[] = []; const reader = upstream.body.getReader();
@@ -125,8 +137,9 @@ export default function DokyeongLive() {
     await context.resume();
     const decoded = await context.decodeAudioData(await new Blob(chunks.map((chunk) => new Uint8Array(chunk)), { type: "audio/mpeg" }).arrayBuffer());
     await new Promise<void>((resolve, reject) => {
-      const source = context.createBufferSource(); activeSoundRef.current = source; source.buffer = decoded; source.connect(context.destination);
-      source.onended = () => { if (activeSoundRef.current === source) activeSoundRef.current = null; resolve(); };
+      const source = context.createBufferSource(); activeSoundRef.current = source; source.buffer = decoded;
+      const disconnectOutput = amplifySpeech(context, source);
+      source.onended = () => { disconnectOutput(); if (activeSoundRef.current === source) activeSoundRef.current = null; resolve(); };
       signal.addEventListener("abort", () => { try { source.stop(); } catch {} reject(Error("interrupted")); }, { once: true });
       source.start();
     });
