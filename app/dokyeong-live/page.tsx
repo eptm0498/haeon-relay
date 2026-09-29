@@ -11,6 +11,13 @@ const storageKey = "dokyeong-live-history-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
+function base64ToBytes(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 function amplifySpeech(context: AudioContext, source: AudioNode) {
   const gain = context.createGain(); gain.gain.value = 3.5;
   const limiter = context.createDynamicsCompressor();
@@ -44,6 +51,7 @@ export default function DokyeongLive() {
   const audioAbortRef = useRef<Set<AbortController>>(new Set());
   const playingRef = useRef<HTMLAudioElement | null>(null);
   const activeSoundRef = useRef<AudioBufferSourceNode | null>(null);
+  const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const queuedRef = useRef<Promise<void>>(Promise.resolve());
   const speechRef = useRef<Blob[]>([]);
   const prerollRef = useRef<Blob[]>([]);
@@ -85,6 +93,8 @@ export default function DokyeongLive() {
     audioAbortRef.current.forEach((controller) => controller.abort()); audioAbortRef.current.clear();
     playingRef.current?.pause(); playingRef.current = null;
     try { activeSoundRef.current?.stop(); } catch {} activeSoundRef.current = null;
+    pcmSourcesRef.current.forEach((source) => { try { source.stop(); } catch {} });
+    pcmSourcesRef.current.clear();
     queuedRef.current = Promise.resolve();
   }, []);
   const interrupt = useCallback(() => {
@@ -194,10 +204,53 @@ export default function DokyeongLive() {
     const conversation = [...messageRef.current, { role: "user" as const, content: text }]; setHistory(conversation);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
-    let full = ""; let complete = false; let firstSegment = true;
+    let full = ""; let complete = false;
+    let gotStreamingAudio = false; let firstAudio = true; let pcmNextAt = 0;
+    let lastPcmEnd: Promise<void> = Promise.resolve();
+
+    const playPcmChunk = (encoded: string) => {
+      if (!voice || controller.signal.aborted || turn !== generation.current) return false;
+      const context = contextRef.current;
+      if (!context || context.state !== "running") return false;
+
+      const bytes = base64ToBytes(encoded);
+      const sampleCount = Math.floor(bytes.byteLength / 2);
+      if (!sampleCount) return false;
+
+      const audioBuffer = context.createBuffer(1, sampleCount, 24000);
+      const channel = audioBuffer.getChannelData(0);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let i = 0; i < sampleCount; i++) channel[i] = view.getInt16(i * 2, true) / 32768;
+
+      const source = context.createBufferSource();
+      source.buffer = audioBuffer;
+      pcmSourcesRef.current.add(source);
+      const disconnectOutput = amplifySpeech(context, source);
+
+      const now = context.currentTime;
+      const startAt = pcmNextAt > now ? pcmNextAt : now + (firstAudio ? 0.12 : 0.035);
+      pcmNextAt = startAt + audioBuffer.duration;
+
+      lastPcmEnd = new Promise<void>((resolve) => {
+        source.onended = () => {
+          disconnectOutput();
+          pcmSourcesRef.current.delete(source);
+          resolve();
+        };
+      });
+      source.start(startAt);
+
+      if (firstAudio) {
+        firstAudio = false;
+        setLatency(Math.round(performance.now() - start));
+        setMode("speaking");
+      }
+      return true;
+    };
+
     try {
       const response = await fetch(`${API}/respond`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24) }), signal: controller.signal });
+        body: JSON.stringify({ messages: conversation.slice(-24), voice }), signal: controller.signal });
       if (!response.ok || !response.body) { const body = await response.json().catch(() => ({})); throw Error(body.error || "응답을 받지 못했어."); }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = "";
       while (true) {
@@ -208,7 +261,9 @@ export default function DokyeongLive() {
           const event = JSON.parse(line);
           if (turn !== generation.current) return;
           if (event.type === "delta") { full += event.text; setPartial(full); }
-          if (event.type === "segment" && firstSegment) { firstSegment = false; setLatency(Math.round(performance.now() - start)); }
+          if (event.type === "audio" && typeof event.data === "string") {
+            gotStreamingAudio = playPcmChunk(event.data) || gotStreamingAudio;
+          }
           if (event.type === "error") throw Error(event.message);
           if (event.type === "done") { full = event.text || full; complete = true; }
         }
@@ -217,8 +272,13 @@ export default function DokyeongLive() {
       const completedReply = full.trim();
       setHistory([...conversation, { role: "assistant", content: completedReply }]); setPartial("");
       if (voice) {
-        queueSpeech(completedReply, turn);
-        await queuedRef.current;
+        if (gotStreamingAudio) {
+          await lastPcmEnd;
+        } else {
+          setLatency(Math.round(performance.now() - start));
+          queueSpeech(completedReply, turn);
+          await queuedRef.current;
+        }
       }
     } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "연결이 끊겼어."); setPartial(""); } }
     finally {
@@ -327,7 +387,7 @@ export default function DokyeongLive() {
       <div className={styles.hero}>
         <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><span>도경</span></div>
         <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
-        {latency !== null && <p className={styles.latency}>첫 문장까지 {(latency / 1000).toFixed(1)}초</p>}
+        {latency !== null && <p className={styles.latency}>첫 음성까지 {(latency / 1000).toFixed(1)}초</p>}
       </div>
       <section className={styles.transcript} ref={scrollRef} aria-live="polite">
         {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "형" : "도경"}</span><p>{message.content}</p></div>)}
