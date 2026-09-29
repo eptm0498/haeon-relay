@@ -6,7 +6,7 @@ const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 
 type CharacterRow = { prompt: string; version: number; updated_at: string };
 
-async function rpc<T>(name: string, body: object, timeout = 5000): Promise<T> {
+export async function rpc<T>(name: string, body: object, timeout = 5000): Promise<T> {
   const response = await fetch(endpoint + name, {
     method: "POST",
     headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },

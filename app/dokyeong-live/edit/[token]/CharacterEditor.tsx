@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, CircleAlert, FileText, Link2, Plus, RotateCcw, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles } from "lucide-react";
+import SampleManager from "./SampleManager";
 import styles from "./editor.module.css";
 
 type Section = { id: string; title: string; body: string };
@@ -45,6 +46,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<"profile" | "samples">("profile");
   const api = `/api/dokyeong/character/${token}`;
 
   const load = useCallback(async () => {
@@ -109,7 +111,7 @@ export default function CharacterEditor({ token }: { token: string }) {
       <div className={styles.brand}><span className={styles.mark}>D.</span><span>도경<span className={styles.brandLight}>LIVE</span><small>CHARACTER STUDIO</small></span></div>
       <div className={styles.topActions}>
         <a className={styles.liveLink} href="/dokyeong-live" target="_blank" rel="noreferrer">라이브 열기 <ChevronRight size={16}/></a>
-        <button className={styles.saveTop} disabled={!dirty || saving} onClick={save}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>
+        {tab === "profile" && <button className={styles.saveTop} disabled={!dirty || saving} onClick={save}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>}
       </div>
     </header>
 
@@ -117,18 +119,21 @@ export default function CharacterEditor({ token }: { token: string }) {
       <aside className={styles.sidebar}>
         <div className={styles.sideHeading}>도경의 설정 <span>{draft?.sections.length ?? 0}개 항목</span></div>
         <nav className={styles.nav} aria-label="설정 항목">
-          <button className={`${styles.navItem} ${active === "intro" ? styles.navActive : ""}`} onClick={() => selectSection("intro")}><Sparkles size={17}/> 기본 설정</button>
-          {draft?.sections.map((s) => <button key={s.id} className={`${styles.navItem} ${active === s.id ? styles.navActive : ""}`} onClick={() => selectSection(s.id)}><span className={styles.navDot}/><span className={styles.navLabel}>{s.title}</span></button>)}
+          <button className={`${styles.navItem} ${tab === "samples" ? styles.navActive : ""}`} onClick={() => setTab("samples")}><MessageCircle size={17}/> 대화 샘플</button>
+          <div className={styles.navDivider}/>
+          <button className={`${styles.navItem} ${tab === "profile" && active === "intro" ? styles.navActive : ""}`} onClick={() => {setTab("profile");selectSection("intro");}}><Sparkles size={17}/> 기본 설정</button>
+          {draft?.sections.map((s) => <button key={s.id} className={`${styles.navItem} ${tab === "profile" && active === s.id ? styles.navActive : ""}`} onClick={() => {setTab("profile");selectSection(s.id);}}><span className={styles.navDot}/><span className={styles.navLabel}>{s.title}</span></button>)}
         </nav>
-        <button className={styles.addButton} onClick={() => { const id = `new-${Date.now()}`; setDraft((value) => { const base = rawMode ? parsePrompt(raw) : value; return base && ({...base, sections: [...base.sections, { id, title: "새 특징", body: "" }]}); }); setActive(id); setRawMode(false); }}><Plus size={17}/> 특징 추가</button>
+        {tab === "profile" && <button className={styles.addButton} onClick={() => { const id = `new-${Date.now()}`; setDraft((value) => { const base = rawMode ? parsePrompt(raw) : value; return base && ({...base, sections: [...base.sections, { id, title: "새 특징", body: "" }]}); }); setActive(id); setRawMode(false); }}><Plus size={17}/> 특징 추가</button>}
         <div className={styles.sideBottom}><span className={styles.statusDot}/> 저장하면 다음 대화에 적용돼<br/><span className={styles.date}>{updatedAt ? `마지막 저장 ${new Date(updatedAt).toLocaleString("ko-KR")}` : "아직 직접 수정한 내용이 없어"}</span></div>
       </aside>
 
       <section className={styles.content}>
         <div className={styles.eyebrow}>DOKYEONG LIVE <ChevronRight size={13}/> CHARACTER</div>
-        <div className={styles.titleRow}><div><h1>도경 설정실<span className={styles.titleStar}>✳</span></h1><p>말투부터 성격, 대화 방식까지. 여기서 바꾸면 도경에게 바로 반영돼.</p></div><div className={styles.badge}>● LIVE SETTINGS</div></div>
+        <div className={styles.titleRow}><div><h1>도경 설정실<span className={styles.titleStar}>✳</span></h1><p>말투부터 실제 대화 샘플까지. 저장하면 도경의 다음 응답부터 반영돼.</p></div><div className={styles.badge}>● LIVE SETTINGS</div></div>
+        <div className={styles.tabs} role="tablist" aria-label="도경 설정 메뉴"><button role="tab" aria-selected={tab === "profile"} className={tab === "profile" ? styles.tabActive : ""} onClick={() => setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button><button role="tab" aria-selected={tab === "samples"} className={tab === "samples" ? styles.tabActive : ""} onClick={() => setTab("samples")}><MessageCircle size={16}/> 대화 샘플</button></div>
 
-        {loading ? <div className={styles.centerState}>설정을 불러오는 중…</div> : !draft ? <div className={styles.centerState}><CircleAlert size={26}/>{error}<button onClick={() => void load()}>다시 시도</button></div> : <>
+        {tab === "samples" ? <SampleManager token={token}/> : loading ? <div className={styles.centerState}>설정을 불러오는 중…</div> : !draft ? <div className={styles.centerState}><CircleAlert size={26}/>{error}<button onClick={() => void load()}>다시 시도</button></div> : <>
           <div className={styles.mobileNav}><label htmlFor="section-select">편집할 항목</label><select id="section-select" value={active} onChange={(event) => selectSection(event.target.value)}><option value="intro">기본 설정</option>{draft.sections.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></div>
           <div className={styles.editorCard}>
             <div className={styles.cardHeader}><div className={styles.cardIcon}>{rawMode ? <FileText size={23}/> : active === "intro" ? <Sparkles size={23}/> : <span>✳</span>}</div><div className={styles.cardTitles}><span className={styles.overline}>CHARACTER PROFILE / {String(active === "intro" ? 1 : draft.sections.findIndex((s) => s.id === active) + 2).padStart(2,"0")}</span><h2>{rawMode ? "전체 원문 편집" : active === "intro" ? "기본 설정" : selected?.title}</h2><p>{rawMode ? "모든 지침을 한 번에 수정할 수 있어." : active === "intro" ? "도경과 형의 관계, 대화의 출발점을 정해 줘." : descriptions[selected?.title || ""] || "도경에게 새롭게 알려줄 특징을 적어 줘."}</p></div><button className={styles.modeButton} onClick={toggleMode}>{rawMode ? "항목별 편집" : "전체 원문"}</button></div>
@@ -144,6 +149,6 @@ export default function CharacterEditor({ token }: { token: string }) {
         </>}
       </section>
     </main>
-    <div className={styles.mobileBottom}><a href="/dokyeong-live"><ArrowLeft size={16}/> 라이브</a><button disabled={!dirty || saving} onClick={save}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button></div>
+    {tab === "profile" && <div className={styles.mobileBottom}><a href="/dokyeong-live"><ArrowLeft size={16}/> 라이브</a><button disabled={!dirty || saving} onClick={save}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button></div>}
   </div>;
 }
