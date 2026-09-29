@@ -77,7 +77,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
   const url =
     "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input" +
     `?model_id=${encodeURIComponent(voice.dialogueModelId)}` +
-    `&output_format=${encodeURIComponent(voice.outputFormat)}&language_code=ko`;
+    `&output_format=${encodeURIComponent(voice.dialogueOutputFormat)}&language_code=ko`;
 
   const ws = new WebSocket(url);
   let opened = false;
@@ -118,7 +118,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
       try {
         const message = JSON.parse(raw);
         if (typeof message.audio === "string" && message.audio) {
-          send({ type: "audio", data: message.audio, model: voice.dialogueModelId });
+          send({ type: "audio", data: message.audio, model: voice.dialogueModelId, format: voice.dialogueOutputFormat });
         }
         if (message.is_final_audio_for_turn === true || message.is_final === true) settleFinished();
       } catch {}
