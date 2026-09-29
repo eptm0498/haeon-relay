@@ -23,7 +23,7 @@ async function callGeminiModel(model: string, messages: Message[], signal: Abort
         systemInstruction: { parts: [{ text: dokyeongPrompt }] },
         contents: normalizeMessages(messages),
         generationConfig: {
-          maxOutputTokens: 1024,
+          maxOutputTokens: 320,
           temperature: 0.9,
           thinkingConfig: { thinkingLevel: "low" },
         },
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
+      let sentenceCount = 0, inTerminalRun = false, limitReached = false;
 
       const segment = (flush = false) => {
         while (spoken.length) {
@@ -111,10 +112,34 @@ export async function POST(request: NextRequest) {
       };
 
       const emitText = (text: string) => {
-        if (!text) return;
-        full += text;
-        spoken += text;
-        send({ type: "delta", text });
+        if (!text || limitReached) return;
+
+        let cut = text.length;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          const terminal = /[.!?。！？\n]/.test(ch);
+          if (terminal) {
+            if (!inTerminalRun) {
+              sentenceCount++;
+              inTerminalRun = true;
+              if (sentenceCount >= 3) {
+                let j = i + 1;
+                while (j < text.length && /[.!?。！？]/.test(text[j])) j++;
+                cut = j;
+                limitReached = true;
+                break;
+              }
+            }
+          } else if (!/\s/.test(ch)) {
+            inTerminalRun = false;
+          }
+        }
+
+        const allowed = text.slice(0, cut);
+        if (!allowed) return;
+        full += allowed;
+        spoken += allowed;
+        send({ type: "delta", text: allowed });
         segment();
       };
 
@@ -148,9 +173,14 @@ export async function POST(request: NextRequest) {
             const frame = pending.slice(0, split);
             pending = pending.slice(split + 2);
             processGeminiFrame(frame);
+            if (limitReached) {
+              await reader.cancel().catch(() => {});
+              break;
+            }
           }
+          if (limitReached) break;
         }
-        if (pending.trim()) {
+        if (pending.trim() && !limitReached) {
           processGeminiFrame(pending);
         }
         if (!lastError) {
