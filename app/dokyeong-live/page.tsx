@@ -11,9 +11,9 @@ const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
 function amplifySpeech(context: AudioContext, source: AudioNode) {
-  const gain = context.createGain(); gain.gain.value = 2;
+  const gain = context.createGain(); gain.gain.value = 3.5;
   const limiter = context.createDynamicsCompressor();
-  limiter.threshold.value = -8; limiter.knee.value = 0; limiter.ratio.value = 12;
+  limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
   limiter.attack.value = 0.003; limiter.release.value = 0.15;
   source.connect(gain); gain.connect(limiter); limiter.connect(context.destination);
   return () => { source.disconnect(); gain.disconnect(); limiter.disconnect(); };
