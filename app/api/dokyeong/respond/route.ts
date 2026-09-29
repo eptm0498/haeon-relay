@@ -23,7 +23,7 @@ async function callGeminiModel(model: string, messages: Message[], signal: Abort
         systemInstruction: { parts: [{ text: dokyeongPrompt }] },
         contents: normalizeMessages(messages),
         generationConfig: {
-          maxOutputTokens: 320,
+          maxOutputTokens: 1024,
           temperature: 0.9,
           thinkingConfig: { thinkingLevel: "low" },
         },
