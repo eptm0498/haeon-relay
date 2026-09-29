@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {createClient} from '@supabase/supabase-js';
 import {GeminiImageProvider,ImageBlockedError} from '@/lib/image-generation/provider';
-import {makeSceneSnapshot,parseSnapshot,scenePrompt} from '@/lib/image-generation/scene';
+import {makeSceneSnapshot,parseSnapshot,scenePrompt,softenScene} from '@/lib/image-generation/scene';
 export const maxDuration=180;
 const bucket='rp-studio-private';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,7 +39,7 @@ export async function POST(req:NextRequest){
   }));referenceCount=images.length;
   const provider=new GeminiImageProvider();let result;
   try{result=await provider.generateScene(scenePrompt(snapshot,character.name,body.revision||''),images,mode)}
-  catch(e){if(!(e instanceof ImageBlockedError))throw e;blocked=true;result=await provider.generateScene(scenePrompt(snapshot,character.name,body.revision||'',true),images,mode)}
+  catch(e){if(!(e instanceof ImageBlockedError))throw e;blocked=true;const gentle=await softenScene(snapshot,body.revision||'');result=await provider.generateScene(scenePrompt(gentle,character.name,'',true),images,mode)}
   const id=crypto.randomUUID(),ext=result.mimeType==='image/jpeg'?'jpg':result.mimeType==='image/webp'?'webp':'png',path=`${user.id}/scenes/${id}.${ext}`;
   const {error:uploadError}=await db.storage.from(bucket).upload(path,result.bytes,{contentType:result.mimeType,upsert:false});if(uploadError)throw uploadError;
   const {data:image,error:insertError}=await db.from('rp_scene_images').insert({id,session_id:session.id,character_id:character.id,anchor_message_id:anchor.id,anchor_ordinal:anchor.ordinal||0,path,snapshot,model,softened:blocked}).select().single();
