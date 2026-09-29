@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   return Response.json({
     configured: configured(),
     authenticated: auth,
-    ready: auth && openai && elevenlabs && (gemini || openai),
+    ready: auth && openai && gemini && elevenlabs,
     providers: { openai, gemini, elevenlabs },
     missing: auth
       ? [!openai && "OPENAI_API_KEY", !gemini && "GEMINI_API_KEY", !elevenlabs && "ELEVENLABS_API_KEY"].filter(Boolean)
