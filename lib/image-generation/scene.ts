@@ -1,0 +1,20 @@
+type Dialogue={role:string;content:string;is_ooc?:boolean};
+export type SceneSnapshot={characters:Array<{name:string;appearance:string;clothing:string;expression:string;pose:string}>;location:string;time:string;lighting:string;camera:string;interaction:string;mood:string};
+const fields=['location','time','lighting','camera','interaction','mood'] as const;
+export function parseSnapshot(raw:string):SceneSnapshot{
+ const parsed=JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g,''));
+ const characters=Array.isArray(parsed.characters)?parsed.characters.slice(0,3).map((p:Record<string,unknown>)=>({name:String(p.name||'').slice(0,100),appearance:String(p.appearance||'').slice(0,400),clothing:String(p.clothing||'').slice(0,300),expression:String(p.expression||'').slice(0,200),pose:String(p.pose||'').slice(0,300)})):[];
+ if(!characters.length)throw new Error('현재 장면에서 인물을 찾지 못했어.');
+ return {characters,...Object.fromEntries(fields.map(k=>[k,String(parsed[k]||'').slice(0,500)]))} as SceneSnapshot;
+}
+export async function makeSceneSnapshot(input:{character:Record<string,string>;persona:Record<string,string>|null;summary:string;memories:string[];messages:Dialogue[]}):Promise<SceneSnapshot>{
+ const key=process.env.GEMINI_API_KEY;if(!key)throw new Error('Gemini API 키가 서버에 없어.');
+ const {character,persona,summary,memories,messages}=input;
+ const prompt=`최근 장면을 한 장의 사진으로 찍기 위한 Scene Snapshot JSON만 반환해. 최근 대화 12개가 최우선이고, 이전에 끝난 장면을 섞지 마. 대화의 명시적 복장·장소·행동은 고정 설정에 우선한다. 무언급 정보는 추측을 최소화한다. OOC는 이미지 소재로 쓰지 않는다. 묘사된 인물만 포함하고 각 인물의 나이가 불분명하면 성인으로 표현한다. 인물 관계와 직전 행동을 정확히 반영한다. 키: characters([{name,appearance,clothing,expression,pose}]),location,time,lighting,camera,interaction,mood.\n최근 대화:\n${messages.filter(m=>!m.is_ooc).slice(-12).map(m=>`${m.role}: ${m.content.slice(0,1500)}`).join('\n')}\n현재 세션 요약(오직 현재 장면 보조): ${summary.slice(0,1500)}\n캐릭터: ${JSON.stringify({name:character.name,description:character.description,gender:character.gender,age:character.age,appearance:character.appearance,body:character.body,hair:character.hair,personality:character.personality,world:character.world,scenario:character.scenario,opening:character.opening})}\n페르소나: ${JSON.stringify(persona)}\n중요 기억: ${memories.slice(0,12).join('; ').slice(0,1000)}`;
+ const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json',temperature:0.2,maxOutputTokens:1200}}),cache:'no-store',signal:AbortSignal.timeout(30000)});
+ const data=await r.json();if(!r.ok)throw new Error(data.error?.message||'장면 분석에 실패했어.');
+ return parseSnapshot(data.candidates?.[0]?.content?.parts?.map((p:{text?:string})=>p.text||'').join('')||'');
+}
+export function scenePrompt(snapshot:SceneSnapshot,name:string,revision:string,softened=false){
+ return `IDENTITY: The supplied reference images define the visual identity of ${name}. Preserve the same face structure, eyes, nose, lips, hair and overall identity; never redesign the person. All depicted people are adults.\nSCENE SNAPSHOT: ${JSON.stringify(snapshot)}\nPOSE / INTERACTION: ${snapshot.interaction}.\nCLOTHING: ${snapshot.characters.map(c=>`${c.name}: ${c.clothing}`).join('; ')}.\nENVIRONMENT: ${snapshot.location}, ${snapshot.time}, ${snapshot.lighting}.\nCAMERA: candid smartphone photograph, plausible unposed composition, natural indoor or outdoor available light, realistic depth of field.\nREALISM: real skin texture and subtle imperfections, natural anatomy and hair strands, lived-in details. Avoid generic AI face, altered identity, plastic skin, CGI, illustration, anime, malformed hands, excessive HDR or beauty retouching.\n${revision?`USER REVISION: ${revision.slice(0,300)}. Keep the rest of the snapshot and identity.`:''}\n${softened?'Keep the romantic proximity and emotional tension, but portray a clothed, non-explicit intimate moment without sexual acts or nudity.':''}`;
+}
