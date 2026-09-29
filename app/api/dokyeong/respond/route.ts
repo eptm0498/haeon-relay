@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
-import { dokyeongPrompt, liveConfig } from "@/lib/dokyeong/config";
+import { liveConfig } from "@/lib/dokyeong/config";
+import { activeCharacterPrompt } from "@/lib/dokyeong/settings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,14 +20,14 @@ function normalizeMessages(messages: Message[]) {
   }));
 }
 
-async function callGeminiModel(model: string, messages: Message[], signal: AbortSignal) {
+async function callGeminiModel(model: string, messages: Message[], prompt: string, signal: AbortSignal) {
   return fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
     {
       method: "POST",
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: dokyeongPrompt }] },
+        systemInstruction: { parts: [{ text: prompt }] },
         contents: normalizeMessages(messages),
         generationConfig: {
           maxOutputTokens: 1024,
@@ -40,18 +41,18 @@ async function callGeminiModel(model: string, messages: Message[], signal: Abort
   );
 }
 
-async function requestGemini(messages: Message[], signal: AbortSignal) {
+async function requestGemini(messages: Message[], prompt: string, signal: AbortSignal) {
   if (!process.env.GEMINI_API_KEY) return { response: null, error: Response.json({ error: "Gemini 연결 설정이 필요해." }, { status: 503 }), model: null };
 
   const primary = liveConfig.gemini.responseModel;
   const fallback = liveConfig.gemini.fallbackModel;
   try {
-    let response = await callGeminiModel(primary, messages, signal);
+    let response = await callGeminiModel(primary, messages, prompt, signal);
     let model = primary;
 
     if ((response.status === 404 || response.status === 403) && fallback && fallback !== primary) {
       response.body?.cancel().catch(() => {});
-      response = await callGeminiModel(fallback, messages, signal);
+      response = await callGeminiModel(fallback, messages, prompt, signal);
       model = fallback;
     }
 
@@ -206,7 +207,8 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
   }
 
-  const result = await requestGemini(messages, request.signal);
+  const prompt = await activeCharacterPrompt();
+  const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
   const upstream = result.response!;
   const activeModel = result.model || liveConfig.gemini.responseModel;
