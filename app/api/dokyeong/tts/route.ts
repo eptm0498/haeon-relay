@@ -4,9 +4,10 @@ import { liveConfig } from "@/lib/dokyeong/config";
 export const runtime = "nodejs";
 export const maxDuration = 40;
 
-async function callElevenLabs(text: string, modelId: string, signal: AbortSignal) {
+async function callElevenLabs(text: string, modelId: string, signal: AbortSignal, timeoutMs: number) {
   const voice = liveConfig.elevenlabs;
-  const isV4 = modelId.startsWith("eleven_v4");
+  const classicVoiceSettings = modelId !== "eleven_v3" && !modelId.startsWith("eleven_v4");
+
   return fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice.voiceId)}/stream?output_format=${encodeURIComponent(voice.outputFormat)}`,
     {
@@ -16,7 +17,7 @@ async function callElevenLabs(text: string, modelId: string, signal: AbortSignal
         text,
         model_id: modelId,
         language_code: "ko",
-        ...(isV4 ? {} : {
+        ...(classicVoiceSettings ? {
           voice_settings: {
             stability: voice.stability,
             similarity_boost: voice.similarityBoost,
@@ -24,9 +25,9 @@ async function callElevenLabs(text: string, modelId: string, signal: AbortSignal
             speed: voice.speed,
             use_speaker_boost: true,
           },
-        }),
+        } : {}),
       }),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(35000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
       cache: "no-store",
     }
   );
@@ -48,12 +49,19 @@ export async function POST(request: NextRequest) {
   let activeModel = voice.modelId;
 
   try {
-    let upstream = await callElevenLabs(text, activeModel, request.signal);
+    let upstream: Response;
+    try {
+      upstream = await callElevenLabs(text, activeModel, request.signal, 18000);
+    } catch (primaryError) {
+      if (request.signal.aborted || activeModel === voice.fallbackModelId) throw primaryError;
+      activeModel = voice.fallbackModelId;
+      upstream = await callElevenLabs(text, activeModel, request.signal, 14000);
+    }
 
-    if (!upstream.ok && [400, 403, 404, 422].includes(upstream.status) && activeModel !== voice.fallbackModelId) {
+    if (!upstream.ok && activeModel !== voice.fallbackModelId && upstream.status !== 401) {
       upstream.body?.cancel().catch(() => {});
       activeModel = voice.fallbackModelId;
-      upstream = await callElevenLabs(text, activeModel, request.signal);
+      upstream = await callElevenLabs(text, activeModel, request.signal, 14000);
     }
 
     if (!upstream.ok || !upstream.body) {
@@ -69,6 +77,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch {
-    return Response.json({ error: "음성 연결이 끊겼어." }, { status: 502 });
+    return Response.json({ error: "목소리 생성에 실패했어." }, { status: 502 });
   }
 }
