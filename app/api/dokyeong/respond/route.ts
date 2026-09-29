@@ -6,6 +6,12 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type Message = { role: "user" | "assistant"; content: string };
+type DialogueBridge = {
+  push: (text: string) => void;
+  finish: () => Promise<void>;
+  close: () => void;
+};
+
 function normalizeMessages(messages: Message[]) {
   return messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
@@ -55,6 +61,131 @@ async function requestGemini(messages: Message[], signal: AbortSignal) {
   }
 }
 
+function decodeSocketText(data: unknown): Promise<string> {
+  if (typeof data === "string") return Promise.resolve(data);
+  if (data instanceof ArrayBuffer) return Promise.resolve(new TextDecoder().decode(data));
+  if (typeof Blob !== "undefined" && data instanceof Blob) return data.text();
+  if (ArrayBuffer.isView(data)) return Promise.resolve(new TextDecoder().decode(data));
+  return Promise.resolve("");
+}
+
+function createDialogueBridge(send: (event: object) => void, signal: AbortSignal): DialogueBridge | null {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey || typeof WebSocket === "undefined") return null;
+
+  const voice = liveConfig.elevenlabs;
+  const url =
+    "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input" +
+    `?model_id=${encodeURIComponent(voice.dialogueModelId)}` +
+    `&output_format=${encodeURIComponent(voice.outputFormat)}&language_code=ko`;
+
+  const ws = new WebSocket(url);
+  let opened = false;
+  let failed = false;
+  let settled = false;
+  let sendChain = Promise.resolve();
+
+  let resolveReady!: () => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+
+  let resolveFinished!: () => void;
+  const finished = new Promise<void>((resolve) => { resolveFinished = resolve; });
+  const settleFinished = () => {
+    if (settled) return;
+    settled = true;
+    resolveFinished();
+  };
+
+  ws.addEventListener("open", () => {
+    opened = true;
+    try {
+      ws.send(JSON.stringify({
+        voices: [voice.voiceId],
+        xi_api_key: apiKey,
+      }));
+      resolveReady();
+    } catch {
+      failed = true;
+      rejectReady(new Error("ElevenLabs init failed"));
+      settleFinished();
+    }
+  });
+
+  ws.addEventListener("message", (event) => {
+    void decodeSocketText(event.data).then((raw) => {
+      if (!raw) return;
+      try {
+        const message = JSON.parse(raw);
+        if (typeof message.audio === "string" && message.audio) {
+          send({ type: "audio", data: message.audio, model: voice.dialogueModelId });
+        }
+        if (message.is_final_audio_for_turn === true || message.is_final === true) settleFinished();
+      } catch {}
+    });
+  });
+
+  ws.addEventListener("error", () => {
+    failed = true;
+    if (!opened) rejectReady(new Error("ElevenLabs websocket failed"));
+    settleFinished();
+  });
+
+  ws.addEventListener("close", () => {
+    if (!opened) rejectReady(new Error("ElevenLabs websocket closed"));
+    settleFinished();
+  });
+
+  signal.addEventListener("abort", () => {
+    try { ws.close(); } catch {}
+    settleFinished();
+  }, { once: true });
+
+  const push = (text: string) => {
+    const spoken = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/\s+/g, " ");
+    if (!/[\p{L}\p{N}]/u.test(spoken)) return;
+
+    sendChain = sendChain.then(async () => {
+      try {
+        await ready;
+        if (failed || ws.readyState !== 1 || signal.aborted) return;
+        ws.send(JSON.stringify({
+          inputs: [{ text: spoken, voice_id: voice.voiceId }],
+        }));
+      } catch {
+        failed = true;
+      }
+    });
+  };
+
+  const finish = async () => {
+    try {
+      await sendChain;
+      await ready;
+      if (!failed && ws.readyState === 1 && !signal.aborted) {
+        ws.send(JSON.stringify({ close_socket: true }));
+        await Promise.race([
+          finished,
+          new Promise<void>((resolve) => setTimeout(resolve, 16000)),
+        ]);
+      }
+    } catch {
+      // Text still returns normally; the client can fall back to the HTTP TTS route.
+    } finally {
+      try { if (ws.readyState === 0 || ws.readyState === 1) ws.close(); } catch {}
+    }
+  };
+
+  return {
+    push,
+    finish,
+    close: () => {
+      try { ws.close(); } catch {}
+      settleFinished();
+    },
+  };
+}
+
 export async function POST(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   if (!sameOrigin(request)) return Response.json({ error: "요청을 확인해 줘." }, { status: 403 });
@@ -63,9 +194,11 @@ export async function POST(request: NextRequest) {
   if (raw.length > 30_000) return Response.json({ error: "대화가 너무 길어." }, { status: 413 });
 
   let messages: Message[];
+  let wantVoice = true;
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
+    wantVoice = parsed.voice !== false;
     if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
       !messages.every((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 1500) ||
       messages.at(-1)?.role !== "user") throw Error();
@@ -91,7 +224,12 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: object) => controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      let streamOpen = true;
+      const send = (event: object) => {
+        if (!streamOpen) return;
+        try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
+      };
+      const dialogue = wantVoice ? createDialogueBridge(send, request.signal) : null;
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
@@ -144,6 +282,7 @@ export async function POST(request: NextRequest) {
         full += allowed;
         spoken += allowed;
         send({ type: "delta", text: allowed });
+        dialogue?.push(allowed);
         segment();
       };
 
@@ -184,17 +323,26 @@ export async function POST(request: NextRequest) {
           }
           if (limitReached) break;
         }
-        if (pending.trim() && !limitReached) {
-          processGeminiFrame(pending);
-        }
+
+        if (pending.trim() && !limitReached) processGeminiFrame(pending);
+
         if (!lastError) {
           segment(true);
-          send({ type: "done", text: full.trim(), provider: "gemini", model: activeModel });
+          if (dialogue) await dialogue.finish();
+          send({
+            type: "done",
+            text: full.trim(),
+            provider: "gemini",
+            model: activeModel,
+            audioModel: dialogue ? liveConfig.elevenlabs.dialogueModelId : null,
+          });
         }
       } catch {
+        dialogue?.close();
         try { send({ type: "error", message: "연결이 끊겼어." }); } catch {}
       } finally {
         reader.releaseLock();
+        streamOpen = false;
         try { controller.close(); } catch {}
       }
     },
