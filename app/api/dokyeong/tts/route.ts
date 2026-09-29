@@ -39,11 +39,11 @@ export async function POST(request: NextRequest) {
   if (!process.env.ELEVENLABS_API_KEY) return Response.json({ error: "ElevenLabs 연결 설정이 필요해." }, { status: 503 });
 
   const raw = await request.text();
-  if (raw.length > 1800) return Response.json({ error: "발화가 너무 길어." }, { status: 413 });
+  if (raw.length > 5000) return Response.json({ error: "발화가 너무 길어." }, { status: 413 });
 
   let text = "";
   try { text = String(JSON.parse(raw).text || "").trim(); } catch {}
-  if (!text || text.length > 400) return Response.json({ error: "발화 길이를 확인해 줘." }, { status: 400 });
+  if (!text || text.length > 1400) return Response.json({ error: "발화 길이를 확인해 줘." }, { status: 400 });
 
   const voice = liveConfig.elevenlabs;
   let activeModel = voice.modelId;
