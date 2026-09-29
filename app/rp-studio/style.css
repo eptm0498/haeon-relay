@@ -3,3 +3,6 @@
 
 .rp-root.shell{min-width:900px}
 .rp-root .mobile-nav{display:none}
+
+.rp-root .auth-switch{display:block;margin:18px auto 0;color:#78667c}
+.rp-root .auth-note{margin:14px 0 0;color:#968d96;font-size:11px;line-height:1.6}

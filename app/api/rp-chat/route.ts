@@ -25,7 +25,7 @@ export async function POST(req:NextRequest){
   const url='https://ckesuyinmcqemgeemzlh.supabase.co',key='sb_publishable_AcLmzX23b71DIBhx-0IRCg_ms7gbAni';
   const db=createClient(url,key,{global:{headers:{Authorization:`Bearer ${token}`}},auth:{persistSession:false,autoRefreshToken:false}});
   const {data:{user},error:authError}=await db.auth.getUser(token);
-  if(authError||!user||user.id!=='23b4b63b-c459-4112-b476-5bbdd1716509')return NextResponse.json({error:'접근할 수 없는 계정이야.'},{status:403});
+  if(authError||!user||user.email!=='eptm0498+rp@gmail.com')return NextResponse.json({error:'접근할 수 없는 계정이야.'},{status:403});
   const {sessionId,regenerate}=await req.json() as {sessionId?:string;regenerate?:boolean};
   if(!sessionId||!/^[0-9a-f-]{36}$/i.test(sessionId))return NextResponse.json({error:'잘못된 대화야.'},{status:400});
   const {data:session,error:se}=await db.from('rp_sessions').select('*').eq('id',sessionId).single();if(se||!session)return NextResponse.json({error:'대화를 찾지 못했어.'},{status:404});
