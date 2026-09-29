@@ -12,6 +12,7 @@ export const liveConfig = {
   elevenlabs: {
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
     modelId: "eleven_v3",
+    dialogueModelId: "eleven_v3_conversational",
     fallbackModelId: "eleven_flash_v2_5",
     outputFormat: "mp3_44100_128",
     stability: Number(process.env.DOKYEONG_VOICE_STABILITY || "0.45"),
