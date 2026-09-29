@@ -2,7 +2,7 @@
 export const liveConfig = {
   openai: {
     provider: "openai",
-    transcriptionModel: process.env.DOKYEONG_STT_MODEL || "gpt-4o-mini-transcribe",
+    transcriptionModel: process.env.DOKYEONG_STT_MODEL || "gpt-transcribe",
   },
   gemini: {
     provider: "gemini",
