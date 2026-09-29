@@ -17,7 +17,7 @@ export class GeminiImageProvider implements ImageProvider{
    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
     method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},cache:'no-store',signal:controller.signal,
     body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt},...references.map(r=>({inlineData:{mimeType:r.mimeType,data:r.data}}))]}],
-     generationConfig:{responseModalities:['IMAGE'],responseFormat:{image:{aspectRatio:'3:4',imageSize:mode==='quality'?'2K':'1K'}},
+     generationConfig:{responseModalities:['IMAGE'],imageConfig:{aspectRatio:'3:4',imageSize:mode==='quality'?'2K':'1K'},
       ...(mode==='fast'?{thinkingConfig:{thinkingLevel:'MINIMAL'}}:{})},
      safetySettings:[{category:'HARM_CATEGORY_SEXUALLY_EXPLICIT',threshold:'BLOCK_NONE'}]})
    });

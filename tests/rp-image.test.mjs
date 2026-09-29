@@ -32,7 +32,7 @@ test('provider sends references to the selected image model and reads image outp
  process.env.GEMINI_API_KEY='test-only';
  let captured;
  globalThis.fetch=async(url,options)=>{captured={url,body:JSON.parse(options.body)};return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:Buffer.from('image').toString('base64')}}]}}]}),{status:200})};
- try{const result=await new GeminiImageProvider().generateScene('scene',[{mimeType:'image/jpeg',data:'aGVsbG8='}],'quality');assert.equal(result.bytes.toString(),'image');assert.match(captured.url,/gemini-3\.1-flash-image/);assert.equal(captured.body.contents[0].parts[1].inlineData.data,'aGVsbG8=');assert.equal(captured.body.generationConfig.responseFormat.image.imageSize,'2K')}
+ try{const result=await new GeminiImageProvider().generateScene('scene',[{mimeType:'image/jpeg',data:'aGVsbG8='}],'quality');assert.equal(result.bytes.toString(),'image');assert.match(captured.url,/gemini-3\.1-flash-image/);assert.equal(captured.body.contents[0].parts[1].inlineData.data,'aGVsbG8=');assert.deepEqual(captured.body.generationConfig.imageConfig,{aspectRatio:'3:4',imageSize:'2K'});assert.equal(captured.body.generationConfig.responseFormat,undefined)}
  finally{globalThis.fetch=previous;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey}
 });
 
