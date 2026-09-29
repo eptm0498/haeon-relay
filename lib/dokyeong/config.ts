@@ -7,7 +7,8 @@ export const liveConfig = {
   },
   gemini: {
     provider: "gemini",
-    responseModel: process.env.DOKYEONG_GEMINI_MODEL || "gemini-2.5-pro",
+    responseModel: process.env.DOKYEONG_GEMINI_MODEL || "gemini-3.1-pro-preview",
+    fallbackModel: process.env.DOKYEONG_GEMINI_FALLBACK_MODEL || "gemini-3.8-flash",
   },
   elevenlabs: {
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
