@@ -294,7 +294,7 @@ export default function DokyeongLive() {
         <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
         {latency !== null && <p className={styles.latency}>첫 문장까지 {(latency / 1000).toFixed(1)}초</p>}
         {status?.authenticated && <div className={styles.modelSwitch} role="group" aria-label="도경 두뇌 선택">
-          <button type="button" className={provider === "gemini" ? styles.modelActive : ""} disabled={!status.providers?.gemini || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("gemini"); try { localStorage.setItem(providerStorageKey, "gemini"); } catch {} }}>Gemini 2.5 Pro</button>
+          <button type="button" className={provider === "gemini" ? styles.modelActive : ""} disabled={!status.providers?.gemini || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("gemini"); try { localStorage.setItem(providerStorageKey, "gemini"); } catch {} }}>Gemini 3.1 Pro</button>
           <button type="button" className={provider === "openai" ? styles.modelActive : ""} disabled={!status.providers?.openai || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("openai"); try { localStorage.setItem(providerStorageKey, "openai"); } catch {} }}>GPT 5</button>
         </div>}
       </div>
