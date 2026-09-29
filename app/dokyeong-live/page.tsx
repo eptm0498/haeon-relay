@@ -176,7 +176,7 @@ export default function DokyeongLive() {
     const spokenText = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/^[\s,;:.!?]+/, "").replace(/\s{2,}/g, " ").trim();
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
     const controller = new AbortController(); audioAbortRef.current.add(controller);
-    // Fetch now while the previous phrase plays, preserving order in queuedRef.
+    // Send one complete reply per TTS request so ElevenLabs keeps one voice, breath, and prosody curve.
     const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText }), signal: controller.signal });
     queuedRef.current = queuedRef.current.catch(() => {}).then(async () => {
       if (controller.signal.aborted || turn !== generation.current) return;
@@ -208,14 +208,18 @@ export default function DokyeongLive() {
           const event = JSON.parse(line);
           if (turn !== generation.current) return;
           if (event.type === "delta") { full += event.text; setPartial(full); }
-          if (event.type === "segment") { if (firstSegment) { firstSegment = false; setLatency(Math.round(performance.now() - start)); } queueSpeech(event.text, turn); }
+          if (event.type === "segment" && firstSegment) { firstSegment = false; setLatency(Math.round(performance.now() - start)); }
           if (event.type === "error") throw Error(event.message);
           if (event.type === "done") { full = event.text || full; complete = true; }
         }
       }
       if (!complete || !full.trim()) throw Error("답장을 끝까지 받지 못했어.");
-      setHistory([...conversation, { role: "assistant", content: full.trim() }]); setPartial("");
-      if (voice) await queuedRef.current;
+      const completedReply = full.trim();
+      setHistory([...conversation, { role: "assistant", content: completedReply }]); setPartial("");
+      if (voice) {
+        queueSpeech(completedReply, turn);
+        await queuedRef.current;
+      }
     } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "연결이 끊겼어."); setPartial(""); } }
     finally {
       if (turn === generation.current) {
