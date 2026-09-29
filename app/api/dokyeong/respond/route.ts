@@ -6,36 +6,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type Message = { role: "user" | "assistant"; content: string };
-type Provider = "openai" | "gemini";
-
 function normalizeMessages(messages: Message[]) {
   return messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
-}
-
-async function requestOpenAI(messages: Message[], signal: AbortSignal) {
-  if (!process.env.OPENAI_API_KEY) return { response: null, error: Response.json({ error: "OpenAI 연결 설정이 필요해." }, { status: 503 }) };
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: liveConfig.openai.responseModel,
-        instructions: dokyeongPrompt,
-        input: messages,
-        stream: true,
-        max_output_tokens: 450,
-        store: false,
-      }),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(55000)]),
-      cache: "no-store",
-    });
-    return { response, error: null };
-  } catch {
-    return { response: null, error: Response.json({ error: "GPT와 연결되지 않았어." }, { status: 502 }) };
-  }
 }
 
 async function callGeminiModel(model: string, messages: Message[], signal: AbortSignal) {
@@ -88,11 +63,9 @@ export async function POST(request: NextRequest) {
   if (raw.length > 30_000) return Response.json({ error: "대화가 너무 길어." }, { status: 413 });
 
   let messages: Message[];
-  let provider: Provider = "gemini";
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
-    if (parsed.provider === "openai" || parsed.provider === "gemini") provider = parsed.provider;
     if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
       !messages.every((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 1500) ||
       messages.at(-1)?.role !== "user") throw Error();
@@ -100,24 +73,19 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
   }
 
-  const result = provider === "gemini"
-    ? await requestGemini(messages, request.signal)
-    : { ...(await requestOpenAI(messages, request.signal)), model: liveConfig.openai.responseModel };
+  const result = await requestGemini(messages, request.signal);
   if (result.error) return result.error;
   const upstream = result.response!;
-  const activeModel = result.model || (provider === "gemini" ? liveConfig.gemini.responseModel : liveConfig.openai.responseModel);
+  const activeModel = result.model || liveConfig.gemini.responseModel;
 
   if (!upstream.ok || !upstream.body) {
-    if (provider === "gemini") {
-      if (upstream.status === 401 || upstream.status === 403)
-        return Response.json({ error: "Gemini API 키나 결제 설정을 확인해 줘." }, { status: 502 });
-      if (upstream.status === 404)
-        return Response.json({ error: "Gemini 모델을 사용할 수 없어. AI Studio 모델 권한을 확인해 줘." }, { status: 502 });
-      if (upstream.status === 429)
-        return Response.json({ error: "Gemini 사용 한도나 잔액을 확인해 줘." }, { status: 502 });
-      return Response.json({ error: "Gemini 응답을 만들지 못했어." }, { status: 502 });
-    }
-    return Response.json({ error: upstream.status === 401 ? "OpenAI API 키를 확인해 줘." : "GPT 응답을 만들지 못했어." }, { status: 502 });
+    if (upstream.status === 401 || upstream.status === 403)
+      return Response.json({ error: "Gemini API 키나 결제 설정을 확인해 줘." }, { status: 502 });
+    if (upstream.status === 404)
+      return Response.json({ error: "Gemini 모델을 사용할 수 없어. AI Studio 모델 권한을 확인해 줘." }, { status: 502 });
+    if (upstream.status === 429)
+      return Response.json({ error: "Gemini 사용 한도나 잔액을 확인해 줘." }, { status: 502 });
+    return Response.json({ error: "Gemini 응답을 만들지 못했어." }, { status: 502 });
   }
 
   const encoder = new TextEncoder();
@@ -150,19 +118,6 @@ export async function POST(request: NextRequest) {
         segment();
       };
 
-      const processOpenAIFrame = (frame: string) => {
-        const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
-        if (!data || data === "[DONE]") return;
-        try {
-          const event = JSON.parse(data);
-          if (event.type === "response.output_text.delta" && typeof event.delta === "string") emitText(event.delta);
-          if (event.type === "response.failed" || event.type === "error") {
-            lastError = true;
-            send({ type: "error", message: "GPT 응답 생성이 중단됐어." });
-          }
-        } catch {}
-      };
-
       const processGeminiFrame = (frame: string) => {
         const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
         if (!data) return;
@@ -192,17 +147,15 @@ export async function POST(request: NextRequest) {
           while ((split = pending.indexOf("\n\n")) >= 0) {
             const frame = pending.slice(0, split);
             pending = pending.slice(split + 2);
-            if (provider === "gemini") processGeminiFrame(frame);
-            else processOpenAIFrame(frame);
+            processGeminiFrame(frame);
           }
         }
         if (pending.trim()) {
-          if (provider === "gemini") processGeminiFrame(pending);
-          else processOpenAIFrame(pending);
+          processGeminiFrame(pending);
         }
         if (!lastError) {
           segment(true);
-          send({ type: "done", text: full.trim(), provider, model: activeModel });
+          send({ type: "done", text: full.trim(), provider: "gemini", model: activeModel });
         }
       } catch {
         try { send({ type: "error", message: "연결이 끊겼어." }); } catch {}
