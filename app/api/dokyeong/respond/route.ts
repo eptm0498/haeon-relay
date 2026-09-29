@@ -102,7 +102,10 @@ export async function POST(request: NextRequest) {
           const boundary = spoken.search(/[.!?。！？]|[ㅋㅋㅎ]{2,}(?=\s|$)/);
           let end = boundary >= 0 ? boundary + 1 : -1;
           if (end >= 0 && spoken.length < 8 && !flush) break;
-          if (end < 0 && spoken.length >= 58) end = spoken.lastIndexOf(" ", 62) + 1;
+          if (end < 0 && spoken.length >= 34) {
+            const splitAt = spoken.lastIndexOf(" ", 40);
+            end = splitAt >= 22 ? splitAt + 1 : 34;
+          }
           if (end <= 0 && flush) end = spoken.length;
           if (end <= 0) break;
           const part = spoken.slice(0, end).trim();
