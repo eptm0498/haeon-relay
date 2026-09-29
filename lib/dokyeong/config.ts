@@ -11,10 +11,12 @@ export const liveConfig = {
   },
   elevenlabs: {
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
-    modelId: process.env.DOKYEONG_TTS_MODEL || "eleven_flash_v2_5",
+    modelId: process.env.DOKYEONG_TTS_MODEL || "eleven_v4",
+    fallbackModelId: "eleven_flash_v2_5",
+    outputFormat: "mp3_44100_128",
     stability: Number(process.env.DOKYEONG_VOICE_STABILITY || "0.45"),
     similarityBoost: Number(process.env.DOKYEONG_VOICE_SIMILARITY || "0.8"),
-    style: Number(process.env.DOKYEONG_VOICE_STYLE || "0.15"),
+    style: Number(process.env.DOKYEONG_VOICE_STYLE || "0"),
     speed: Number(process.env.DOKYEONG_VOICE_SPEED || "1"),
   },
 };
