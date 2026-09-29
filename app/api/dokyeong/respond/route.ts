@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { activeCharacterPrompt } from "@/lib/dokyeong/settings";
+import { relatedSampleContext } from "@/lib/dokyeong/samples";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -207,7 +208,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
   }
 
-  const prompt = await activeCharacterPrompt();
+  const [basePrompt, sampleContext] = await Promise.all([
+    activeCharacterPrompt(), relatedSampleContext(messages),
+  ]);
+  const prompt = basePrompt + sampleContext;
   const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
   const upstream = result.response!;
