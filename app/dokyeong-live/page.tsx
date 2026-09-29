@@ -5,10 +5,8 @@ import styles from "./live.module.css";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
-type Provider = "gemini" | "openai";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
 const storageKey = "dokyeong-live-history-v1";
-const providerStorageKey = "dokyeong-live-provider-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
@@ -30,7 +28,6 @@ export default function DokyeongLive() {
   const [partial, setPartial] = useState("");
   const [voice, setVoice] = useState(true);
   const [captions, setCaptions] = useState(true);
-  const [provider, setProvider] = useState<Provider>("gemini");
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
@@ -55,25 +52,14 @@ export default function DokyeongLive() {
   const voicedAtRef = useRef(0);
   const startedAtRef = useRef(0);
   const loudRef = useRef(0);
+  const listenBoostUntilRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const setHistory = (next: Message[]) => { const kept = next.slice(-40); messageRef.current = kept; setMessages(kept); localStorage.setItem(storageKey, JSON.stringify(kept)); };
   useEffect(() => {
     try { const saved = JSON.parse(localStorage.getItem(storageKey) || "[]"); if (Array.isArray(saved)) setHistory(saved.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")); } catch {}
-    let preferred: Provider = "gemini";
-    try {
-      const savedProvider = localStorage.getItem(providerStorageKey);
-      if (savedProvider === "gemini" || savedProvider === "openai") preferred = savedProvider;
-      setProvider(preferred);
-    } catch {}
-    fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then((next: Status) => {
-      setStatus(next);
-      if (preferred === "gemini" && !next.providers?.gemini) {
-        setProvider("openai");
-        try { localStorage.setItem(providerStorageKey, "openai"); } catch {}
-      }
-    }).catch(() => setError("서버에 연결하지 못했어."));
+    fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setError("서버에 연결하지 못했어."));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
@@ -187,7 +173,7 @@ export default function DokyeongLive() {
     let full = ""; let complete = false; let firstSegment = true;
     try {
       const response = await fetch(`${API}/respond`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), provider }), signal: controller.signal });
+        body: JSON.stringify({ messages: conversation.slice(-24) }), signal: controller.signal });
       if (!response.ok || !response.body) { const body = await response.json().catch(() => ({})); throw Error(body.error || "응답을 받지 못했어."); }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = "";
       while (true) {
@@ -207,7 +193,17 @@ export default function DokyeongLive() {
       setHistory([...conversation, { role: "assistant", content: full.trim() }]); setPartial("");
       if (voice) await queuedRef.current;
     } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "연결이 끊겼어."); setPartial(""); } }
-    finally { if (turn === generation.current) { requestRef.current = null; setMode(running.current ? "listening" : "off"); } }
+    finally {
+      if (turn === generation.current) {
+        requestRef.current = null;
+        if (running.current) {
+          prerollRef.current = [];
+          loudRef.current = 0;
+          listenBoostUntilRef.current = performance.now() + 2600;
+          setMode("listening");
+        } else setMode("off");
+      }
+    }
   }
 
   async function onSpeech(blob: Blob) {
@@ -238,7 +234,10 @@ export default function DokyeongLive() {
         // Safari's fragmented MP4 and WebM need their first container header on each STT upload.
         if (!headerRef.current) headerRef.current = event.data;
         if (recordingRef.current || pendingEndRef.current) speechRef.current.push(event.data);
-        else { prerollRef.current.push(event.data); if (prerollRef.current.length > 4) prerollRef.current.shift(); }
+        else if (phaseRef.current === "listening") {
+          prerollRef.current.push(event.data);
+          if (prerollRef.current.length > 5) prerollRef.current.shift();
+        }
         if (pendingEndRef.current) {
           pendingEndRef.current = false; recordingRef.current = false;
           const utterance = new Blob(speechRef.current, { type: recorder.mimeType }); speechRef.current = []; prerollRef.current = [];
@@ -256,17 +255,22 @@ export default function DokyeongLive() {
         let energy = 0; for (let i = 0; i < data.length; i++) energy += data[i] * data[i];
         const rms = Math.sqrt(energy / data.length);
         const speaking = phaseRef.current === "speaking";
-        const threshold = speaking ? Math.max(0.095, noise * 6) : Math.max(0.027, noise * 2.8);
-        if (!recordingRef.current && !speaking && rms < threshold) noise = noise * 0.98 + rms * 0.02;
+        const justFinishedSpeaking = !speaking && time < listenBoostUntilRef.current;
+        const threshold = speaking
+          ? Math.max(0.095, noise * 6)
+          : justFinishedSpeaking
+            ? Math.max(0.010, noise * 1.55)
+            : Math.max(0.017, noise * 2.05);
+        if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.985 + rms * 0.015;
         loudRef.current = rms > threshold ? loudRef.current + 1 : 0;
-        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 5 : 3)) {
+        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 5 : justFinishedSpeaking ? 1 : 2)) {
           if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
           recordingRef.current = true; speechRef.current = [headerRef.current, ...prerollRef.current.filter((part) => part !== headerRef.current)].filter((part): part is Blob => !!part); prerollRef.current = [];
           startedAtRef.current = time; voicedAtRef.current = time; loudRef.current = 0; setMode("listening");
         }
         if (recordingRef.current) {
           if (rms > threshold * 0.7) voicedAtRef.current = time;
-          if (time - voicedAtRef.current > 620 && time - startedAtRef.current > 350) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
+          if (time - voicedAtRef.current > 850 && time - startedAtRef.current > 450) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
           if (time - startedAtRef.current > 18_000) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
         }
       };
@@ -293,10 +297,6 @@ export default function DokyeongLive() {
         <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><span>도경</span></div>
         <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
         {latency !== null && <p className={styles.latency}>첫 문장까지 {(latency / 1000).toFixed(1)}초</p>}
-        {status?.authenticated && <div className={styles.modelSwitch} role="group" aria-label="도경 두뇌 선택">
-          <button type="button" className={provider === "gemini" ? styles.modelActive : ""} disabled={!status.providers?.gemini || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("gemini"); try { localStorage.setItem(providerStorageKey, "gemini"); } catch {} }}>Gemini 3.1 Pro</button>
-          <button type="button" className={provider === "openai" ? styles.modelActive : ""} disabled={!status.providers?.openai || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("openai"); try { localStorage.setItem(providerStorageKey, "openai"); } catch {} }}>GPT 5</button>
-        </div>}
       </div>
       <section className={styles.transcript} ref={scrollRef} aria-live="polite">
         {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "형" : "도경"}</span><p>{message.content}</p></div>)}
