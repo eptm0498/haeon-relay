@@ -147,9 +147,12 @@ export default function DokyeongLive() {
 
   function queueSpeech(text: string, turn: number) {
     if (!voice || turn !== generation.current) return;
+    // Keep chat reactions in captions, but do not ask TTS to pronounce them.
+    const spokenText = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/^[\s,;:.!?]+/, "").replace(/\s{2,}/g, " ").trim();
+    if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
     const controller = new AbortController(); audioAbortRef.current.add(controller);
     // Fetch now while the previous phrase plays, preserving order in queuedRef.
-    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }), signal: controller.signal });
+    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText }), signal: controller.signal });
     queuedRef.current = queuedRef.current.catch(() => {}).then(async () => {
       if (controller.signal.aborted || turn !== generation.current) return;
       setMode("speaking");
