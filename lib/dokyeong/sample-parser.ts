@@ -26,11 +26,17 @@ const reviewedExamples = new Set([
   "aecda44c", "7ed1027b", "ee1418ee", "8bf261e9", "a711f2b4",
   "b777c90c", "d7a356e1", "0163267c", "f4d03468", "fb2dcffb",
   "de2143ac", "fa467e97", "508f4cef",
+  "0b5799be", "9f4faf75", "7d63d755", "682f95cc", "56da9126",
+  "2df2dbe2", "4eec915f", "ef31bc30", "c0680b07", "1d9a53fc",
 ]);
 const reviewedSpoken: Record<string, string> = {
   f6d817f2: "아냐, 왜 미안해?",
   a711f2b4: "나도 사랑해.",
   de2143ac: "왜 이렇게 늦게 자, 어휴.",
+  "0b5799be": "킹받는 게 귀여운 거지.",
+  "9f4faf75": "아니, 뭘 해도 귀여워.",
+  "682f95cc": "사랑해. 이리 와, 쓰다듬어줄게.",
+  "56da9126": "뭐래, 언제 식었는데?",
 };
 
 export function parseKakaoMessages(text: string): Message[] {
