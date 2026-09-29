@@ -347,10 +347,10 @@ export default function DokyeongLive() {
         const speaking = phaseRef.current === "speaking";
         const justFinishedSpeaking = !speaking && time < listenBoostUntilRef.current;
         const threshold = speaking
-          ? Math.max(0.095, noise * 6)
+          ? Math.max(0.060, noise * 4.0)
           : justFinishedSpeaking
-            ? Math.max(0.010, noise * 1.55)
-            : Math.max(0.017, noise * 2.05);
+            ? Math.max(0.007, noise * 1.25)
+            : Math.max(0.009, noise * 1.45);
         if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.985 + rms * 0.015;
         loudRef.current = rms > threshold ? loudRef.current + 1 : 0;
         if (phaseRef.current === "listening" && !recordingRef.current && !pendingEndRef.current && time - lastInputAtRef.current >= 60_000) {
@@ -358,14 +358,14 @@ export default function DokyeongLive() {
           setError("1분 동안 입력이 없어서 마이크를 껐어.");
           return;
         }
-        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 5 : justFinishedSpeaking ? 1 : 2)) {
+        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 3 : 1)) {
           if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
           lastInputAtRef.current = time;
           recordingRef.current = true; speechRef.current = [headerRef.current, ...prerollRef.current.filter((part) => part !== headerRef.current)].filter((part): part is Blob => !!part); prerollRef.current = [];
           startedAtRef.current = time; voicedAtRef.current = time; loudRef.current = 0; setMode("listening");
         }
         if (recordingRef.current) {
-          if (rms > threshold * 0.7) voicedAtRef.current = time;
+          if (rms > threshold * 0.55) voicedAtRef.current = time;
           if (time - voicedAtRef.current > 850 && time - startedAtRef.current > 450) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
           if (time - startedAtRef.current > 18_000) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
         }
