@@ -62,6 +62,7 @@ export default function DokyeongLive() {
   const startedAtRef = useRef(0);
   const loudRef = useRef(0);
   const listenBoostUntilRef = useRef(0);
+  const lastInputAtRef = useRef(0);
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -288,6 +289,7 @@ export default function DokyeongLive() {
           prerollRef.current = [];
           loudRef.current = 0;
           listenBoostUntilRef.current = performance.now() + 2600;
+          lastInputAtRef.current = performance.now();
           setMode("listening");
         } else setMode("off");
       }
@@ -316,7 +318,7 @@ export default function DokyeongLive() {
       const source = context.createMediaStreamSource(stream); const analyser = context.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      streamRef.current = stream; contextRef.current = context; recorderRef.current = recorder; running.current = true; setMode("listening"); void keepAwake();
+      streamRef.current = stream; contextRef.current = context; recorderRef.current = recorder; running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
       recorder.ondataavailable = (event) => {
         if (!event.data.size || !running.current) return;
         // Safari's fragmented MP4 and WebM need their first container header on each STT upload.
@@ -351,8 +353,14 @@ export default function DokyeongLive() {
             : Math.max(0.017, noise * 2.05);
         if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.985 + rms * 0.015;
         loudRef.current = rms > threshold ? loudRef.current + 1 : 0;
+        if (phaseRef.current === "listening" && !recordingRef.current && !pendingEndRef.current && time - lastInputAtRef.current >= 60_000) {
+          endCall();
+          setError("1분 동안 입력이 없어서 마이크를 껐어.");
+          return;
+        }
         if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 5 : justFinishedSpeaking ? 1 : 2)) {
           if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
+          lastInputAtRef.current = time;
           recordingRef.current = true; speechRef.current = [headerRef.current, ...prerollRef.current.filter((part) => part !== headerRef.current)].filter((part): part is Blob => !!part); prerollRef.current = [];
           startedAtRef.current = time; voicedAtRef.current = time; loudRef.current = 0; setMode("listening");
         }
@@ -379,7 +387,7 @@ export default function DokyeongLive() {
   }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
   function restart() { endCall(); setHistory([]); setPartial(""); setError(""); setLatency(null); }
-  function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; setDraft(""); void reply(value); }
+  function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; if (running.current) lastInputAtRef.current = performance.now(); setDraft(""); void reply(value); }
 
   return <main className={styles.shell}>
     <div className={styles.phone}>
