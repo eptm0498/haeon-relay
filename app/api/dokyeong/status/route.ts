@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     authenticated: auth,
     ready: auth && openai && gemini && elevenlabs,
     providers: { openai, gemini, elevenlabs },
-    audio: { ttsModel: liveConfig.elevenlabs.modelId, dialogueModel: liveConfig.elevenlabs.dialogueModelId, outputFormat: liveConfig.elevenlabs.outputFormat },
+    audio: { ttsModel: liveConfig.elevenlabs.modelId, dialogueModel: liveConfig.elevenlabs.dialogueModelId, outputFormat: liveConfig.elevenlabs.outputFormat, dialogueOutputFormat: liveConfig.elevenlabs.dialogueOutputFormat },
     missing: auth
       ? [!openai && "OPENAI_API_KEY", !gemini && "GEMINI_API_KEY", !elevenlabs && "ELEVENLABS_API_KEY"].filter(Boolean)
       : [],
