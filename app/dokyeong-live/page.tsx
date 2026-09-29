@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
+import { dokyeongFaceDataUrl } from "./dokyeong-face";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
@@ -404,7 +405,7 @@ export default function DokyeongLive() {
     <div className={styles.phone}>
       <header className={styles.top}><span className={styles.overline}>도경LIVE</span><button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></header>
       <div className={styles.hero}>
-        <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><span>도경</span></div>
+        <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><img src={dokyeongFaceDataUrl} alt="" /></div>
         <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
         {latency !== null && <p className={styles.latency}>첫 음성까지 {(latency / 1000).toFixed(1)}초</p>}
       </div>
