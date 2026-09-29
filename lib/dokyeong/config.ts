@@ -2,8 +2,12 @@
 export const liveConfig = {
   openai: {
     provider: "openai",
-    responseModel: process.env.DOKYEONG_OPENAI_MODEL || "gpt-4o",
+    responseModel: process.env.DOKYEONG_OPENAI_MODEL || "gpt-5.4-mini",
     transcriptionModel: process.env.DOKYEONG_STT_MODEL || "gpt-4o-mini-transcribe",
+  },
+  gemini: {
+    provider: "gemini",
+    responseModel: process.env.DOKYEONG_GEMINI_MODEL || "gemini-2.5-pro",
   },
   elevenlabs: {
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
