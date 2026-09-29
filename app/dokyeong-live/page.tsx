@@ -6,6 +6,7 @@ import styles from "./live.module.css";
 type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
+type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 const storageKey = "dokyeong-live-history-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
@@ -53,6 +54,7 @@ export default function DokyeongLive() {
   const startedAtRef = useRef(0);
   const loudRef = useRef(0);
   const listenBoostUntilRef = useRef(0);
+  const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
@@ -63,6 +65,21 @@ export default function DokyeongLive() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
+
+  const keepAwake = useCallback(async () => {
+    if (document.hidden || (wakeLockRef.current && !wakeLockRef.current.released)) return;
+    const nav = navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<WakeLockHandle> } };
+    try {
+      const lock = await nav.wakeLock?.request("screen");
+      if (lock) wakeLockRef.current = lock;
+    } catch {}
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    const lock = wakeLockRef.current;
+    wakeLockRef.current = null;
+    if (lock && !lock.released) void lock.release().catch(() => {});
+  }, []);
 
   const stopAudio = useCallback(() => {
     audioAbortRef.current.forEach((controller) => controller.abort()); audioAbortRef.current.clear();
@@ -84,8 +101,15 @@ export default function DokyeongLive() {
     contextRef.current?.close().catch(() => {}); contextRef.current = null;
     recordingRef.current = false; pendingEndRef.current = false; prerollRef.current = []; speechRef.current = []; headerRef.current = null;
   }, []);
-  const endCall = useCallback(() => { running.current = false; interrupt(); closeMic(); setMode("off"); setNeedsTap(false); }, [interrupt, closeMic]);
-  useEffect(() => () => { running.current = false; requestRef.current?.abort(); audioAbortRef.current.forEach((c) => c.abort()); streamRef.current?.getTracks().forEach((t) => t.stop()); if (timerRef.current) cancelAnimationFrame(timerRef.current); }, []);
+  const endCall = useCallback(() => { running.current = false; interrupt(); closeMic(); releaseWakeLock(); setMode("off"); setNeedsTap(false); }, [interrupt, closeMic, releaseWakeLock]);
+  useEffect(() => () => {
+    running.current = false;
+    requestRef.current?.abort();
+    audioAbortRef.current.forEach((c) => c.abort());
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (timerRef.current) cancelAnimationFrame(timerRef.current);
+    releaseWakeLock();
+  }, [releaseWakeLock]);
 
   async function login(event: FormEvent) {
     event.preventDefault(); setError("");
@@ -228,7 +252,7 @@ export default function DokyeongLive() {
       const source = context.createMediaStreamSource(stream); const analyser = context.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      streamRef.current = stream; contextRef.current = context; recorderRef.current = recorder; running.current = true; setMode("listening");
+      streamRef.current = stream; contextRef.current = context; recorderRef.current = recorder; running.current = true; setMode("listening"); void keepAwake();
       recorder.ondataavailable = (event) => {
         if (!event.data.size || !running.current) return;
         // Safari's fragmented MP4 and WebM need their first container header on each STT upload.
@@ -280,12 +304,15 @@ export default function DokyeongLive() {
 
   useEffect(() => {
     const recover = () => {
-      if (document.hidden && running.current) { interrupt(); closeMic(); setMode("paused"); setNeedsTap(true); }
-      else if (!document.hidden && phaseRef.current === "paused") setNeedsTap(true);
+      if (document.hidden && running.current) {
+        releaseWakeLock(); interrupt(); closeMic(); setMode("paused"); setNeedsTap(true);
+      } else if (!document.hidden && running.current && phaseRef.current !== "paused") {
+        void keepAwake();
+      } else if (!document.hidden && phaseRef.current === "paused") setNeedsTap(true);
     };
     document.addEventListener("visibilitychange", recover);
     return () => document.removeEventListener("visibilitychange", recover);
-  }, [interrupt, closeMic]);
+  }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
   function restart() { endCall(); setHistory([]); setPartial(""); setError(""); setLatency(null); }
   function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; setDraft(""); void reply(value); }
