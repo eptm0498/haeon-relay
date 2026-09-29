@@ -11,6 +11,13 @@ const storageKey = "dokyeong-live-history-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
+function hasMeaningfulTranscript(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/^[\[\(【]?(음악|잡음|소음|박수|노래|기침|숨소리|music|noise|applause|laughter)[\]\)】]?[.!?…\s]*$/iu.test(text)) return false;
+  return /[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9]/u.test(text);
+}
+
 function base64ToBytes(value: string) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -305,7 +312,12 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/transcribe`, { method: "POST", body: form, signal: controller.signal });
       const result = await response.json(); if (!response.ok) throw Error(result.error || "못 들었어.");
       if (turn !== generation.current) return;
-      if (result.text) await reply(result.text); else setMode("listening");
+      if (hasMeaningfulTranscript(result.text)) {
+        lastInputAtRef.current = performance.now();
+        await reply(String(result.text));
+      } else {
+        setMode("listening");
+      }
     } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "못 들었어."); setMode("listening"); } }
   }
 
@@ -360,7 +372,6 @@ export default function DokyeongLive() {
         }
         if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 3 : 1)) {
           if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
-          lastInputAtRef.current = time;
           recordingRef.current = true; speechRef.current = [headerRef.current, ...prerollRef.current.filter((part) => part !== headerRef.current)].filter((part): part is Blob => !!part); prerollRef.current = [];
           startedAtRef.current = time; voicedAtRef.current = time; loudRef.current = 0; setMode("listening");
         }
