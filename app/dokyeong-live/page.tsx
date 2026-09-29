@@ -5,8 +5,10 @@ import styles from "./live.module.css";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
-type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[] };
+type Provider = "gemini" | "openai";
+type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
 const storageKey = "dokyeong-live-history-v1";
+const providerStorageKey = "dokyeong-live-provider-v1";
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
@@ -28,6 +30,7 @@ export default function DokyeongLive() {
   const [partial, setPartial] = useState("");
   const [voice, setVoice] = useState(true);
   const [captions, setCaptions] = useState(true);
+  const [provider, setProvider] = useState<Provider>("gemini");
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
@@ -58,7 +61,19 @@ export default function DokyeongLive() {
   const setHistory = (next: Message[]) => { const kept = next.slice(-40); messageRef.current = kept; setMessages(kept); localStorage.setItem(storageKey, JSON.stringify(kept)); };
   useEffect(() => {
     try { const saved = JSON.parse(localStorage.getItem(storageKey) || "[]"); if (Array.isArray(saved)) setHistory(saved.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")); } catch {}
-    fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setError("서버에 연결하지 못했어."));
+    let preferred: Provider = "gemini";
+    try {
+      const savedProvider = localStorage.getItem(providerStorageKey);
+      if (savedProvider === "gemini" || savedProvider === "openai") preferred = savedProvider;
+      setProvider(preferred);
+    } catch {}
+    fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then((next: Status) => {
+      setStatus(next);
+      if (preferred === "gemini" && !next.providers?.gemini) {
+        setProvider("openai");
+        try { localStorage.setItem(providerStorageKey, "openai"); } catch {}
+      }
+    }).catch(() => setError("서버에 연결하지 못했어."));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
@@ -172,7 +187,7 @@ export default function DokyeongLive() {
     let full = ""; let complete = false; let firstSegment = true;
     try {
       const response = await fetch(`${API}/respond`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24) }), signal: controller.signal });
+        body: JSON.stringify({ messages: conversation.slice(-24), provider }), signal: controller.signal });
       if (!response.ok || !response.body) { const body = await response.json().catch(() => ({})); throw Error(body.error || "응답을 받지 못했어."); }
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = "";
       while (true) {
@@ -278,6 +293,10 @@ export default function DokyeongLive() {
         <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><span>도경</span></div>
         <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
         {latency !== null && <p className={styles.latency}>첫 문장까지 {(latency / 1000).toFixed(1)}초</p>}
+        {status?.authenticated && <div className={styles.modelSwitch} role="group" aria-label="도경 두뇌 선택">
+          <button type="button" className={provider === "gemini" ? styles.modelActive : ""} disabled={!status.providers?.gemini || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("gemini"); try { localStorage.setItem(providerStorageKey, "gemini"); } catch {} }}>Gemini 2.5 Pro</button>
+          <button type="button" className={provider === "openai" ? styles.modelActive : ""} disabled={!status.providers?.openai || phase === "thinking" || phase === "speaking"} onClick={() => { setProvider("openai"); try { localStorage.setItem(providerStorageKey, "openai"); } catch {} }}>GPT 5</button>
+        </div>}
       </div>
       <section className={styles.transcript} ref={scrollRef} aria-live="polite">
         {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "형" : "도경"}</span><p>{message.content}</p></div>)}
