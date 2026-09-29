@@ -38,32 +38,45 @@ async function requestOpenAI(messages: Message[], signal: AbortSignal) {
   }
 }
 
+async function callGeminiModel(model: string, messages: Message[], signal: AbortSignal) {
+  return fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+    {
+      method: "POST",
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: dokyeongPrompt }] },
+        contents: normalizeMessages(messages),
+        generationConfig: {
+          maxOutputTokens: 1024,
+          temperature: 0.9,
+          thinkingConfig: { thinkingLevel: "low" },
+        },
+      }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(55000)]),
+      cache: "no-store",
+    }
+  );
+}
+
 async function requestGemini(messages: Message[], signal: AbortSignal) {
-  if (!process.env.GEMINI_API_KEY) return { response: null, error: Response.json({ error: "Gemini 연결 설정이 필요해." }, { status: 503 }) };
-  const model = liveConfig.gemini.responseModel;
+  if (!process.env.GEMINI_API_KEY) return { response: null, error: Response.json({ error: "Gemini 연결 설정이 필요해." }, { status: 503 }), model: null };
+
+  const primary = liveConfig.gemini.responseModel;
+  const fallback = liveConfig.gemini.fallbackModel;
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
-      {
-        method: "POST",
-        headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: dokyeongPrompt }] },
-          contents: normalizeMessages(messages),
-          generationConfig: {
-            maxOutputTokens: 1024,
-            temperature: 0.9,
-            thinkingConfig: { thinkingBudget: 256 },
-          },
-          store: false,
-        }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(55000)]),
-        cache: "no-store",
-      }
-    );
-    return { response, error: null };
+    let response = await callGeminiModel(primary, messages, signal);
+    let model = primary;
+
+    if ((response.status === 404 || response.status === 403) && fallback && fallback !== primary) {
+      response.body?.cancel().catch(() => {});
+      response = await callGeminiModel(fallback, messages, signal);
+      model = fallback;
+    }
+
+    return { response, error: null, model };
   } catch {
-    return { response: null, error: Response.json({ error: "Gemini와 연결되지 않았어." }, { status: 502 }) };
+    return { response: null, error: Response.json({ error: "Gemini와 연결되지 않았어." }, { status: 502 }), model: null };
   }
 }
 
@@ -89,16 +102,17 @@ export async function POST(request: NextRequest) {
 
   const result = provider === "gemini"
     ? await requestGemini(messages, request.signal)
-    : await requestOpenAI(messages, request.signal);
+    : { ...(await requestOpenAI(messages, request.signal)), model: liveConfig.openai.responseModel };
   if (result.error) return result.error;
   const upstream = result.response!;
+  const activeModel = result.model || (provider === "gemini" ? liveConfig.gemini.responseModel : liveConfig.openai.responseModel);
 
   if (!upstream.ok || !upstream.body) {
     if (provider === "gemini") {
       if (upstream.status === 401 || upstream.status === 403)
         return Response.json({ error: "Gemini API 키나 결제 설정을 확인해 줘." }, { status: 502 });
       if (upstream.status === 404)
-        return Response.json({ error: "이 프로젝트에서 Gemini 2.5 Pro를 사용할 수 없어. AI Studio 모델 권한을 확인해 줘." }, { status: 502 });
+        return Response.json({ error: "Gemini 모델을 사용할 수 없어. AI Studio 모델 권한을 확인해 줘." }, { status: 502 });
       if (upstream.status === 429)
         return Response.json({ error: "Gemini 사용 한도나 잔액을 확인해 줘." }, { status: 502 });
       return Response.json({ error: "Gemini 응답을 만들지 못했어." }, { status: 502 });
@@ -188,7 +202,7 @@ export async function POST(request: NextRequest) {
         }
         if (!lastError) {
           segment(true);
-          send({ type: "done", text: full.trim(), provider });
+          send({ type: "done", text: full.trim(), provider, model: activeModel });
         }
       } catch {
         try { send({ type: "error", message: "연결이 끊겼어." }); } catch {}
