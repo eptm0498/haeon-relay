@@ -213,9 +213,25 @@ export default function DokyeongLive() {
     const conversation = [...messageRef.current, { role: "user" as const, content: text }]; setHistory(conversation);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
-    let full = ""; let complete = false;
-    let gotStreamingAudio = false; let firstAudio = true; let pcmNextAt = 0;
+
+    let full = "";
+    let complete = false;
+    let textCommitted = false;
+    let gotStreamingAudio = false;
+    let streamingAudioComplete = false;
+    let firstAudio = true;
+    let pcmNextAt = 0;
     let lastPcmEnd: Promise<void> = Promise.resolve();
+
+    const commitText = (value?: string) => {
+      const completed = (value || full).trim();
+      if (!completed || textCommitted || turn !== generation.current) return;
+      full = completed;
+      textCommitted = true;
+      complete = true;
+      setHistory([...conversation, { role: "assistant", content: completed }]);
+      setPartial("");
+    };
 
     const playPcmChunk = (encoded: string) => {
       if (!voice || controller.signal.aborted || turn !== generation.current) return false;
@@ -258,39 +274,94 @@ export default function DokyeongLive() {
     };
 
     try {
-      const response = await fetch(`${API}/respond`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice }), signal: controller.signal });
-      if (!response.ok || !response.body) { const body = await response.json().catch(() => ({})); throw Error(body.error || "응답을 받지 못했어."); }
-      const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = "";
+      const response = await fetch(`${API}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: conversation.slice(-24), voice }),
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
+        const body = await response.json().catch(() => ({}));
+        throw Error(body.error || "응답을 받지 못했어.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = "";
+
       while (true) {
-        const { value, done } = await reader.read(); if (done) break;
-        pending += decoder.decode(value, { stream: true }); let end: number;
+        const { value, done } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+
+        let end: number;
         while ((end = pending.indexOf("\n")) >= 0) {
-          const line = pending.slice(0, end); pending = pending.slice(end + 1); if (!line) continue;
-          const event = JSON.parse(line);
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 1);
+          if (!line) continue;
+
+          let event: any;
+          try { event = JSON.parse(line); } catch { continue; }
           if (turn !== generation.current) return;
-          if (event.type === "delta") { full += event.text; setPartial(full); }
+
+          if (event.type === "delta" && typeof event.text === "string") {
+            full += event.text;
+            if (!textCommitted) setPartial(full);
+          }
+
+          if (event.type === "text_done") {
+            if (typeof event.text === "string" && event.text.trim()) full = event.text;
+            commitText(full);
+          }
+
           if (event.type === "audio" && typeof event.data === "string") {
             gotStreamingAudio = playPcmChunk(event.data) || gotStreamingAudio;
           }
-          if (event.type === "error") throw Error(event.message);
-          if (event.type === "done") { full = event.text || full; complete = true; }
+
+          if (event.type === "audio_done") streamingAudioComplete = true;
+
+          if (event.type === "error") {
+            if (full.trim()) {
+              commitText(full);
+              complete = true;
+            } else {
+              throw Error(event.message || "응답을 받지 못했어.");
+            }
+          }
+
+          if (event.type === "done") {
+            if (typeof event.text === "string" && event.text.trim()) full = event.text;
+            commitText(full);
+            complete = !!full.trim();
+          }
         }
       }
+
+      // If the transport ended after deltas but before a final marker, keep the answer instead of erasing it.
+      if (!textCommitted && full.trim()) commitText(full);
       if (!complete || !full.trim()) throw Error("답장을 끝까지 받지 못했어.");
-      const completedReply = full.trim();
-      setHistory([...conversation, { role: "assistant", content: completedReply }]); setPartial("");
+
       if (voice) {
         if (gotStreamingAudio) {
           await lastPcmEnd;
+          // A missing final marker should not delete text or surface a fatal UI error.
+          if (!streamingAudioComplete) setMode("listening");
         } else {
           setLatency(Math.round(performance.now() - start));
-          queueSpeech(completedReply, turn);
+          queueSpeech(full.trim(), turn);
           await queuedRef.current;
         }
       }
-    } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "연결이 끊겼어."); setPartial(""); } }
-    finally {
+    } catch (err) {
+      if (!controller.signal.aborted && turn === generation.current) {
+        if (full.trim()) {
+          commitText(full);
+        } else {
+          setError(err instanceof Error ? err.message : "연결이 끊겼어.");
+          setPartial("");
+        }
+      }
+    } finally {
       if (turn === generation.current) {
         requestRef.current = null;
         if (running.current) {
