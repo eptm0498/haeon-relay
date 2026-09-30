@@ -330,56 +330,76 @@ export default function DokyeongLive() {
       const context = new AudioContext(); await context.resume();
       const source = context.createMediaStreamSource(stream); const analyser = context.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      streamRef.current = stream; contextRef.current = context; recorderRef.current = recorder; running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
-      recorder.ondataavailable = (event) => {
-        if (!event.data.size || !running.current) return;
-        // Safari's fragmented MP4 and WebM need their first container header on each STT upload.
-        if (!headerRef.current) headerRef.current = event.data;
-        if (recordingRef.current || pendingEndRef.current) speechRef.current.push(event.data);
-        else if (phaseRef.current === "listening") {
-          prerollRef.current.push(event.data);
-          if (prerollRef.current.length > 5) prerollRef.current.shift();
-        }
-        if (pendingEndRef.current) {
-          pendingEndRef.current = false; recordingRef.current = false;
-          const utterance = new Blob(speechRef.current, { type: recorder.mimeType }); speechRef.current = []; prerollRef.current = [];
-          if (utterance.size) void onSpeech(utterance);
-        }
+      streamRef.current = stream; contextRef.current = context; recorderRef.current = null; running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
+
+      const beginUtterance = (time: number) => {
+        if (!running.current || recordingRef.current || pendingEndRef.current) return;
+        const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        const chunks: Blob[] = [];
+        recorderRef.current = recorder;
+        recordingRef.current = true;
+        pendingEndRef.current = false;
+        startedAtRef.current = time;
+        voicedAtRef.current = time;
+        loudRef.current = 0;
+
+        recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+        recorder.onstop = () => {
+          if (recorderRef.current === recorder) recorderRef.current = null;
+          recordingRef.current = false;
+          pendingEndRef.current = false;
+          if (!running.current || !chunks.length) return;
+          const utterance = new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" });
+          if (utterance.size >= 1000) void onSpeech(utterance);
+        };
+        recorder.start();
       };
-      recorder.start(220);
+
+      const finishUtterance = () => {
+        if (!recordingRef.current || pendingEndRef.current) return;
+        pendingEndRef.current = true;
+        const recorder = recorderRef.current;
+        recordingRef.current = false;
+        if (recorder?.state === "recording") recorder.stop();
+        else pendingEndRef.current = false;
+      };
+
       stream.getAudioTracks()[0].onended = () => { if (running.current) { endCall(); setError("마이크가 끊겼어. 다시 연결해 줘."); } };
-      const data = new Float32Array(analyser.fftSize); let lastFrame = 0; let noise = 0.012;
+      const data = new Float32Array(analyser.fftSize); let lastFrame = 0; let noise = 0.010;
       const loop = (time: number) => {
         if (!running.current) return;
         timerRef.current = requestAnimationFrame(loop);
-        if (time - lastFrame < 55) return; lastFrame = time;
+        if (time - lastFrame < 45) return; lastFrame = time;
         analyser.getFloatTimeDomainData(data);
         let energy = 0; for (let i = 0; i < data.length; i++) energy += data[i] * data[i];
         const rms = Math.sqrt(energy / data.length);
         const speaking = phaseRef.current === "speaking";
         const justFinishedSpeaking = !speaking && time < listenBoostUntilRef.current;
         const threshold = speaking
-          ? Math.max(0.060, noise * 4.0)
+          ? Math.max(0.045, noise * 3.2)
           : justFinishedSpeaking
-            ? Math.max(0.007, noise * 1.25)
-            : Math.max(0.009, noise * 1.45);
-        if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.985 + rms * 0.015;
+            ? Math.max(0.0055, noise * 1.10)
+            : Math.max(0.0070, noise * 1.25);
+
+        if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.99 + rms * 0.01;
         loudRef.current = rms > threshold ? loudRef.current + 1 : 0;
+
         if (phaseRef.current === "listening" && !recordingRef.current && !pendingEndRef.current && time - lastInputAtRef.current >= 60_000) {
           endCall();
-          setError("1분 동안 입력이 없어서 마이크를 껐어.");
+          setError("1분 동안 제대로 인식된 말이 없어서 마이크를 껐어.");
           return;
         }
-        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 3 : 1)) {
+
+        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 2 : 1)) {
           if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
-          recordingRef.current = true; speechRef.current = [headerRef.current, ...prerollRef.current.filter((part) => part !== headerRef.current)].filter((part): part is Blob => !!part); prerollRef.current = [];
-          startedAtRef.current = time; voicedAtRef.current = time; loudRef.current = 0; setMode("listening");
+          beginUtterance(time);
+          setMode("listening");
         }
+
         if (recordingRef.current) {
-          if (rms > threshold * 0.55) voicedAtRef.current = time;
-          if (time - voicedAtRef.current > 850 && time - startedAtRef.current > 450) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
-          if (time - startedAtRef.current > 18_000) { pendingEndRef.current = true; recorder.requestData(); recordingRef.current = false; }
+          if (rms > threshold * 0.45) voicedAtRef.current = time;
+          if (time - voicedAtRef.current > 900 && time - startedAtRef.current > 350) finishUtterance();
+          if (time - startedAtRef.current > 18_000) finishUtterance();
         }
       };
       timerRef.current = requestAnimationFrame(loop);
