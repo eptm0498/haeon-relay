@@ -10,7 +10,7 @@ export const maxDuration = 60;
 type Message = { role: "user" | "assistant"; content: string };
 type DialogueBridge = {
   push: (text: string) => void;
-  finish: () => Promise<void>;
+  finish: () => Promise<{ hadAudio: boolean; completed: boolean }>;
   close: () => void;
 };
 
@@ -84,6 +84,8 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
   const ws = new WebSocket(url);
   let opened = false;
   let failed = false;
+  let hadAudio = false;
+  let finalAudio = false;
   let settled = false;
   let sendChain = Promise.resolve();
 
@@ -120,9 +122,17 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
       try {
         const message = JSON.parse(raw);
         if (typeof message.audio === "string" && message.audio) {
+          hadAudio = true;
           send({ type: "audio", data: message.audio, model: voice.dialogueModelId, format: voice.dialogueOutputFormat });
         }
-        if (message.is_final_audio_for_turn === true || message.is_final === true) settleFinished();
+        if (message.is_final_audio_for_turn === true || message.is_final === true) {
+          finalAudio = true;
+          settleFinished();
+        }
+        if (message.error || message.type === "error") {
+          failed = true;
+          settleFinished();
+        }
       } catch {}
     });
   });
@@ -168,14 +178,15 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
         ws.send(JSON.stringify({ close_socket: true }));
         await Promise.race([
           finished,
-          new Promise<void>((resolve) => setTimeout(resolve, 16000)),
+          new Promise<void>((resolve) => setTimeout(resolve, 9000)),
         ]);
       }
     } catch {
-      // Text still returns normally; the client can fall back to the HTTP TTS route.
+      failed = true;
     } finally {
       try { if (ws.readyState === 0 || ws.readyState === 1) ws.close(); } catch {}
     }
+    return { hadAudio, completed: hadAudio && finalAudio && !failed };
   };
 
   return {
@@ -332,16 +343,32 @@ export async function POST(request: NextRequest) {
 
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
 
-        if (!lastError) {
+        if (!lastError || full.trim()) {
           segment(true);
-          if (dialogue) await dialogue.finish();
-          send({
-            type: "done",
-            text: full.trim(),
-            provider: "gemini",
-            model: activeModel,
-            audioModel: dialogue ? liveConfig.elevenlabs.dialogueModelId : null,
-          });
+          const completedText = full.trim();
+          if (!completedText) {
+            send({ type: "error", message: "답장을 만들지 못했어." });
+          } else {
+            // Commit text immediately. Audio must never hold the visible answer hostage.
+            send({
+              type: "text_done",
+              text: completedText,
+              provider: "gemini",
+              model: activeModel,
+            });
+
+            let audioStatus = { hadAudio: false, completed: false };
+            if (dialogue) audioStatus = await dialogue.finish();
+            send({ type: audioStatus.completed ? "audio_done" : "audio_unavailable", hadAudio: audioStatus.hadAudio });
+
+            send({
+              type: "done",
+              text: completedText,
+              provider: "gemini",
+              model: activeModel,
+              audioModel: audioStatus.completed ? liveConfig.elevenlabs.dialogueModelId : null,
+            });
+          }
         }
       } catch {
         dialogue?.close();
