@@ -60,6 +60,7 @@ export default function DokyeongLive() {
   const playingRef = useRef<HTMLAudioElement | null>(null);
   const activeSoundRef = useRef<AudioBufferSourceNode | null>(null);
   const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const elevenUnavailableRef = useRef(false);
   const queuedRef = useRef<Promise<void>>(Promise.resolve());
   const speechRef = useRef<Blob[]>([]);
   const prerollRef = useRef<Blob[]>([]);
@@ -104,6 +105,7 @@ export default function DokyeongLive() {
     try { activeSoundRef.current?.stop(); } catch {} activeSoundRef.current = null;
     pcmSourcesRef.current.forEach((source) => { try { source.stop(); } catch {} });
     pcmSourcesRef.current.clear();
+    try { window.speechSynthesis?.cancel(); } catch {}
     queuedRef.current = Promise.resolve();
   }, []);
   const interrupt = useCallback(() => {
@@ -136,6 +138,37 @@ export default function DokyeongLive() {
     const result = await response.json();
     if (!response.ok) { setError(result.error || "접속할 수 없어."); return; }
     setCode(""); const fresh = await fetch(`${API}/status`, { cache: "no-store" }); setStatus(await fresh.json());
+  }
+
+  async function playSystemSpeech(text: string, signal: AbortSignal, turn: number) {
+    if (signal.aborted || turn !== generation.current || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    await new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ko-KR";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      const voices = window.speechSynthesis.getVoices();
+      const koreanVoice = voices.find((v) => v.lang.toLowerCase() === "ko-kr") || voices.find((v) => v.lang.toLowerCase().startsWith("ko"));
+      if (koreanVoice) utterance.voice = koreanVoice;
+
+      const finish = () => resolve();
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      signal.addEventListener("abort", () => {
+        try { window.speechSynthesis.cancel(); } catch {}
+        resolve();
+      }, { once: true });
+
+      try {
+        setMode("speaking");
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        resolve();
+      }
+    });
   }
 
   async function playSpeech(response: Promise<Response>, signal: AbortSignal, turn: number) {
@@ -191,18 +224,36 @@ export default function DokyeongLive() {
 
   function queueSpeech(text: string, turn: number) {
     if (!voice || turn !== generation.current) return;
-    // Keep chat reactions in captions, but do not ask TTS to pronounce them.
     const spokenText = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/^[\s,;:.!?]+/, "").replace(/\s{2,}/g, " ").trim();
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
-    const controller = new AbortController(); audioAbortRef.current.add(controller);
-    // Send one complete reply per TTS request so ElevenLabs keeps one voice, breath, and prosody curve.
-    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText }), signal: controller.signal });
+
+    const controller = new AbortController();
+    audioAbortRef.current.add(controller);
+
     queuedRef.current = queuedRef.current.catch(() => {}).then(async () => {
       if (controller.signal.aborted || turn !== generation.current) return;
       setMode("speaking");
-      try { await playSpeech(response, controller.signal, turn); }
-      catch (err) { if (!controller.signal.aborted && turn === generation.current) setError(err instanceof Error ? err.message : "음성 재생이 끊겼어."); }
-      finally { audioAbortRef.current.delete(controller); }
+
+      try {
+        if (!elevenUnavailableRef.current) {
+          const response = fetch(`${API}/tts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: spokenText }),
+            signal: controller.signal,
+          });
+          await playSpeech(response, controller.signal, turn);
+          return;
+        }
+      } catch {
+        if (!controller.signal.aborted && turn === generation.current) elevenUnavailableRef.current = true;
+      }
+
+      if (!controller.signal.aborted && turn === generation.current) {
+        await playSystemSpeech(spokenText, controller.signal, turn);
+      }
+    }).finally(() => {
+      audioAbortRef.current.delete(controller);
     });
   }
 
@@ -277,7 +328,7 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice }),
+        body: JSON.stringify({ messages: conversation.slice(-24), voice: voice && !elevenUnavailableRef.current }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -344,8 +395,11 @@ export default function DokyeongLive() {
       if (voice) {
         if (gotStreamingAudio) {
           await lastPcmEnd;
-          // A missing final marker should not delete text or surface a fatal UI error.
-          if (!streamingAudioComplete) setMode("listening");
+          if (!streamingAudioComplete) {
+            elevenUnavailableRef.current = true;
+            queueSpeech(full.trim(), turn);
+            await queuedRef.current;
+          }
         } else {
           setLatency(Math.round(performance.now() - start));
           queueSpeech(full.trim(), turn);
