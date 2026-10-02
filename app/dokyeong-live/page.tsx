@@ -235,19 +235,15 @@ export default function DokyeongLive() {
       setMode("speaking");
 
       try {
-        if (!elevenUnavailableRef.current) {
-          const response = fetch(`${API}/tts`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: spokenText }),
-            signal: controller.signal,
-          });
-          await playSpeech(response, controller.signal, turn);
-          return;
-        }
-      } catch {
-        if (!controller.signal.aborted && turn === generation.current) elevenUnavailableRef.current = true;
-      }
+        const response = fetch(`${API}/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: spokenText }),
+          signal: controller.signal,
+        });
+        await playSpeech(response, controller.signal, turn);
+        return;
+      } catch {}
 
       if (!controller.signal.aborted && turn === generation.current) {
         await playSystemSpeech(spokenText, controller.signal, turn);
@@ -270,6 +266,7 @@ export default function DokyeongLive() {
     let textCommitted = false;
     let gotStreamingAudio = false;
     let streamingAudioComplete = false;
+    let ttsQueued = false;
     let firstAudio = true;
     let pcmNextAt = 0;
     let lastPcmEnd: Promise<void> = Promise.resolve();
@@ -328,7 +325,7 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice: voice && !elevenUnavailableRef.current }),
+        body: JSON.stringify({ messages: conversation.slice(-24), voice: false }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -363,6 +360,11 @@ export default function DokyeongLive() {
           if (event.type === "text_done") {
             if (typeof event.text === "string" && event.text.trim()) full = event.text;
             commitText(full);
+            if (voice && !ttsQueued && full.trim()) {
+              ttsQueued = true;
+              setLatency(Math.round(performance.now() - start));
+              queueSpeech(full.trim(), turn);
+            }
           }
 
           if (event.type === "audio" && typeof event.data === "string") {
@@ -396,13 +398,15 @@ export default function DokyeongLive() {
         if (gotStreamingAudio) {
           await lastPcmEnd;
           if (!streamingAudioComplete) {
-            elevenUnavailableRef.current = true;
             queueSpeech(full.trim(), turn);
             await queuedRef.current;
           }
         } else {
-          setLatency(Math.round(performance.now() - start));
-          queueSpeech(full.trim(), turn);
+          if (!ttsQueued) {
+            ttsQueued = true;
+            setLatency(Math.round(performance.now() - start));
+            queueSpeech(full.trim(), turn);
+          }
           await queuedRef.current;
         }
       }
