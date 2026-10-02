@@ -246,9 +246,11 @@ export async function POST(request: NextRequest) {
         if (!streamOpen) return;
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      // Keep response text independent from voice. TTS is started by the client as soon as text_done arrives.
-      const dialogue: DialogueBridge | null = null;
-      void wantVoice;
+      // Realtime voice is disabled by default for reliability. It can be re-enabled explicitly later.
+      let dialogue: DialogueBridge | null = null;
+      if (wantVoice && process.env.DOKYEONG_REALTIME_TTS === "enabled") {
+        dialogue = createDialogueBridge(send, request.signal);
+      }
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
