@@ -246,7 +246,9 @@ export async function POST(request: NextRequest) {
         if (!streamOpen) return;
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      const dialogue = wantVoice ? createDialogueBridge(send, request.signal) : null;
+      // Keep response text independent from voice. TTS is started by the client as soon as text_done arrives.
+      const dialogue: DialogueBridge | null = null;
+      void wantVoice;
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
