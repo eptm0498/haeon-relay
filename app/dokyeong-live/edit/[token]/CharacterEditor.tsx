@@ -67,7 +67,6 @@ export default function CharacterEditor({ token }: { token: string }) {
   const api = `/api/dokyeong/character/${token}`;
   const [characters, setCharacters] = useState<Character[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [selectedId, setSelectedId] = useState("");
   const [working, setWorking] = useState<Character | null>(null);
   const [baseline, setBaseline] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -91,7 +90,6 @@ export default function CharacterEditor({ token }: { token: string }) {
   const dirty = !!working && serialized !== baseline;
 
   const applyCharacter = useCallback((character: Character) => {
-    setSelectedId(character.id || "");
     setWorking({...character});
     setDraft(parsePrompt(character.prompt));
     setRaw(character.prompt);
@@ -112,11 +110,11 @@ export default function CharacterEditor({ token }: { token: string }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       setCharacters(data);
-      const keep = data.find((item: Character) => item.id === selectedId) || data.find((item: Character) => item.is_default) || data[0];
+      const keep = data.find((item: Character) => item.is_default) || data[0];
       if (keep) applyCharacter(keep);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "캐릭터를 불러오지 못했어."); }
     finally { setLoading(false); }
-  }, [api, selectedId, applyCharacter]);
+  }, [api, applyCharacter]);
 
   const loadVoices = useCallback(async () => {
     setVoiceLoading(true);
@@ -155,7 +153,7 @@ export default function CharacterEditor({ token }: { token: string }) {
       voice_id:firstVoice?.voice_id || "", voice_name:firstVoice?.name || "",
       avatar_url:null, is_default:false, sort_order:characters.length, version:null,
     };
-    setSelectedId(""); setWorking(character); setDraft(parsePrompt(character.prompt)); setRaw(character.prompt);
+    setWorking(character); setDraft(parsePrompt(character.prompt)); setRaw(character.prompt);
     setRawMode(false); setActive("intro"); setTab("profile");
     setBaseline("__NEW__"); setNotice(""); setError("");
   }
@@ -193,7 +191,7 @@ export default function CharacterEditor({ token }: { token: string }) {
       const response = await fetch(`${api}/characters?id=${working.id}`, {method:"DELETE"});
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "삭제하지 못했어.");
-      setSelectedId(""); setWorking(null); setBaseline(""); await loadCharacters();
+      setWorking(null); setBaseline(""); await loadCharacters();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "삭제하지 못했어."); }
     finally { setSaving(false); }
   }
