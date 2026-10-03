@@ -8,8 +8,10 @@ type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
 type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: string; avatar_url: string | null; is_default: boolean; sort_order: number };
+type LiveVoice = { voice_id: string; name: string; category: string; labels?: Record<string,string> };
 type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 const historyKey = (characterId: string) => `character-live-history-v2:${characterId}`;
+const voiceKey = (characterId: string) => `character-live-voice-v1:${characterId}`;
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
@@ -50,8 +52,11 @@ export default function DokyeongLive() {
   const [needsTap, setNeedsTap] = useState(false);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
+  const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
+  const [voiceId, setVoiceId] = useState("");
   const messageRef = useRef<Message[]>([]);
   const characterIdRef = useRef("");
+  const voiceIdRef = useRef("");
   const phaseRef = useRef<Phase>("off");
   const running = useRef(false);
   const generation = useRef(0);
@@ -102,6 +107,9 @@ export default function DokyeongLive() {
       const changed = characterIdRef.current !== selected.id;
       characterIdRef.current = selected.id;
       setCharacterId(selected.id);
+      const selectedVoice = localStorage.getItem(voiceKey(selected.id)) || selected.voice_id;
+      voiceIdRef.current = selectedVoice;
+      setVoiceId(selectedVoice);
       if (changed || !messageRef.current.length) {
         let saved: Message[] = [];
         try {
@@ -116,6 +124,19 @@ export default function DokyeongLive() {
     }
   }, []);
   useEffect(() => { if (status?.authenticated) void loadCharacters(); }, [status?.authenticated, loadCharacters]);
+
+  const loadVoices = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/voices`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "목소리를 불러오지 못했어.");
+      setAvailableVoices(Array.isArray(data.voices) ? data.voices : []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "목소리를 불러오지 못했어.");
+    }
+  }, []);
+  useEffect(() => { if (status?.authenticated) void loadVoices(); }, [status?.authenticated, loadVoices]);
+
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
 
   const keepAwake = useCallback(async () => {
@@ -231,7 +252,7 @@ export default function DokyeongLive() {
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
     const controller = new AbortController(); audioAbortRef.current.add(controller);
     // Send one complete reply per TTS request so ElevenLabs keeps one voice, breath, and prosody curve.
-    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText, characterId: characterIdRef.current || null }), signal: controller.signal });
+    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText, characterId: characterIdRef.current || null, voiceId: voiceIdRef.current || null }), signal: controller.signal });
     queuedRef.current = queuedRef.current.catch(() => {}).then(async () => {
       if (controller.signal.aborted || turn !== generation.current) return;
       setMode("speaking");
@@ -312,7 +333,7 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice, characterId: characterIdRef.current || null }),
+        body: JSON.stringify({ messages: conversation.slice(-24), voice, characterId: characterIdRef.current || null, voiceId: voiceIdRef.current || null }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -531,12 +552,23 @@ export default function DokyeongLive() {
     endCall();
     characterIdRef.current = next.id;
     setCharacterId(next.id);
+    const nextVoice = localStorage.getItem(voiceKey(next.id)) || next.voice_id;
+    voiceIdRef.current = nextVoice;
+    setVoiceId(nextVoice);
     let saved: Message[] = [];
     try {
       const parsed = JSON.parse(localStorage.getItem(historyKey(next.id)) || "[]");
       if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-40);
     } catch {}
     messageRef.current = saved; setMessages(saved); setPartial(""); setError(""); setLatency(null);
+  }
+  function changeVoice(nextVoiceId: string) {
+    if (!nextVoiceId || nextVoiceId === voiceIdRef.current) return;
+    voiceIdRef.current = nextVoiceId;
+    setVoiceId(nextVoiceId);
+    if (characterIdRef.current) localStorage.setItem(voiceKey(characterIdRef.current), nextVoiceId);
+    if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
+    else stopAudio();
   }
   function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; if (running.current) lastInputAtRef.current = performance.now(); setDraft(""); void reply(value); }
 
@@ -546,7 +578,7 @@ export default function DokyeongLive() {
 
   return <main className={styles.shell}>
     <div className={styles.phone}>
-      <header className={styles.top}><span className={styles.overline}>CHARACTER LIVE</span><div style={{display:"flex",alignItems:"center",gap:8}}>{characters.length>1 && <select aria-label="캐릭터 선택" value={characterId} onChange={(e)=>switchCharacter(e.target.value)} style={{maxWidth:120,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{characters.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}<button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></div></header>
+      <header className={styles.top}><span className={styles.overline}>CHARACTER LIVE</span><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>{characters.length>1 && <select aria-label="캐릭터 선택" value={characterId} onChange={(e)=>switchCharacter(e.target.value)} style={{maxWidth:110,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{characters.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}{activeCharacter && availableVoices.length>0 && <select aria-label="목소리 선택" value={voiceId || activeCharacter.voice_id} onChange={(e)=>changeVoice(e.target.value)} style={{maxWidth:125,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{voiceId && !availableVoices.some((item)=>item.voice_id===voiceId) && <option value={voiceId}>{activeCharacter.voice_name || "현재 목소리"}</option>}{availableVoices.map((item)=><option key={item.voice_id} value={item.voice_id}>{item.name}</option>)}</select>}<button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></div></header>
       <div className={styles.hero}>
         <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true">{activeAvatar ? <img src={activeAvatar} alt="" /> : <span>{activeName.slice(0,2)}</span>}</div>
         <h1>{activeName}</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
