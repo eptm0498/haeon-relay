@@ -7,8 +7,9 @@ import { dokyeongFaceDataUrl } from "./dokyeong-face";
 type Message = { role: "user" | "assistant"; content: string };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
+type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: string; avatar_url: string | null; is_default: boolean; sort_order: number };
 type WakeLockHandle = { released: boolean; release: () => Promise<void> };
-const storageKey = "dokyeong-live-history-v1";
+const historyKey = (characterId: string) => `character-live-history-v2:${characterId}`;
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
@@ -47,7 +48,10 @@ export default function DokyeongLive() {
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
+  const [characters, setCharacters] = useState<LiveCharacter[]>([]);
+  const [characterId, setCharacterId] = useState("");
   const messageRef = useRef<Message[]>([]);
+  const characterIdRef = useRef("");
   const phaseRef = useRef<Phase>("off");
   const running = useRef(false);
   const generation = useRef(0);
@@ -75,12 +79,43 @@ export default function DokyeongLive() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
-  const setHistory = (next: Message[]) => { const kept = next.slice(-40); messageRef.current = kept; setMessages(kept); localStorage.setItem(storageKey, JSON.stringify(kept)); };
+  const setHistory = (next: Message[]) => {
+    const kept = next.slice(-40);
+    messageRef.current = kept;
+    setMessages(kept);
+    if (characterIdRef.current) localStorage.setItem(historyKey(characterIdRef.current), JSON.stringify(kept));
+  };
   useEffect(() => {
-    try { const saved = JSON.parse(localStorage.getItem(storageKey) || "[]"); if (Array.isArray(saved)) setHistory(saved.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")); } catch {}
     fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setError("서버에 연결하지 못했어."));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
+
+  const loadCharacters = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/characters`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
+      const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
+      setCharacters(list);
+      const selected = list.find((item) => item.id === characterIdRef.current) || list.find((item) => item.is_default) || list[0];
+      if (!selected) return;
+      const changed = characterIdRef.current !== selected.id;
+      characterIdRef.current = selected.id;
+      setCharacterId(selected.id);
+      if (changed || !messageRef.current.length) {
+        let saved: Message[] = [];
+        try {
+          const raw = localStorage.getItem(historyKey(selected.id)) || (selected.is_default ? localStorage.getItem("dokyeong-live-history-v1") : null) || "[]";
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-40);
+        } catch {}
+        messageRef.current = saved; setMessages(saved); setPartial("");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "캐릭터를 불러오지 못했어.");
+    }
+  }, []);
+  useEffect(() => { if (status?.authenticated) void loadCharacters(); }, [status?.authenticated, loadCharacters]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
 
   const keepAwake = useCallback(async () => {
@@ -196,7 +231,7 @@ export default function DokyeongLive() {
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
     const controller = new AbortController(); audioAbortRef.current.add(controller);
     // Send one complete reply per TTS request so ElevenLabs keeps one voice, breath, and prosody curve.
-    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText }), signal: controller.signal });
+    const response = fetch(`${API}/tts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: spokenText, characterId: characterIdRef.current || null }), signal: controller.signal });
     queuedRef.current = queuedRef.current.catch(() => {}).then(async () => {
       if (controller.signal.aborted || turn !== generation.current) return;
       setMode("speaking");
@@ -277,7 +312,7 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice }),
+        body: JSON.stringify({ messages: conversation.slice(-24), voice, characterId: characterIdRef.current || null }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -490,19 +525,36 @@ export default function DokyeongLive() {
   }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
   function restart() { endCall(); setHistory([]); setPartial(""); setError(""); setLatency(null); }
+  function switchCharacter(nextId: string) {
+    const next = characters.find((item) => item.id === nextId);
+    if (!next || next.id === characterIdRef.current) return;
+    endCall();
+    characterIdRef.current = next.id;
+    setCharacterId(next.id);
+    let saved: Message[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(historyKey(next.id)) || "[]");
+      if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-40);
+    } catch {}
+    messageRef.current = saved; setMessages(saved); setPartial(""); setError(""); setLatency(null);
+  }
   function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; if (running.current) lastInputAtRef.current = performance.now(); setDraft(""); void reply(value); }
+
+  const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
+  const activeName = activeCharacter?.name || "캐릭터";
+  const activeAvatar = activeCharacter?.avatar_url || (activeName === "도경" ? dokyeongFaceDataUrl : null);
 
   return <main className={styles.shell}>
     <div className={styles.phone}>
-      <header className={styles.top}><span className={styles.overline}>도경LIVE</span><button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></header>
+      <header className={styles.top}><span className={styles.overline}>CHARACTER LIVE</span><div style={{display:"flex",alignItems:"center",gap:8}}>{characters.length>1 && <select aria-label="캐릭터 선택" value={characterId} onChange={(e)=>switchCharacter(e.target.value)} style={{maxWidth:120,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{characters.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}<button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></div></header>
       <div className={styles.hero}>
-        <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true"><img src={dokyeongFaceDataUrl} alt="" /></div>
-        <h1>도경</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
+        <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true">{activeAvatar ? <img src={activeAvatar} alt="" /> : <span>{activeName.slice(0,2)}</span>}</div>
+        <h1>{activeName}</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
         {latency !== null && <p className={styles.latency}>첫 음성까지 {(latency / 1000).toFixed(1)}초</p>}
       </div>
       <section className={styles.transcript} ref={scrollRef} aria-live="polite">
-        {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "형" : "도경"}</span><p>{message.content}</p></div>)}
-        {captions && partial && <div className={`${styles.line} ${styles.his}`}><span>도경</span><p>{partial}</p></div>}
+        {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "나" : activeName}</span><p>{message.content}</p></div>)}
+        {captions && partial && <div className={`${styles.line} ${styles.his}`}><span>{activeName}</span><p>{partial}</p></div>}
         {!captions && <p className={styles.empty}>자막 꺼짐</p>}
         {captions && !messages.length && !partial && <p className={styles.empty}>마이크를 누르고 편하게 말해.</p>}
       </section>
@@ -517,7 +569,7 @@ export default function DokyeongLive() {
           <button className={`${styles.callButton} ${running.current && phase !== "paused" ? styles.endButton : ""}`} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready} aria-label={running.current && phase !== "paused" ? "통화 종료" : "마이크 시작"}>{running.current && phase !== "paused" ? "■" : "♩"}</button>
           <button className={styles.smallButton} onClick={() => setCaptions(!captions)} aria-label={captions ? "자막 끄기" : "자막 켜기"} aria-pressed={captions}><span>▤</span>자막</button>
         </div>
-        <div className={styles.bottom}><span>{needsTap ? "재생 또는 마이크 연결을 위해 가운데 버튼을 눌러줘" : running.current ? "말을 멈추면 도경이 대답해" : "가운데 버튼을 눌러 통화 시작"}</span>{phase === "speaking" && <button onClick={interrupt}>말 끊기</button>}</div>
+        <div className={styles.bottom}><span>{needsTap ? "재생 또는 마이크 연결을 위해 가운데 버튼을 눌러줘" : running.current ? `말을 멈추면 ${activeName}이 대답해` : "가운데 버튼을 눌러 통화 시작"}</span>{phase === "speaking" && <button onClick={interrupt}>말 끊기</button>}</div>
       </>}
     </div>
   </main>;
