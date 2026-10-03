@@ -47,24 +47,6 @@ async function callFlash(text: string, signal: AbortSignal, timeoutMs: number) {
   );
 }
 
-async function callOpenAI(text: string, signal: AbortSignal, timeoutMs: number) {
-  if (!process.env.OPENAI_API_KEY) return null;
-  return fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o-mini-tts",
-      voice: "cedar",
-      input: text,
-      instructions: "Speak natural Korean in a young adult male voice. Casual, warm, slightly teasing, conversational, steady breathing and pacing. Do not sound like an announcer.",
-      response_format: "mp3",
-      speed: 1,
-    }),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-    cache: "no-store",
-  });
-}
-
 async function describeFailure(response: Response) {
   const detail = await response.text().catch(() => "");
   return { status: response.status, detail: detail.slice(0, 600) };
@@ -123,24 +105,6 @@ export async function POST(request: NextRequest) {
         if (request.signal.aborted) throw error;
         console.warn("[dokyeong/tts] flash connection failed", { attempt, detail: error instanceof Error ? error.message : "unknown" });
       }
-    }
-
-    try {
-      const openai = await callOpenAI(text, request.signal, 18000);
-      if (openai?.ok && openai.body) {
-        return new Response(openai.body, {
-          headers: {
-            ...noStore,
-            "Content-Type": "audio/mpeg",
-            "X-Content-Type-Options": "nosniff",
-            "X-Dokyeong-TTS-Model": "gpt-4o-mini-tts",
-          },
-        });
-      }
-      if (openai) console.warn("[dokyeong/tts] openai fallback failed", await describeFailure(openai));
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      console.warn("[dokyeong/tts] openai fallback connection failed", error instanceof Error ? error.message : "unknown");
     }
 
     return Response.json({ error: "도경 목소리를 만들지 못했어." }, { status: 502, headers: noStore });
