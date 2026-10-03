@@ -239,15 +239,26 @@ export default function CharacterEditor({ token }: { token: string }) {
                 <select id="voice-select" value={working.voice_id} onChange={e=>{
                   const picked=voices.find(v=>v.voice_id===e.target.value);
                   setWorking({...working,voice_id:e.target.value,voice_name:picked?.name||""});
-                }}>
+                }} style={{width:"100%",background:"#101115",border:"1px solid #3b3d44",borderRadius:9,color:"#f1f1f1",padding:"12px 13px"}}>
                   {!working.voice_id && <option value="">목소리 선택</option>}
                   {working.voice_id && !voices.some(v=>v.voice_id===working.voice_id) && <option value={working.voice_id}>{working.voice_name || working.voice_id} · 현재 설정</option>}
                   {voices.map(v=><option key={v.voice_id} value={v.voice_id}>{v.name} · {v.category || "voice"}{v.labels?.language ? ` · ${v.labels.language}` : ""}</option>)}
                 </select>
-                <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:10}}>
-                  <button type="button" className={styles.modeButton} onClick={()=>void loadVoices()} disabled={voiceLoading}>{voiceLoading?"목소리 불러오는 중…":"목소리 목록 새로고침"}</button>
-                  {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%"}}/>}
+                <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:12}}>
+                  <span style={{fontSize:11,color:"#8d9098"}}>{voiceLoading ? "목소리 목록 확인 중…" : `사용 가능한 목소리 ${voices.length}개`}</span>
+                  <button type="button" className={styles.modeButton} onClick={()=>void loadVoices()} disabled={voiceLoading}>{voiceLoading?"불러오는 중…":"목록 새로고침"}</button>
                 </div>
+                {!voiceLoading && voices.length > 0 && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:8,maxHeight:220,overflowY:"auto",marginTop:10,paddingRight:3}}>
+                  {voices.map(v=>{
+                    const picked=working.voice_id===v.voice_id;
+                    return <button key={v.voice_id} type="button" aria-pressed={picked} onClick={()=>setWorking({...working,voice_id:v.voice_id,voice_name:v.name})}
+                      style={{textAlign:"left",border:picked?"1px solid #d9ff67":"1px solid #34363d",background:picked?"#252d1e":"#1b1c21",color:picked?"#eaffaa":"#d7d8dc",borderRadius:9,padding:"10px 11px",minHeight:54}}>
+                      <span style={{display:"block",fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.name}</span>
+                      <span style={{display:"block",fontSize:9.5,color:picked?"#b8ce74":"#777a82",marginTop:5}}>{v.category || "voice"}{v.labels?.language ? ` · ${v.labels.language}` : ""}</span>
+                    </button>;
+                  })}
+                </div>}
+                {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%",marginTop:12}}/>}
                 <label htmlFor="avatar-url" style={{marginTop:18}}>프로필 이미지 URL <span style={{opacity:.55}}>(선택)</span></label>
                 <input id="avatar-url" placeholder="https://..." value={working.avatar_url||""} onChange={e=>setWorking({...working,avatar_url:e.target.value||null})}/>
                 <label style={{display:"flex",gap:8,alignItems:"center",marginTop:14}}><input type="checkbox" checked={working.is_default} onChange={e=>setWorking({...working,is_default:e.target.checked})}/> 앱을 열었을 때 기본 캐릭터로 사용</label>
