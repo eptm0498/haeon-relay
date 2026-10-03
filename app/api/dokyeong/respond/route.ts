@@ -209,11 +209,13 @@ export async function POST(request: NextRequest) {
   let messages: Message[];
   let wantVoice = true;
   let characterId: string | null = null;
+  let voiceIdOverride: string | null = null;
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
+    voiceIdOverride = typeof parsed.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(parsed.voiceId) ? parsed.voiceId : null;
     if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
       !messages.every((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 1500) ||
       messages.at(-1)?.role !== "user") throw Error();
@@ -225,6 +227,7 @@ export async function POST(request: NextRequest) {
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   const sampleContext = await relatedSampleContext(messages, character.id, character.name);
   const prompt = character.prompt + sampleContext;
+  const activeVoiceId = voiceIdOverride || character.voice_id;
   const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
   const upstream = result.response!;
@@ -248,7 +251,7 @@ export async function POST(request: NextRequest) {
         if (!streamOpen) return;
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      const dialogue = wantVoice ? createDialogueBridge(send, request.signal, character.voice_id) : null;
+      const dialogue = wantVoice ? createDialogueBridge(send, request.signal, activeVoiceId) : null;
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
