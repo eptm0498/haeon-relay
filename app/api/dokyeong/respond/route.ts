@@ -246,11 +246,7 @@ export async function POST(request: NextRequest) {
         if (!streamOpen) return;
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      // Realtime voice is disabled by default for reliability. It can be re-enabled explicitly later.
-      let dialogue: DialogueBridge | null = null;
-      if (wantVoice && process.env.DOKYEONG_REALTIME_TTS === "enabled") {
-        dialogue = createDialogueBridge(send, request.signal);
-      }
+      const dialogue = wantVoice ? createDialogueBridge(send, request.signal) : null;
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
