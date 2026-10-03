@@ -63,17 +63,19 @@ export async function POST(request: NextRequest) {
 
   let text = "";
   let characterId: string | null = null;
+  let voiceIdOverride: string | null = null;
   try {
     const body = JSON.parse(raw);
     text = String(body.text || "").trim();
     characterId = typeof body.characterId === "string" && /^[a-f0-9-]{36}$/i.test(body.characterId) ? body.characterId : null;
+    voiceIdOverride = typeof body.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(body.voiceId) ? body.voiceId : null;
   } catch {}
   if (!text || text.length > 1400) return Response.json({ error: "발화 길이를 확인해 줘." }, { status: 400 });
 
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   const voice = liveConfig.elevenlabs;
-  const voiceId = character.voice_id;
+  const voiceId = voiceIdOverride || character.voice_id;
 
   try {
     try {
