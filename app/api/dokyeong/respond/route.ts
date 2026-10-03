@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
-import { activeCharacterPrompt } from "@/lib/dokyeong/settings";
+import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { relatedSampleContext } from "@/lib/dokyeong/samples";
 
 export const runtime = "nodejs";
@@ -71,7 +71,7 @@ function decodeSocketText(data: unknown): Promise<string> {
   return Promise.resolve("");
 }
 
-function createDialogueBridge(send: (event: object) => void, signal: AbortSignal): DialogueBridge | null {
+function createDialogueBridge(send: (event: object) => void, signal: AbortSignal, voiceId: string): DialogueBridge | null {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey || typeof WebSocket === "undefined") return null;
 
@@ -105,7 +105,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
     opened = true;
     try {
       ws.send(JSON.stringify({
-        voices: [voice.voiceId],
+        voices: [voiceId],
         xi_api_key: apiKey,
       }));
       resolveReady();
@@ -162,7 +162,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
         await ready;
         if (failed || ws.readyState !== 1 || signal.aborted) return;
         ws.send(JSON.stringify({
-          inputs: [{ text: spoken, voice_id: voice.voiceId }],
+          inputs: [{ text: spoken, voice_id: voiceId }],
         }));
       } catch {
         failed = true;
@@ -208,10 +208,12 @@ export async function POST(request: NextRequest) {
 
   let messages: Message[];
   let wantVoice = true;
+  let characterId: string | null = null;
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
+    characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
     if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
       !messages.every((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 1500) ||
       messages.at(-1)?.role !== "user") throw Error();
@@ -219,10 +221,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
   }
 
-  const [basePrompt, sampleContext] = await Promise.all([
-    activeCharacterPrompt(), relatedSampleContext(messages),
-  ]);
-  const prompt = basePrompt + sampleContext;
+  const character = await readLiveCharacter(characterId);
+  if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
+  const sampleContext = await relatedSampleContext(messages, character.id, character.name);
+  const prompt = character.prompt + sampleContext;
   const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
   const upstream = result.response!;
@@ -246,7 +248,7 @@ export async function POST(request: NextRequest) {
         if (!streamOpen) return;
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      const dialogue = wantVoice ? createDialogueBridge(send, request.signal) : null;
+      const dialogue = wantVoice ? createDialogueBridge(send, request.signal, character.voice_id) : null;
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
