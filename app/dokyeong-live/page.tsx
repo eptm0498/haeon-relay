@@ -211,6 +211,19 @@ export default function DokyeongLive() {
   }, []);
   useEffect(() => { if (status?.authenticated) void loadCharacters(); }, [status?.authenticated, loadCharacters]);
 
+  useEffect(() => {
+    if (!status?.authenticated) return;
+    const refresh = () => { if (!document.hidden) void loadCharacters(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refresh, 30000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.clearInterval(timer);
+    };
+  }, [status?.authenticated, loadCharacters]);
+
   const loadVoices = useCallback(async () => {
     try {
       const response = await fetch(`${API}/voices`, { cache: "no-store" });
@@ -913,3 +926,4 @@ export default function DokyeongLive() {
     </div>
   </main>;
 }
+

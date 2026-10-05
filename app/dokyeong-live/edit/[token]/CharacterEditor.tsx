@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles, Trash2, Volume2 } from "lucide-react";
 import SampleManager from "./SampleManager";
+import ProfilePhoto from "./ProfilePhoto";
 import styles from "./editor.module.css";
 
 type Section = { id: string; title: string; body: string };
@@ -259,8 +260,8 @@ export default function CharacterEditor({ token }: { token: string }) {
                   })}
                 </div>}
                 {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%",marginTop:12}}/>}
-                <label htmlFor="avatar-url" style={{marginTop:18}}>프로필 이미지 URL <span style={{opacity:.55}}>(선택)</span></label>
-                <input id="avatar-url" placeholder="https://..." value={working.avatar_url||""} onChange={e=>setWorking({...working,avatar_url:e.target.value||null})}/>
+                <ProfilePhoto key={working.id || "new"} name={working.name} value={working.avatar_url} disabled={saving}
+                  onChange={avatar_url => { setWorking(previous => previous ? {...previous, avatar_url} : previous); setNotice(""); }}/>
                 <label style={{display:"flex",gap:8,alignItems:"center",marginTop:14}}><input type="checkbox" checked={working.is_default} onChange={e=>setWorking({...working,is_default:e.target.checked})}/> 앱을 열었을 때 기본 캐릭터로 사용</label>
               </div>
             </div>
@@ -290,3 +291,4 @@ export default function CharacterEditor({ token }: { token: string }) {
     </main>
   </div>;
 }
+
