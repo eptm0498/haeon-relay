@@ -2,10 +2,14 @@ import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
+import { memoryContext } from "@/lib/dokyeong/memory";
+import { currentTimeContext } from "@/lib/dokyeong/time-context";
+import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
+import { wantsPhoto } from "@/lib/dokyeong/photo-intent";
 import { relatedSampleContext } from "@/lib/dokyeong/samples";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type MessageImage = { mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string };
 type Message = { role: "user" | "assistant"; content: string; image?: MessageImage };
@@ -71,6 +75,8 @@ async function callGeminiModel(model: string, messages: Message[], prompt: strin
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: prompt }] },
         contents: normalizeMessages(messages),
+        tools:[{functionDeclarations:[photoTool]}],
+        toolConfig:{functionCallingConfig:{mode:wantsPhoto(messages.at(-1)?.content||"")?"ANY":"AUTO"}},
         generationConfig: {
           maxOutputTokens: 1024,
           temperature: 0.9,
@@ -294,7 +300,10 @@ export async function POST(request: NextRequest) {
 
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
-  const prompt = character.prompt + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext;
+  const remembered=await memoryContext(character.id);
+  const prompt = character.prompt + currentTimeContext() + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
+[사진을 보내는 실제 기능]
+사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`;
   const activeVoiceId = voiceIdOverride || character.voice_id;
   const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
@@ -323,6 +332,7 @@ export async function POST(request: NextRequest) {
       const reader = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
+      let photoPlan: {scene:string;waitMessage:string}|null=null;
       let sentenceCount = 0, inTerminalRun = false, limitReached = false;
 
       const segment = (flush = false) => {
@@ -385,6 +395,8 @@ export async function POST(request: NextRequest) {
           if (Array.isArray(parts)) {
             for (const part of parts) {
               if (part?.thought === true) continue;
+              const photo=parsePhotoCall(part);
+              if(photo)photoPlan=photo;
               if (typeof part?.text === "string") emitText(part.text);
             }
           }
@@ -416,6 +428,10 @@ export async function POST(request: NextRequest) {
 
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
 
+        if(!photoPlan && !lastError && wantsPhoto(messages.at(-1)?.content||"")) {
+          photoPlan={scene:messages.slice(-6).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-1800),waitMessage:"잠깐만, 사진 찍어서 보내줄게."};
+        }
+        if(photoPlan){dialogue?.close();send({type:"photo",...photoPlan});return;}
         if (!lastError || full.trim()) {
           segment(true);
           const completedText = full.trim();

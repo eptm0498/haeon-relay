@@ -1,8 +1,9 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { readCharacterReferences, readLiveCharacter } from "@/lib/dokyeong/characters";
 import { rpc } from "@/lib/dokyeong/settings";
-import { wantsPhoto } from "@/lib/dokyeong/photo-intent";
+import { memoryContext, updateMemory } from "@/lib/dokyeong/memory";
+import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { generateCharacterPhoto, ImageGenerationError } from "@/lib/dokyeong/image-generation";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ export async function POST(request: NextRequest) {
     if (raw.length > 12000) return Response.json({error:"사진 요청이 너무 길어."}, {status:413,headers:noStore});
     let body;
     try { body = JSON.parse(raw); } catch { return Response.json({error:"사진 요청을 확인해 줘."}, {status:400,headers:noStore}); }
-    if (!body || typeof body.text !== "string" || body.text.length > 1500 || !wantsPhoto(body.text) ||
+    if (!body || typeof body.text !== "string" || body.text.length > 1500 || !body.text.trim() ||
+        body.scene !== undefined && (typeof body.scene !== "string" || body.scene.length>1800) ||
         typeof body.characterId !== "string" || !/^[a-f0-9-]{36}$/i.test(body.characterId))
       return Response.json({error:"원하는 사진을 말해 줘."}, {status:400,headers:noStore});
     const key = process.env.OPENAI_API_KEY;
@@ -33,11 +35,12 @@ export async function POST(request: NextRequest) {
     if (!history) throw new Error("history unavailable");
     const context = typeof body.context === "string" ? body.context.slice(-6000) : "";
     const references=await readCharacterReferences(character.id);
-    const generated=await generateCharacterPhoto({name:character.name,characterPrompt:character.prompt,references,avatar:reference,request:body.text,context,signal:request.signal});
+    const generated=await generateCharacterPhoto({name:character.name,characterPrompt:character.prompt,references,avatar:reference,request:body.scene||body.text,context:currentTimeContext()+context,memory:await memoryContext(character.id),signal:request.signal});
     const {image,model}=generated;
-    const message={id:crypto.randomUUID(),role:"assistant",content:"요청한 사진이야.",ts:Date.now(),image};
+    const message={id:crypto.randomUUID(),role:"assistant",content:"",ts:Date.now(),image,imagePrompt:body.scene||body.text};
     // Save before delivery, so a reload or device switch preserves the photo.
     await rpc("live_sync_history",{server_token:historyKey,action:"append",target_character:character.id,expected_epoch:history.epoch,incoming:[message]},15000);
+    after(()=>updateMemory(character.id).catch(()=>{console.warn("CHARACTER_MEMORY_RETRY",character.id);}));
     console.log("CHARACTER_IMAGE_OK",character.id,model,"references",generated.referenceCount);
     return Response.json({message,model,referenceUsed:generated.referenceUsed,referenceCount:generated.referenceCount,faceCount:generated.faceCount,bodyCount:generated.bodyCount},{headers:noStore});
   } catch (cause) {

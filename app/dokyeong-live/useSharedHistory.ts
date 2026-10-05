@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ChatImage = { dataUrl: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; name?: string };
-export type Message = { id?: string; role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage };
+export type Message = { id?: string; role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage; proactive?:boolean };
 type History = { character_id:string; epoch:string; messages:Message[]; import_allowed:boolean };
 type Outbox = { epoch:string; messages:Message[] };
 const historyKey = (id:string) => "character-live-history-v2:" + id;

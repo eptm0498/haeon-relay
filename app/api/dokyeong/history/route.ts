@@ -1,8 +1,10 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { rpc } from "@/lib/dokyeong/settings";
 
+import { updateMemory } from "@/lib/dokyeong/memory";
 export const runtime = "nodejs";
+export const maxDuration=180;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function sync(body: object) {
   const token = process.env.CHARACTER_HISTORY_KEY;
@@ -42,6 +44,8 @@ export async function POST(request: NextRequest) {
       id:m.id, role:m.role, content:m.content, ts:m.ts,
       ...(m.image ? {image:{dataUrl:m.image.dataUrl,mimeType:m.image.mimeType}} : {}),
     }));
-    return Response.json(await sync({action:body.action,target_character:body.characterId,expected_epoch:body.epoch,incoming:messages}), {headers:noStore});
+    const saved=await sync({action:body.action,target_character:body.characterId,expected_epoch:body.epoch,incoming:messages});
+    if(body.action!=="reset")after(()=>updateMemory(body.characterId).catch(()=>{console.warn("CHARACTER_MEMORY_RETRY",body.characterId);}));
+    return Response.json(saved,{headers:noStore});
   } catch (error) { return failure(error); }
 }

@@ -2,8 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
+import {useCompanion} from "./useCompanion";
 import CharacterAvatar from "./CharacterAvatar";
-import { wantsPhoto } from "@/lib/dokyeong/photo-intent";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
 
@@ -144,6 +144,9 @@ export default function DokyeongLive() {
   const [characterId, setCharacterId] = useState("");
   const [resetting, setResetting] = useState(false);
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
+  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize();});
+  const navigationReady=useRef(false);
+  const swipeStart=useRef<{x:number;y:number}|null>(null);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
   const [voiceId, setVoiceId] = useState("");
@@ -214,7 +217,8 @@ export default function DokyeongLive() {
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
       setCharacters(list);
-      const selected = list.find((item) => item.id === characterIdRef.current) || list.find((item) => item.is_default) || list[0];
+      const requestedId=new URLSearchParams(window.location.search).get("character");
+      const selected = list.find((item) => item.id === (characterIdRef.current||requestedId)) || list.find((item) => item.is_default) || list[0];
       if (!selected) return;
       characterIdRef.current = selected.id;
       setCharacterId(selected.id);
@@ -388,6 +392,7 @@ export default function DokyeongLive() {
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
+    let photoPlan: {scene:string;waitMessage:string}|null=null;
     let full = "";
     let complete = false;
     let textCommitted = false;
@@ -449,22 +454,6 @@ export default function DokyeongLive() {
 
     try {
       const requestCharacterId = characterIdRef.current;
-      if (text && !image && wantsPhoto(text)) {
-        setGeneratingPhoto(true);
-        const response = await fetch(`${API}/images`, {
-          method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({characterId:requestCharacterId,text,context:conversation.slice(-6).map(m => `${m.role}: ${m.content}`).join("\n").slice(-6000)}),signal:controller.signal,
-        });
-        const result = await response.json();
-        if (!response.ok) throw Error(result.error || "사진을 만들지 못했어.");
-        if (turn !== generation.current) return;
-        setHistory([...conversation,result.message]);
-        if (chatModeRef.current === "voice" && voice) {
-          queueSpeech(result.message.content,turn);
-          await queuedRef.current;
-        }
-        return;
-      }
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
@@ -514,6 +503,7 @@ export default function DokyeongLive() {
           try { event = JSON.parse(line); } catch { continue; }
           if (turn !== generation.current) return;
 
+          if(event.type==="photo" && typeof event.scene==="string") {photoPlan={scene:event.scene,waitMessage:event.waitMessage||"잠깐만, 사진 찍어서 보내줄게."};setPartial("");}
           if (event.type === "delta" && typeof event.text === "string") {
             full += event.text;
             if (!textCommitted) setPartial(full);
@@ -547,6 +537,19 @@ export default function DokyeongLive() {
         }
       }
 
+      if(photoPlan){
+        setGeneratingPhoto(true);setPartial("");
+        const waiting:Message={id:crypto.randomUUID(),role:"assistant",content:photoPlan.waitMessage,ts:Date.now()};
+        setHistory([...conversation,waiting]);
+        if(chatModeRef.current==="voice" && voice){queueSpeech(waiting.content,turn);}
+        await sharedHistory.synchronize();
+        const response=await fetch(`${API}/images`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({characterId:requestCharacterId,text:text||"이 사진의 문맥대로 사진을 보내줘.",scene:photoPlan.scene,context:conversation.slice(-8).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-6000)}),signal:controller.signal});
+        const result=await response.json();if(!response.ok)throw Error(result.error||"사진을 만들지 못했어.");
+        if(turn!==generation.current)return;
+        setHistory([...messageRef.current,result.message]);
+        if(chatModeRef.current==="voice" && voice)await queuedRef.current;
+        return;
+      }
       // If the transport ended after deltas but before a final marker, keep the answer instead of erasing it.
       if (!textCommitted && full.trim()) commitText(full);
       if (!complete || !full.trim()) throw Error("답장을 끝까지 받지 못했어.");
@@ -727,6 +730,7 @@ export default function DokyeongLive() {
     endCall();
     characterIdRef.current = next.id;
     setCharacterId(next.id);
+    if(window.history.state?.characterLive==="chat")window.history.replaceState({characterLive:"chat",characterId:next.id},"",`/dokyeong-live?character=${next.id}`);
     const nextVoice = localStorage.getItem(voiceKey(next.id)) || next.voice_id;
     voiceIdRef.current = nextVoice;
     setVoiceId(nextVoice);
@@ -742,9 +746,38 @@ export default function DokyeongLive() {
     else stopAudio();
   }
   function openConversation(nextId: string) {
-    switchCharacter(nextId);
+    switchCharacter(nextId);setSettingsOpen(false);
+    const url=`/dokyeong-live?character=${encodeURIComponent(nextId)}`;
+    if(window.history.state?.characterLive==="chat")window.history.replaceState({characterLive:"chat",characterId:nextId},"",url);
+    else window.history.pushState({characterLive:"chat",characterId:nextId},"",url);
     setView("chat");
   }
+  function goBack(){
+    if(settingsOpen){setSettingsOpen(false);return;}
+    endCall();setSettingsOpen(false);
+    if(window.history.state?.characterLive==="chat")window.history.back();else setView("list");
+  }
+  useEffect(()=>{
+    if(!status?.authenticated||!characterId||navigationReady.current)return;
+    navigationReady.current=true;
+    if(window.history.state?.characterLive){setView(window.history.state.characterLive==="chat"?"chat":"list");return;}
+    window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
+    window.history.pushState({characterLive:"chat",characterId},"",`/dokyeong-live?character=${characterId}`);
+  },[status?.authenticated,characterId]);
+  useEffect(()=>{
+    const pop=(event:PopStateEvent)=>{
+      endCall();setSettingsOpen(false);
+      if(event.state?.characterLive==="chat"){
+        const id=event.state.characterId;const next=characters.find(c=>c.id===id);
+        if(next){characterIdRef.current=id;setCharacterId(id);messageRef.current=sharedHistory.histories[id]||[];setMessages(messageRef.current);const v=localStorage.getItem(voiceKey(id))||next.voice_id;voiceIdRef.current=v;setVoiceId(v);}
+        setView("chat");
+      }else setView("list");
+    };
+    const open=(event:MessageEvent)=>{if(event.data?.type==="OPEN_CHARACTER" && characters.some(c=>c.id===event.data.characterId))openConversation(event.data.characterId);};
+    window.addEventListener("popstate",pop);navigator.serviceWorker?.addEventListener("message",open);
+    return()=>{window.removeEventListener("popstate",pop);navigator.serviceWorker?.removeEventListener("message",open);};
+  },[characters,sharedHistory.histories,endCall]);
+
   function closeVoicePanel() {
     if (chatModeRef.current === "voice") switchChatMode("text");
   }
@@ -830,7 +863,10 @@ export default function DokyeongLive() {
                 <strong>{item.name}</strong>
                 <small>{preview?.text || "대화를 시작해."}</small>
               </span>
-              <time>{formatListTime(preview?.ts)}</time>
+              <span className={styles.listMeta}><time>{formatListTime(preview?.ts)}</time>{(()=>{
+                const count=(sharedHistory.histories[item.id]||[]).filter(m=>m.role==="assistant"&&(m.ts||0)>(companion.state.characters[item.id]?.seenAt||0)).length;
+                return count>0?<span className={styles.unreadBadge} aria-label={`안 읽은 메시지 ${count}개`}>{count>99?"99+":count}</span>:null;
+              })()}</span>
             </button>;
           })}
           {!listItems.length && <div className={styles.listEmpty}>검색 결과가 없어.</div>}
@@ -839,10 +875,12 @@ export default function DokyeongLive() {
     </main>;
   }
 
-  return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}>
+  return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}
+    onTouchStart={event=>{const touch=event.touches[0];swipeStart.current=event.touches.length===1&&touch.clientX<=36?{x:touch.clientX,y:touch.clientY}:null;}}
+    onTouchEnd={event=>{const start=swipeStart.current;swipeStart.current=null;const touch=event.changedTouches[0];if(start&&touch&&touch.clientX-start.x>95&&Math.abs(touch.clientY-start.y)<55&&window.history.state?.characterLive==="chat")goBack();}}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
-        <button className={styles.backButton} onClick={() => { endCall(); setSettingsOpen(false); setView("list"); }} aria-label="채팅 목록">
+        <button className={styles.backButton} onClick={goBack} aria-label="채팅 목록">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 8 12l7.5 7.5" /></svg>
         </button>
         <button className={styles.headerTitle} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
@@ -878,6 +916,10 @@ export default function DokyeongLive() {
           </select>
         </div>
         <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
+        <div className={styles.settingRow}><span>이 캐릭터 선톡</span><button type="button" className={styles.notificationButton} aria-pressed={companion.state.characters[characterId]?.enabled!==false} onClick={()=>void companion.toggle()}>{companion.state.characters[characterId]?.enabled===false?"꺼짐":"켜짐"}</button></div>
+        <button type="button" className={styles.newChatButton} disabled={companion.registering} onClick={()=>void (companion.state.subscribed?companion.stopNotifications():companion.notifications())}>{companion.registering?"알림 등록 중…":companion.state.subscribed?"이 기기 알림 끄기":"앱을 닫아도 선톡 알림 받기"}</button>
+        <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 알림을 허용해 줘. 선톡은 대화 흐름과 한국 시간에 맞춰 와.</p>
+        {companion.error&&<p role="alert" className={styles.notificationHint}>{companion.error}</p>}
         <button className={styles.newChatButton} onClick={() => { restart(); setSettingsOpen(false); }}>이 캐릭터와 새 대화</button>
         </section>
       </div>}
