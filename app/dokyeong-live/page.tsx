@@ -4,7 +4,8 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import { dokyeongFaceDataUrl } from "./dokyeong-face";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; ts?: number };
+type ChatMode = "text" | "voice";
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
 type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: string; avatar_url: string | null; is_default: boolean; sort_order: number };
@@ -13,7 +14,15 @@ type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 const historyKey = (characterId: string) => `character-live-history-v2:${characterId}`;
 const voiceKey = (characterId: string) => `character-live-voice-v1:${characterId}`;
 const API = "/api/dokyeong";
-const labels: Record<Phase, string> = { off: "통화 대기", listening: "듣고 있어", thinking: "생각 중", speaking: "말하는 중", paused: "잠시 멈춤" };
+const labels: Record<Phase, string> = { off: "대기 중", listening: "듣고 있어", thinking: "답장 쓰는 중", speaking: "말하는 중", paused: "잠시 멈춤" };
+
+function formatMessageTime(ts?: number) {
+  if (!ts) return "";
+  const date = new Date(ts);
+  const hour = date.getHours();
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour < 12 ? "오전" : "오후"} ${hour % 12 || 12}:${minute}`;
+}
 
 function hasMeaningfulTranscript(value: unknown) {
   const text = String(value || "").trim();
@@ -42,6 +51,8 @@ export default function DokyeongLive() {
   const [status, setStatus] = useState<Status | null>(null);
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState<Phase>("off");
+  const [chatMode, setChatMode] = useState<ChatMode>("text");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [partial, setPartial] = useState("");
@@ -57,6 +68,7 @@ export default function DokyeongLive() {
   const messageRef = useRef<Message[]>([]);
   const characterIdRef = useRef("");
   const voiceIdRef = useRef("");
+  const chatModeRef = useRef<ChatMode>("text");
   const phaseRef = useRef<Phase>("off");
   const running = useRef(false);
   const generation = useRef(0);
@@ -115,7 +127,7 @@ export default function DokyeongLive() {
         try {
           const raw = localStorage.getItem(historyKey(selected.id)) || (selected.is_default ? localStorage.getItem("dokyeong-live-history-v1") : null) || "[]";
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-40);
+          if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map((m) => ({ role:m.role, content:m.content, ts:typeof m.ts === "number" ? m.ts : undefined })).slice(-40);
         } catch {}
         messageRef.current = saved; setMessages(saved); setPartial("");
       }
@@ -246,7 +258,7 @@ export default function DokyeongLive() {
   }
 
   function queueSpeech(text: string, turn: number) {
-    if (!voice || turn !== generation.current) return;
+    if (chatModeRef.current !== "voice" || !voice || turn !== generation.current) return;
     // Keep chat reactions in captions, but do not ask TTS to pronounce them.
     const spokenText = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/^[\s,;:.!?]+/, "").replace(/\s{2,}/g, " ").trim();
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
@@ -266,7 +278,7 @@ export default function DokyeongLive() {
     const text = userText.trim().slice(0, 1500); if (!text) { if (running.current) setMode("listening"); return; }
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
-    const conversation = [...messageRef.current, { role: "user" as const, content: text }]; setHistory(conversation);
+    const conversation = [...messageRef.current, { role: "user" as const, content: text, ts: Date.now() }]; setHistory(conversation);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -285,7 +297,7 @@ export default function DokyeongLive() {
       full = completed;
       textCommitted = true;
       complete = true;
-      setHistory([...conversation, { role: "assistant", content: completed }]);
+      setHistory([...conversation, { role: "assistant", content: completed, ts: Date.now() }]);
       setPartial("");
     };
 
@@ -333,7 +345,7 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice, characterId: characterIdRef.current || null, voiceId: voiceIdRef.current || null }),
+        body: JSON.stringify({ messages: conversation.slice(-24), voice: chatModeRef.current === "voice" && voice, characterId: characterIdRef.current || null, voiceId: voiceIdRef.current || null }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -397,7 +409,7 @@ export default function DokyeongLive() {
       if (!textCommitted && full.trim()) commitText(full);
       if (!complete || !full.trim()) throw Error("답장을 끝까지 받지 못했어.");
 
-      if (voice) {
+      if (chatModeRef.current === "voice" && voice) {
         if (gotStreamingAudio) {
           await lastPcmEnd;
           // A missing final marker should not delete text or surface a fatal UI error.
@@ -546,6 +558,15 @@ export default function DokyeongLive() {
   }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
   function restart() { endCall(); setHistory([]); setPartial(""); setError(""); setLatency(null); }
+  function switchChatMode(next: ChatMode) {
+    if (next === chatModeRef.current) return;
+    if (running.current || phaseRef.current === "speaking" || phaseRef.current === "thinking") endCall();
+    else stopAudio();
+    chatModeRef.current = next;
+    setChatMode(next);
+    setError("");
+    setNeedsTap(false);
+  }
   function switchCharacter(nextId: string) {
     const next = characters.find((item) => item.id === nextId);
     if (!next || next.id === characterIdRef.current) return;
@@ -558,7 +579,7 @@ export default function DokyeongLive() {
     let saved: Message[] = [];
     try {
       const parsed = JSON.parse(localStorage.getItem(historyKey(next.id)) || "[]");
-      if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-40);
+      if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map((m) => ({ role:m.role, content:m.content, ts:typeof m.ts === "number" ? m.ts : undefined })).slice(-40);
     } catch {}
     messageRef.current = saved; setMessages(saved); setPartial(""); setError(""); setLatency(null);
   }
