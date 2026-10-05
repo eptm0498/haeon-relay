@@ -13,6 +13,8 @@ begin
  if (select message_count from private.live_chat_history where character_id=cid)<>100 then raise exception '100-message count failed'; end if;
  perform public.live_sync_history(tok,'append',cid,ep,batch);
  if (select message_count from private.live_chat_history where character_id=cid)<>100 then raise exception 'dedup count failed'; end if;
+ result=public.live_companion_work(tok,'memory_due');
+ if not (result @> jsonb_build_array(cid)) then raise exception 'worker did not find due memory'; end if;
  claimed=public.live_memory_work(tok,'claim',cid);
  if jsonb_array_length(claimed->'messages')<>100 or (claimed->>'claimed_count')::int<>100 then raise exception 'summary threshold failed'; end if;
  if public.live_memory_work(tok,'claim',cid) is not null then raise exception 'duplicate lease accepted'; end if;
