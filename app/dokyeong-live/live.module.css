@@ -15,7 +15,7 @@
 .loginCard{width:min(90%,330px);margin:13vh auto 0;background:#181818;border:1px solid #2b2b2b;border-radius:18px;padding:20px;text-align:center;box-shadow:0 14px 40px #000b}.loginAvatar{width:56px;height:56px;border-radius:19px;background:#242424;margin:0 auto 9px;overflow:hidden;display:grid;place-items:center;font-weight:700;color:#aaa}.loginCard>strong{font-size:15px;color:#eee}.loginCard>p{font-size:10.5px;color:#888;margin:5px 0 13px}.login{display:flex;gap:6px}.login input{flex:1;min-width:0;border:1px solid #333;background:#242424;color:#f3f3f3;border-radius:10px;padding:10px 11px;font-size:16px;outline:none}.login button{border:0;border-radius:10px;background:#fee500;color:#302b00;font-weight:700;padding:0 14px;cursor:pointer}
 @media(min-width:600px){.shell{padding:18px 0}.phone{height:100%;max-height:900px;border-radius:22px;box-shadow:0 18px 70px #000c}.chatHeader{border-radius:22px 22px 0 0;padding-top:5px}.composer,.voiceDock{border-radius:0 0 22px 22px}}
 @media(max-width:380px){.assistantRow{max-width:90%}.bubble{max-width:73vw;font-size:13px}.voiceActions{gap:22px}.chatHeader{grid-template-columns:30px minmax(0,1fr) auto}}
-@supports (-webkit-touch-callout:none){.composerPill input,.login input,.settingRow select{font-size:16px}}}
+@supports (-webkit-touch-callout:none){.composerPill input,.login input,.settingRow select{font-size:16px}}
 
 .composer:focus-within{padding-bottom:2px}
 
