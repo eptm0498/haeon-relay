@@ -7,7 +7,8 @@ import { relatedSampleContext } from "@/lib/dokyeong/samples";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Message = { role: "user" | "assistant"; content: string };
+type MessageImage = { mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string };
+type Message = { role: "user" | "assistant"; content: string; image?: MessageImage };
 type DialogueBridge = {
   push: (text: string) => void;
   finish: () => Promise<{ hadAudio: boolean; completed: boolean }>;
@@ -15,10 +16,18 @@ type DialogueBridge = {
 };
 
 function normalizeMessages(messages: Message[]) {
-  return messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  return messages.map((m) => {
+    const parts: Array<Record<string, unknown>> = [];
+    if (m.content.trim()) parts.push({ text: m.content });
+    if (m.image) {
+      if (!m.content.trim()) parts.push({ text: "사용자가 이미지를 보냈다. 이미지 내용을 직접 보고 자연스럽게 반응해." });
+      parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
+    }
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
 }
 
 async function callGeminiModel(model: string, messages: Message[], prompt: string, signal: AbortSignal) {
@@ -204,7 +213,7 @@ export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return Response.json({ error: "요청을 확인해 줘." }, { status: 403 });
 
   const raw = await request.text();
-  if (raw.length > 30_000) return Response.json({ error: "대화가 너무 길어." }, { status: 413 });
+  if (raw.length > 2_400_000) return Response.json({ error: "이미지가 너무 커. 더 작은 사진으로 보내줘." }, { status: 413 });
 
   let messages: Message[];
   let wantVoice = true;
@@ -216,8 +225,19 @@ export async function POST(request: NextRequest) {
     wantVoice = parsed.voice !== false;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
     voiceIdOverride = typeof parsed.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(parsed.voiceId) ? parsed.voiceId : null;
+    const validImage = (value: unknown) => {
+      if (!value || typeof value !== "object") return false;
+      const image = value as { mimeType?: unknown; data?: unknown };
+      if (!["image/jpeg", "image/png", "image/webp"].includes(String(image.mimeType || ""))) return false;
+      if (typeof image.data !== "string" || image.data.length < 40 || image.data.length > 1_900_000) return false;
+      return /^[A-Za-z0-9+/=]+$/.test(image.data);
+    };
     if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
-      !messages.every((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length <= 1500) ||
+      !messages.every((m) => {
+        if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string" || m.content.length > 1500) return false;
+        if (m.image !== undefined && (m.role !== "user" || !validImage(m.image))) return false;
+        return m.content.trim().length > 0 || !!m.image;
+      }) ||
       messages.at(-1)?.role !== "user") throw Error();
   } catch {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
@@ -225,7 +245,8 @@ export async function POST(request: NextRequest) {
 
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
-  const sampleContext = await relatedSampleContext(messages, character.id, character.name);
+  const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
+  const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
   const prompt = character.prompt + sampleContext;
   const activeVoiceId = voiceIdOverride || character.voice_id;
   const result = await requestGemini(messages, prompt, request.signal);
