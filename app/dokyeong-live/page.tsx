@@ -27,6 +27,18 @@ function formatMessageTime(ts?: number) {
   return `${hour < 12 ? "오전" : "오후"} ${hour % 12 || 12}:${minute}`;
 }
 
+function formatListTime(ts?: number) {
+  if (!ts) return "";
+  const date = new Date(ts);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startThatDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startToday - startThatDay) / 86400000);
+  if (diffDays === 0) return formatMessageTime(ts);
+  if (diffDays === 1) return "어제";
+  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
 function hasMeaningfulTranscript(value: unknown) {
   const text = String(value || "").trim();
   if (!text) return false;
@@ -91,6 +103,8 @@ export default function DokyeongLive() {
   const [chatMode, setChatMode] = useState<ChatMode>("text");
   const [view, setView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [listSearchOpen, setListSearchOpen] = useState(false);
+  const [listQuery, setListQuery] = useState("");
   const [chatPreviews, setChatPreviews] = useState<Record<string, ChatPreview>>({});
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -693,13 +707,46 @@ export default function DokyeongLive() {
   const avatarFor = (item: LiveCharacter) => item.avatar_url || (item.name === "도경" ? dokyeongFaceDataUrl : null);
 
   if (view === "list" && status?.authenticated) {
+    const listItems = [...characters]
+      .filter((item) => !listQuery.trim() || item.name.toLowerCase().includes(listQuery.trim().toLowerCase()))
+      .sort((a, b) => (chatPreviews[b.id]?.ts || 0) - (chatPreviews[a.id]?.ts || 0) || a.sort_order - b.sort_order);
+
     return <main className={styles.shell}>
       <div className={styles.phone}>
         <header className={styles.listHeader}>
-          <strong>채팅</strong>
+          <div className={styles.listTitleRow}>
+            <strong>채팅</strong>
+            <div className={styles.listHeaderActions}>
+              <button onClick={() => { setListSearchOpen((open) => !open); if (listSearchOpen) setListQuery(""); }} aria-label="채팅 검색">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+              </button>
+              <button onClick={() => { const first = characters[0]; if (first) openConversation(first.id); }} aria-label="새 채팅">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-6l-4.5 3v-3H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2Z"/><path d="M15.5 3v5M13 5.5h5"/></svg>
+              </button>
+              <button onClick={() => { const current = activeCharacter || characters[0]; if (current) { openConversation(current.id); setSettingsOpen(true); } }} aria-label="설정">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.5 1a7 7 0 0 0-1.7-1L14.4 3h-4.8l-.4 3.1a7 7 0 0 0-1.7 1L5 6.1 3 9.5 5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.5-1a7 7 0 0 0 1.7 1l.4 3.1h4.8l.4-3.1a7 7 0 0 0 1.7-1l2.5 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          {listSearchOpen && <div className={styles.listSearch}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+            <input autoFocus value={listQuery} onChange={(event) => setListQuery(event.target.value)} placeholder="채팅방 검색" />
+            {listQuery && <button onClick={() => setListQuery("")} aria-label="검색어 지우기">×</button>}
+          </div>}
+
+          <div className={styles.listFilters} aria-label="채팅 필터">
+            <span className={styles.filterActive}>전체</span>
+            <span>안읽음</span>
+            <span>통화</span>
+            <span className={styles.filterIcon}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M8 12h11M11 18h8"/><circle cx="17" cy="6" r="1.5"/></svg>
+            </span>
+          </div>
         </header>
+
         <section className={styles.chatList}>
-          {characters.map((item) => {
+          {listItems.map((item) => {
             const preview = chatPreviews[item.id];
             const avatar = avatarFor(item);
             return <button key={item.id} className={styles.chatListRow} onClick={() => openConversation(item.id)}>
@@ -708,9 +755,10 @@ export default function DokyeongLive() {
                 <strong>{item.name}</strong>
                 <small>{preview?.text || "대화를 시작해."}</small>
               </span>
-              <time>{preview?.ts ? formatMessageTime(preview.ts) : ""}</time>
+              <time>{formatListTime(preview?.ts)}</time>
             </button>;
           })}
+          {!listItems.length && <div className={styles.listEmpty}>검색 결과가 없어.</div>}
         </section>
       </div>
     </main>;
