@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
           !m || typeof m.id !== "string" || !/^[a-zA-Z0-9:_-]{1,120}$/.test(m.id) ||
           !["user","assistant"].includes(String(m.role)) || typeof m.content !== "string" || m.content.length > 30000 ||
           typeof m.ts !== "number" || !Number.isSafeInteger(m.ts) || m.ts < 0 ||
-          m.image && (m.role !== "user" || typeof m.image.dataUrl !== "string" ||
+          m.image && (typeof m.image.dataUrl !== "string" ||
             !["image/jpeg","image/png","image/webp"].includes(String(m.image.mimeType)) || m.image.dataUrl.length > 1850000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(m.image.dataUrl))))
       return Response.json({error:"대화 형식을 확인해 줘."}, {status:400,headers:noStore});
     const messages = body.messages.map((m: {id:string;role:string;content:string;ts:number;image?:{dataUrl:string;mimeType:string}}) => ({

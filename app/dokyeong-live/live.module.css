@@ -68,6 +68,8 @@
 .userStack{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:0}
 .imageBubble{max-width:min(68vw,280px);border-radius:16px;overflow:hidden;background:#181818;border:1px solid #252525}
 .imageBubble img{display:block;width:100%;height:auto;max-height:360px;object-fit:cover}
+.imageLabel{display:block;padding:7px 10px;font-size:11px;color:#aaa}
+.sendButton{touch-action:manipulation}
 
 .listHeader{box-sizing:border-box;flex:0 0 auto;padding:max(26px,calc(env(safe-area-inset-top) + 12px)) 17px 12px;background:#000}
 .listTitleRow{display:flex;align-items:center;justify-content:space-between;gap:16px}

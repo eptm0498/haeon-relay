@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+await import("./verify-chat-images.mjs");
 
 // Opt-in operational checks: no credential, transcript, or audio is logged.
 // An ordinary deployment makes no paid API calls.

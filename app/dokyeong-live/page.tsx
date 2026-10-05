@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import CharacterAvatar from "./CharacterAvatar";
+import { wantsPhoto } from "@/lib/dokyeong/photo-intent";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
 
@@ -133,6 +134,7 @@ export default function DokyeongLive() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [partial, setPartial] = useState("");
+  const [generatingPhoto, setGeneratingPhoto] = useState(false);
   const [voice, setVoice] = useState(true);
   const [captions, setCaptions] = useState(true);
   const [error, setError] = useState("");
@@ -175,6 +177,7 @@ export default function DokyeongLive() {
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
+  const draftInputRef = useRef<HTMLInputElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const setHistory = (next: Message[]) => {
@@ -277,7 +280,7 @@ export default function DokyeongLive() {
   }, []);
   const interrupt = useCallback(() => {
     generation.current++; requestRef.current?.abort(); requestRef.current = null;
-    stopAudio(); setPartial("");
+    stopAudio(); setPartial(""); setGeneratingPhoto(false);
     if (running.current) setMode("listening");
   }, [stopAudio]);
 
@@ -446,6 +449,22 @@ export default function DokyeongLive() {
 
     try {
       const requestCharacterId = characterIdRef.current;
+      if (text && !image && wantsPhoto(text)) {
+        setGeneratingPhoto(true);
+        const response = await fetch(`${API}/images`, {
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({characterId:requestCharacterId,text,context:conversation.slice(-6).map(m => `${m.role}: ${m.content}`).join("\n").slice(-6000)}),signal:controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok) throw Error(result.error || "사진을 만들지 못했어.");
+        if (turn !== generation.current) return;
+        setHistory([...conversation,result.message]);
+        if (chatModeRef.current === "voice" && voice) {
+          queueSpeech(result.message.content,turn);
+          await queuedRef.current;
+        }
+        return;
+      }
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
@@ -554,6 +573,7 @@ export default function DokyeongLive() {
       }
     } finally {
       if (turn === generation.current) {
+        setGeneratingPhoto(false);
         requestRef.current = null;
         if (running.current) {
           prerollRef.current = [];
@@ -740,7 +760,18 @@ export default function DokyeongLive() {
       if (imagePickerRef.current) imagePickerRef.current.value = "";
     }
   }
-  function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; if (running.current) lastInputAtRef.current = performance.now(); setDraft(""); void reply(value); }
+  function submitText(event: FormEvent) {
+    event.preventDefault();
+    if (!historyReady || resetting) return;
+    // Read the DOM value so the final Korean IME syllable is included.
+    const value = draftInputRef.current?.value ?? draft;
+    if (!value.trim()) return;
+    if (running.current) lastInputAtRef.current = performance.now();
+    // Clear synchronously: a later synthetic click cannot send this turn twice.
+    if (draftInputRef.current) draftInputRef.current.value = "";
+    setDraft("");
+    void reply(value);
+  }
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
   const activeName = activeCharacter?.name || "캐릭터";
@@ -873,7 +904,13 @@ export default function DokyeongLive() {
               <div className={styles.messageColumn}>
                 <span className={styles.senderName}>{activeName}</span>
                 <div className={styles.bubbleLine}>
-                  <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>
+                  <div className={styles.userStack}>
+                    {message.image && <div className={styles.imageBubble}>
+                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="생성된 사진 저장"><img src={message.image.dataUrl} alt={`${activeName}이 보낸 AI 생성 사진`} /></a>
+                      <span className={styles.imageLabel}>AI 생성 사진 · 눌러서 저장</span>
+                    </div>}
+                    {message.content && <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>}
+                  </div>
                   {message.ts && <time>{formatMessageTime(message.ts)}</time>}
                 </div>
               </div>
@@ -900,7 +937,7 @@ export default function DokyeongLive() {
           <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <div className={styles.messageColumn}>
             <span className={styles.senderName}>{activeName}</span>
-            <div className={[styles.bubble, styles.assistantBubble, styles.typingBubble].join(" ")}><i></i><i></i><i></i></div>
+            <div className={[styles.bubble, styles.assistantBubble, styles.typingBubble].join(" ")}>{generatingPhoto ? <span role="status">사진을 만들고 있어…</span> : <><i></i><i></i><i></i></>}</div>
           </div>
         </div>}
 
@@ -923,7 +960,7 @@ export default function DokyeongLive() {
           <button type="button" className={styles.plusButton} disabled={!historyReady || resetting} onClick={() => imagePickerRef.current?.click()} aria-label="이미지 보내기">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           </button>
-          <input aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
+          <input ref={draftInputRef} aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
           {!draft.trim() && <>
             <button type="button" className={styles.composerIcon} aria-label="이모티콘">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M8.5 14c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/></svg>
@@ -933,7 +970,13 @@ export default function DokyeongLive() {
               <span/><span/><span/><span/><span/>
             </button>
           </>}
-          {draft.trim() && <button type="submit" className={styles.sendButton} disabled={!historyReady || resetting} aria-label="전송">
+          {draft.trim() && <button type="submit" className={styles.sendButton} disabled={!historyReady || resetting} aria-label="전송"
+            onPointerDown={(event) => {
+              if (!event.isPrimary || event.button !== 0) return;
+              // Submit before iOS can blur the input and move the keyboard/layout.
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
           </button>}
         </div>
@@ -959,4 +1002,3 @@ export default function DokyeongLive() {
     </div>
   </main>;
 }
-
