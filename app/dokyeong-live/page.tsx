@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
-import { dokyeongFaceDataUrl } from "./dokyeong-face";
+import CharacterAvatar from "./CharacterAvatar";
 
 type ChatImage = { dataUrl: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; name?: string };
 type Message = { role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage };
@@ -713,11 +713,11 @@ export default function DokyeongLive() {
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
   const activeName = activeCharacter?.name || "캐릭터";
-  const activeAvatar = activeCharacter?.avatar_url || (activeName === "도경" ? dokyeongFaceDataUrl : null);
+  const activeAvatar = activeCharacter?.avatar_url;
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const showMessages = chatMode === "text" || captions;
-  const avatarFor = (item: LiveCharacter) => item.avatar_url || (item.name === "도경" ? dokyeongFaceDataUrl : null);
+  const avatarFor = (item: LiveCharacter) => item.avatar_url;
 
   if (view === "list" && status?.authenticated) {
     const listItems = [...characters]
@@ -763,7 +763,7 @@ export default function DokyeongLive() {
             const preview = chatPreviews[item.id];
             const avatar = avatarFor(item);
             return <button key={item.id} className={styles.chatListRow} onClick={() => openConversation(item.id)}>
-              <span className={styles.listAvatar}>{avatar ? <img src={avatar} alt="" /> : item.name.slice(0,2)}</span>
+              <span className={styles.listAvatar}><CharacterAvatar name={item.name} src={avatar}/></span>
               <span className={styles.listCopy}>
                 <strong>{item.name}</strong>
                 <small>{preview?.text || "대화를 시작해."}</small>
@@ -824,7 +824,7 @@ export default function DokyeongLive() {
         <div className={styles.dateChip}>오늘</div>
 
         {status?.configured && !status.authenticated && <div className={styles.loginCard}>
-          <div className={styles.loginAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.loginAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <strong>도경LIVE</strong>
           <p>접속 코드를 입력하면 대화방이 열려.</p>
           <form onSubmit={login} className={styles.login}>
@@ -838,7 +838,7 @@ export default function DokyeongLive() {
 
         {status?.authenticated && showMessages && messages.slice(-40).map((message, index) => message.role === "assistant"
           ? <div key={index} className={styles.assistantRow}>
-              <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+              <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
               <div className={styles.messageColumn}>
                 <span className={styles.senderName}>{activeName}</span>
                 <div className={styles.bubbleLine}>
@@ -858,7 +858,7 @@ export default function DokyeongLive() {
             </div>)}
 
         {status?.authenticated && showMessages && partial && <div className={styles.assistantRow}>
-          <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <div className={styles.messageColumn}>
             <span className={styles.senderName}>{activeName}</span>
             <div className={styles.bubbleLine}><div className={[styles.bubble, styles.assistantBubble].join(" ")}>{partial}<span className={styles.cursor}>▋</span></div></div>
@@ -866,7 +866,7 @@ export default function DokyeongLive() {
         </div>}
 
         {status?.authenticated && !partial && phase === "thinking" && <div className={styles.assistantRow}>
-          <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <div className={styles.messageColumn}>
             <span className={styles.senderName}>{activeName}</span>
             <div className={[styles.bubble, styles.assistantBubble, styles.typingBubble].join(" ")}><i></i><i></i><i></i></div>
@@ -874,7 +874,7 @@ export default function DokyeongLive() {
         </div>}
 
         {status?.authenticated && showMessages && !messages.length && !partial && phase !== "thinking" && <div className={styles.emptyChat}>
-          <div className={styles.emptyAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.emptyAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <strong>{activeName}</strong>
           <span>{chatMode === "text" ? "메시지를 보내서 대화를 시작해." : "아래 통화 버튼을 누르면 바로 이야기할 수 있어."}</span>
         </div>}
