@@ -24,7 +24,7 @@ const items = Array.isArray(chars) ? chars : chars.characters;
 const character = items?.find(c => c.name === requested);
 if (!character) { console.log("LIVE_VERIFY_DISCOVERY_COMPLETE"); process.exit(0); }
 if (character.voice_id !== voice.voice_id) throw new Error("Stored voice does not match ElevenLabs");
-const answerResponse = await call("/api/dokyeong/respond", {method:"POST",body:JSON.stringify({characterId:character.id,messages:[{role:"user",content:"온유야, 오늘은 돈 안 쓰고 그냥 편하게 이야기하고 싶어."}],mode:"text"})});
+const answerResponse = await call("/api/dokyeong/respond", {method:"POST",body:JSON.stringify({characterId:character.id,messages:[{role:"user",content:"온유야, 오늘은 돈 안 쓰고 그냥 편하게 이야기하고 싶어."}],voice:false})});
 if (!answerResponse.ok) throw new Error("Character response failed: " + answerResponse.status);
 const events = await answerResponse.text();
 if (events.includes('"type":"error"') || !events.includes('"type":"done"') || !events.includes('"type":"delta"')) throw new Error("Character response stream incomplete");
@@ -33,4 +33,4 @@ const tts = await call("/api/dokyeong/tts", {method:"POST",body:JSON.stringify({
 if (!tts.ok || !tts.headers.get("Content-Type")?.startsWith("audio/")) throw new Error("Character TTS failed: " + tts.status);
 const audio = await tts.arrayBuffer();
 if (audio.byteLength < 1000) throw new Error("Character audio empty");
-console.log("LIVE_VERIFY_AUDIO_OK " + JSON.stringify({bytes:audio.byteLength,provider:tts.headers.get("X-TTS-Provider"),model:tts.headers.get("X-TTS-Model")}));
+console.log("LIVE_VERIFY_AUDIO_OK " + JSON.stringify({bytes:audio.byteLength,model:tts.headers.get("X-Dokyeong-TTS-Model")}));
