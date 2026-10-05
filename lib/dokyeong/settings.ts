@@ -1,4 +1,5 @@
 import { dokyeongPrompt } from "./character";
+import { rpcTransport } from "./rpc-transport";
 
 const endpoint = "https://ckesuyinmcqemgeemzlh.supabase.co/rest/v1/rpc/";
 // Supabase's public anon key. The editor capability is checked inside Postgres.
@@ -7,18 +8,7 @@ const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 type CharacterRow = { prompt: string; version: number; updated_at: string };
 
 export async function rpc<T>(name: string, body: object, timeout = 5000): Promise<T> {
-  const response = await fetch(endpoint + name, {
-    method: "POST",
-    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-    signal: AbortSignal.timeout(timeout),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.code === "40001" ? "VERSION_CONFLICT" : error.message === "IMAGE_DAILY_LIMIT" ? "IMAGE_DAILY_LIMIT" : `Settings request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
+  return rpcTransport<T>(endpoint, anonKey, name, body, timeout);
 }
 
 export async function readCharacter() {

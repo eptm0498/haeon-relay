@@ -5,14 +5,15 @@ const empty:State={characters:{},subscribed:false,publicKey:''};
 export function useCompanion(enabled:boolean,activeId:string,view:string,busy:boolean,onMessage:()=>void,latestMessageAt=0) {
  const [state,setState]=useState<State>(empty);const [error,setError]=useState('');const [registering,setRegistering]=useState(false);const device=useRef('');
  const refreshMessage=useRef(onMessage);refreshMessage.current=onMessage;
+ const heartbeatBusy=useRef(false);
  const call=useCallback(async(action:string,characterId?:string,data?:object)=>{
   if(!device.current){device.current=localStorage.getItem('character-live-device')||crypto.randomUUID();localStorage.setItem('character-live-device',device.current);}
-  const response=await fetch('/api/dokyeong/companion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,deviceId:device.current,characterId,data})});
+  const response=await fetch('/api/dokyeong/companion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,deviceId:device.current,characterId,data}),signal:AbortSignal.timeout(60000)});
   const result=await response.json();if(!response.ok)throw new Error(result.error||'선톡 설정을 저장하지 못했어.');setState(result);return result as State;
  },[]);
  useEffect(()=>{
   if(!enabled)return;
-  const heartbeat=()=>void call('presence',view==='chat'?activeId:undefined,{visible:!document.hidden,busy}).catch(()=>{});
+  const heartbeat=()=>{if(heartbeatBusy.current)return;heartbeatBusy.current=true;void call('presence',view==='chat'?activeId:undefined,{visible:!document.hidden,busy}).catch(()=>{}).finally(()=>{heartbeatBusy.current=false;});};
   heartbeat();const timer=window.setInterval(heartbeat,30000);
   document.addEventListener('visibilitychange',heartbeat);window.addEventListener('focus',heartbeat);
   const message=(event:MessageEvent)=>{if(event.data?.type==='CHARACTER_MESSAGE')refreshMessage.current();};

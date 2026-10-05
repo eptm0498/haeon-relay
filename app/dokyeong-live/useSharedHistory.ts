@@ -29,16 +29,15 @@ function legacyMessages(value:unknown):Message[] {
     return {id:m.id || `legacy:${ts}:${hash}`,role:m.role,content:m.content,ts};
   });
 }
-let lastEtag="";
-async function request(body?:object) {
+async function request(body?:object, etag="") {
   const response = await fetch("/api/dokyeong/history", body ? {
     method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),
-  } : {cache:"no-store",headers:lastEtag?{"If-None-Match":lastEtag}:{}});
-  if(response.status===304)return null;
-  if(body)lastEtag="";else lastEtag=response.headers.get("etag")||"";
+    signal:AbortSignal.timeout(90000),
+  } : {cache:"no-store",headers:etag?{"If-None-Match":etag}:{},signal:AbortSignal.timeout(90000)});
+  if(response.status===304)return {rows:null,etag};
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.error || "대화 동기화에 실패했어."),{status:response.status});
-  return result;
+  return body ? result : {rows:result,etag:response.headers.get("etag")||""};
 }
 
 export function useSharedHistory(characters:{id:string;is_default:boolean}[], enabled:boolean) {
@@ -51,6 +50,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
   charactersRef.current = characters;
   const task = useRef<Promise<void>>(Promise.resolve());
   const busy = useRef(false);
+  const lastEtag = useRef("");
   const publish = useCallback(() => {
     const next:Record<string,Message[]> = {};
     for (const [id,state] of Object.entries(states.current)) {
@@ -74,6 +74,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
         }
         try {
           const saved:History = await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch});
+          lastEtag.current="";
           states.current[id] = {...saved,messages:states.current[id]?.epoch===saved.epoch?merge(states.current[id].messages,saved.messages):saved.messages};
           const sent = new Set(batch.map(m => m.id));
           pending.messages = pending.messages.filter(m => !sent.has(m.id));
@@ -96,7 +97,9 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     task.current = task.current.catch(()=>{}).then(async () => {
       try {
         await flush();
-        const rows:History[] = await request();
+        const result=await request(undefined,lastEtag.current);
+        const rows:History[] = result.rows;
+        lastEtag.current=result.etag;
         for (let state of rows||[]) {
           const character = charactersRef.current.find(c => c.id===state.character_id);
           if (!character) continue;
@@ -107,14 +110,14 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
           if (!readLocal(migratedKey(id))) {
             const old = readLocal(historyKey(id)) || (character.is_default ? readLocal("dokyeong-live-history-v1") : null);
             const legacy = legacyMessages(old);
-            if (state.import_allowed && legacy.length) state=await request({action:"import",characterId:id,epoch:state.epoch,messages:legacy});
+            if (state.import_allowed && legacy.length) {state=await request({action:"import",characterId:id,epoch:state.epoch,messages:legacy});lastEtag.current="";}
             writeLocal(migratedKey(id),"1");
           }
           states.current[id]={...state,messages:states.current[id]?.epoch===state.epoch?merge(states.current[id].messages,state.messages):state.messages};
         }
         await flush();
         publish(); setReady(true); setError("");
-      } catch (cause) { setError(cause instanceof Error ? cause.message : "대화 동기화에 실패했어."); }
+      } catch (cause) { lastEtag.current="";setError(cause instanceof Error && !['TimeoutError','TypeError'].includes(cause.name) ? cause.message : "연결을 다시 확인하고 있어. 보내지 못한 메시지는 연결되면 자동으로 저장할게.");throw cause; }
       finally { busy.current=false; }
     });
     return task.current;
@@ -123,12 +126,13 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
   const ids = characters.map(c => c.id).join(",");
   useEffect(() => {
     if (!enabled || !ids) return;
-    void synchronize();
-    const refresh=()=> {if (!document.hidden) void synchronize();};
+    void synchronize().catch(()=>{});
+    const refresh=()=> {if (!document.hidden) void synchronize().catch(()=>{});};
     window.addEventListener("focus",refresh);
+    window.addEventListener("online",refresh);
     document.addEventListener("visibilitychange",refresh);
     const timer=window.setInterval(refresh,5000);
-    return ()=> {window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",refresh);window.clearInterval(timer);};
+    return ()=> {window.removeEventListener("focus",refresh);window.removeEventListener("online",refresh);document.removeEventListener("visibilitychange",refresh);window.clearInterval(timer);};
   },[enabled,ids,synchronize]);
 
   function append(id:string,messages:Message[]) {
@@ -139,7 +143,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     outboxes.current[id]=pending;
     try {writeLocal(outboxKey(id),JSON.stringify(pending));} catch {setError("이 기기의 임시 저장 공간이 부족해. 연결이 유지되는지 확인해 줘.");}
     publish();
-    void synchronize();
+    void synchronize().catch(()=>{});
   }
   async function reset(id:string,keepMemory=false) {
     await synchronize();
@@ -150,6 +154,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
         const state=states.current[id];
         if (!state) throw new Error("대화를 먼저 불러와 줘.");
         const saved:History=await request({action:"reset",characterId:id,epoch:state.epoch,messages:[],keepMemory});
+        lastEtag.current="";
         states.current[id]=saved; delete outboxes.current[id];
         removeLocal(outboxKey(id)); writeLocal(migratedKey(id),"1");
         publish();

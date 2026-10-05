@@ -24,7 +24,8 @@ const failure = (error: unknown) => Response.json({
 export async function GET(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   try {
-    const delivered=await deliverReplies();
+    // A background delivery outage must not hide already saved conversation history.
+    const delivered=await deliverReplies().catch(()=>({count:0,photos:[] as string[],characters:[] as string[]}));
     if(delivered.count)after(async()=>{await Promise.all([deliverPushJobs().catch(()=>0),...delivered.photos.slice(0,1).map(id=>runImageJob(id)),...delivered.characters.map(id=>updateMemory(id,1).catch(()=>0))]);});
     const versions=await rpc("live_data_work",{server_token:process.env.CHARACTER_HISTORY_KEY,action:"versions"},15000);
     const etag='"'+createHash('sha256').update(JSON.stringify(versions)).digest('hex')+'"';

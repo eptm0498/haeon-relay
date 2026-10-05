@@ -146,8 +146,8 @@ export default function DokyeongLive() {
   const [characterId, setCharacterId] = useState("");
   const [resetting, setResetting] = useState(false);
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
-  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize();},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
-  const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize();});
+  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
+  const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize().catch(()=>{});});
   const navigationReady=useRef(false);
   const swipeStart=useRef<{x:number;y:number}|null>(null);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
@@ -214,9 +214,12 @@ export default function DokyeongLive() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
 
+  const loadingCharacters = useRef(false);
   const loadCharacters = useCallback(async () => {
+    if(loadingCharacters.current)return;
+    loadingCharacters.current=true;
     try {
-      const response = await fetch(`${API}/characters`, { cache: "no-store" });
+      const response = await fetch(`${API}/characters`, { cache: "no-store",signal:AbortSignal.timeout(60000) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
@@ -232,7 +235,7 @@ export default function DokyeongLive() {
 
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "캐릭터를 불러오지 못했어.");
-    }
+    } finally {loadingCharacters.current=false;}
   }, []);
   useEffect(() => { if (status?.authenticated) void loadCharacters(); }, [status?.authenticated, loadCharacters]);
 
