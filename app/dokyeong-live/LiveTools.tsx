@@ -28,12 +28,12 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
  }
  return <div className={styles.tools}>
   <details><summary>선톡 시간·상황·사진 한도</summary>{preferences&&<div className={styles.toolFields}>
-   <p>모든 캐릭터에 적용돼. 방해 금지 시작과 끝을 같게 하면 시간 제한을 꺼.</p>
+   <p>모든 캐릭터에 적용돼. 방해 금지 시작과 끝이 같으면 시간 제한 없이 문맥으로 판단해. 최소 간격 0은 문맥에 따라 연락하며, 반복 선톡은 최소 15분 간격을 둬.</p>
    <label>방해 금지 시작<select value={preferences.quiet_start} onChange={e=>setPreferences({...preferences,quiet_start:Number(e.target.value)})}>{Array.from({length:24},(_,i)=><option key={i} value={i}>{i}시</option>)}</select></label>
    <label>방해 금지 끝<select value={preferences.quiet_end} onChange={e=>setPreferences({...preferences,quiet_end:Number(e.target.value)})}>{Array.from({length:24},(_,i)=><option key={i} value={i}>{i}시</option>)}</select></label>
-   <label>선톡 하루 총 한도<input type="number" min={1} max={20} value={preferences.daily_cap} onChange={e=>setPreferences({...preferences,daily_cap:Number(e.target.value)})}/></label>
-   <label>캐릭터별 최소 간격(시간)<input type="number" min={1} max={24} value={preferences.interval_hours} onChange={e=>setPreferences({...preferences,interval_hours:Number(e.target.value)})}/></label>
-   <label>캐릭터별 하루 선톡 한도<input type="number" min={1} max={10} value={preferences.character_daily_cap||2} onChange={e=>setPreferences({...preferences,character_daily_cap:Number(e.target.value)})}/></label>
+   <label>선톡 하루 총 한도<input type="number" min={1} max={100} value={preferences.daily_cap} onChange={e=>setPreferences({...preferences,daily_cap:Number(e.target.value)})}/></label>
+   <label>캐릭터별 최소 간격(시간 · 0은 문맥에 따라)<input type="number" min={0} max={24} value={preferences.interval_hours} onChange={e=>setPreferences({...preferences,interval_hours:Number(e.target.value)})}/></label>
+   <label>캐릭터별 하루 선톡 한도<input type="number" min={1} max={50} value={preferences.character_daily_cap||20} onChange={e=>setPreferences({...preferences,character_daily_cap:Number(e.target.value)})}/></label>
    <p>오늘 사진 요청 {preferences.image_used_today||0}개 / {preferences.image_daily_limit}개</p>
    <label>사진 하루 생성 한도<input type="number" min={1} max={100} value={preferences.image_daily_limit} onChange={e=>setPreferences({...preferences,image_daily_limit:Number(e.target.value)})}/></label>
    <label>생활·근무 일정<textarea aria-label="생활·근무 일정" maxLength={2000} value={preferences.routine} onChange={e=>setPreferences({...preferences,routine:e.target.value})}/></label>
