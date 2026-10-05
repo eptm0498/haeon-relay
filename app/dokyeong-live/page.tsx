@@ -107,42 +107,6 @@ export default function DokyeongLive() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const body = document.body;
-    const previousRootOverflow = root.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-    const previousOverscroll = body.style.overscrollBehavior;
-    root.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-    body.style.overscrollBehavior = "none";
-
-    const syncViewport = () => {
-      const height = Math.round(window.visualViewport?.height || window.innerHeight);
-      root.style.setProperty("--dokyeong-app-height", `${height}px`);
-      if (document.activeElement instanceof HTMLInputElement) {
-        requestAnimationFrame(() => {
-          const target = scrollRef.current;
-          if (target) target.scrollTop = target.scrollHeight;
-        });
-      }
-    };
-
-    syncViewport();
-    window.addEventListener("resize", syncViewport);
-    window.visualViewport?.addEventListener("resize", syncViewport);
-    window.visualViewport?.addEventListener("scroll", syncViewport);
-    return () => {
-      window.removeEventListener("resize", syncViewport);
-      window.visualViewport?.removeEventListener("resize", syncViewport);
-      window.visualViewport?.removeEventListener("scroll", syncViewport);
-      root.style.removeProperty("--dokyeong-app-height");
-      root.style.overflow = previousRootOverflow;
-      body.style.overflow = previousBodyOverflow;
-      body.style.overscrollBehavior = previousOverscroll;
-    };
-  }, []);
-
   const loadCharacters = useCallback(async () => {
     try {
       const response = await fetch(`${API}/characters`, { cache: "no-store" });
