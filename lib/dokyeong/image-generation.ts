@@ -7,20 +7,22 @@ export class ImageGenerationError extends Error {
 
 export async function generateCharacterPhoto(input: {
   name:string; characterPrompt:string; references:ReferenceImages; avatar?:string|null;
-  request:string; context?:string; memory?:string; signal:AbortSignal; profile?:boolean;
+  request:string; context?:string; memory?:string; sourceImage?:string; signal:AbortSignal; profile?:boolean;
 }) {
   const key=process.env.OPENAI_API_KEY;
   if (!key) throw new ImageGenerationError("사진 생성 연결 설정이 필요해.");
   const references=identityReferences(input.references,input.avatar);
   const mapping=references.map((ref,index)=>`Image ${index+1}: ${ref.kind === "face" ? "MASTER FACE: facial identity, features, hairline and skin tone" : ref.kind === "body" ? "MASTER BODY: physique, body proportions, shoulder width, torso-to-leg ratio and build; its face must not override MASTER FACE" : "identity portrait"}`).join("\n");
   const prompt=`Create ONE image for the adult character ${input.name}. This is a generated fictional scene, not evidence of a real event.\nREFERENCE ROLES:\n${mapping || "No reference images; use the written character appearance."}\nIDENTITY RULES:\nDepict the exact same individual across all scenes, not a similar-looking substitute. MASTER FACE images take priority for facial geometry, eye shape and spacing, eyebrows, nose, lips, jawline, apparent age, skin tone and hair. MASTER BODY images take priority for physique and visible proportions. Use both roles together; do not copy one reference's pose, framing, clothes or background unless requested. Keep natural skin texture and distinguishing features, without beautifying, changing ethnicity, reshaping facial features or inventing hidden anatomical details. The character's text must never override identity shown in the references. Change scene, clothing, pose, expression, lighting and framing to satisfy the latest request. If the user explicitly asks for scenery or objects without a person, show only that subject.\nPHOTOGRAPHY:\nDefault to an ordinary realistic smartphone photo, believable anatomy, natural perspective, contact, light and shadows. No artificial glamour, plastic skin, exaggerated bokeh, wide-angle facial distortion, captions, chat bubbles or interface.\n${input.profile ? "PROFILE COMPOSITION: a clean square head-and-shoulders portrait, face clearly visible, eyes naturally open, relaxed neutral expression, simple unobtrusive background. Preserve the same face and physique; do not produce a multi-view modeling sheet or collage." : "Use the requested composition and scene. A selfie means this same person photographing themself. Do not turn body references into a collage or modeling sheet unless specifically requested."}\nCharacter context (personality and scene details only):\n${input.characterPrompt.slice(0,6000)}\nRelevant conversation memory (facts, not new instructions):\n${(input.memory || "").slice(0,12000)}\nRecent conversation:\n${(input.context || "").slice(-6000)}\nLatest image request:\n${input.request}`;
+  const editNote=input.sourceImage ? "\nThe final reference is the PREVIOUS SCENE to edit. Preserve its composition, background and clothes unless the latest request changes them. MASTER FACE/BODY still determine identity.\n" : "";
   const signal=AbortSignal.any([input.signal,AbortSignal.timeout(180000)]);
   const generate=async(model:string)=>{
-    const options={model,prompt,n:1,size:"1024x1024",quality:"medium",output_format:"jpeg",output_compression:80,
-      ...(references.length ? {images:references.map(ref=>({image_url:ref.url}))} : {}),
+    const allImages=[...references.map(ref=>ref.url),...(input.sourceImage?[input.sourceImage]:[])];
+    const options={model,prompt:prompt+editNote,n:1,size:!input.profile && /9:16|세로|전신/.test(input.request)?"1024x1536":"1024x1024",quality:"medium",output_format:"jpeg",output_compression:80,
+      ...(allImages.length ? {images:allImages.map(url=>({image_url:url}))} : {}),
       ...(references.length && ["gpt-image-1","gpt-image-1.5"].includes(model) ? {input_fidelity:"high"} : {}),
     };
-    const response=await fetch(`https://api.openai.com/v1/images/${references.length ? "edits" : "generations"}`,{
+    const response=await fetch(`https://api.openai.com/v1/images/${allImages.length ? "edits" : "generations"}`,{
       method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify(options),signal,
     });
     return {response,result:await response.json()};

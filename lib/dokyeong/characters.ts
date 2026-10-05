@@ -31,12 +31,13 @@ export function readEditorReferences(editToken:string,characterId:string) {
 }
 
 export function listPublicCharacters() {
-  return rpc<PublicCharacter[]>("live_public_characters", {}, 8000);
+  return rpc<PublicCharacter[]>("live_server_characters", {server_token:process.env.CHARACTER_HISTORY_KEY}, 8000);
 }
 
 export async function readLiveCharacter(characterId?: string | null) {
-  const rows = await rpc<LiveCharacter[]>("live_read_character", { character_id: characterId || null }, 8000);
-  return rows[0] || null;
+  const token=process.env.CHARACTER_HISTORY_KEY;
+  if (!token) throw new Error("Server capability missing");
+  return rpc<LiveCharacter|null>("live_server_character", {server_token:token,character_id:characterId||null},8000);
 }
 
 export function saveLiveCharacter(editToken: string, character: Partial<LiveCharacter>) {

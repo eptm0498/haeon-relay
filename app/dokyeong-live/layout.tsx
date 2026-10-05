@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
 export const metadata: Metadata = {
-  title: "캐릭터라이브", description: "캐릭터와 문자 또는 음성으로 대화하기", applicationName: "캐릭터라이브",
-  appleWebApp: { capable: true, statusBarStyle: "black", title: "캐릭터라이브" },
+  title: "LIVE", description: "캐릭터와 문자 또는 음성으로 대화하기", applicationName: "LIVE",
+  appleWebApp: { capable: true, statusBarStyle: "black", title: "LIVE" },
   manifest: "/dokyeong-live.webmanifest",
+  icons:{icon:"/live-icon-192.png",apple:"/live-icon-180.png"},
   other: { google: "notranslate" },
 };
 export const viewport: Viewport = { themeColor: "#111111", width: "device-width", initialScale: 1, viewportFit: "cover" };

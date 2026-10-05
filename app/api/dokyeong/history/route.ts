@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { rpc } from "@/lib/dokyeong/settings";
@@ -19,7 +20,12 @@ const failure = (error: unknown) => Response.json({
 
 export async function GET(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
-  try { return Response.json(await sync({action:"read"}), {headers:noStore}); }
+  try {
+    const versions=await rpc("live_data_work",{server_token:process.env.CHARACTER_HISTORY_KEY,action:"versions"},15000);
+    const etag='"'+createHash('sha256').update(JSON.stringify(versions)).digest('hex')+'"';
+    if(request.headers.get('if-none-match')===etag)return new Response(null,{status:304,headers:{...noStore,ETag:etag}});
+    return Response.json(await sync({action:"read"}), {headers:{...noStore,ETag:etag}});
+  }
   catch (error) { return failure(error); }
 }
 
@@ -38,13 +44,15 @@ export async function POST(request: NextRequest) {
           !["user","assistant"].includes(String(m.role)) || typeof m.content !== "string" || m.content.length > 30000 ||
           typeof m.ts !== "number" || !Number.isSafeInteger(m.ts) || m.ts < 0 ||
           m.image && (typeof m.image.dataUrl !== "string" ||
-            !["image/jpeg","image/png","image/webp"].includes(String(m.image.mimeType)) || m.image.dataUrl.length > 1850000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(m.image.dataUrl))))
+            !["image/jpeg","image/png","image/webp"].includes(String(m.image.mimeType)) || m.image.dataUrl.length > 1850000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(m.image.dataUrl) && !/^\/api\/dokyeong\/media\/[a-f0-9-]{36}\/[A-Za-z0-9:_-]{1,120}$/i.test(m.image.dataUrl))))
       return Response.json({error:"대화 형식을 확인해 줘."}, {status:400,headers:noStore});
     const messages = body.messages.map((m: {id:string;role:string;content:string;ts:number;image?:{dataUrl:string;mimeType:string}}) => ({
       id:m.id, role:m.role, content:m.content, ts:m.ts,
       ...(m.image ? {image:{dataUrl:m.image.dataUrl,mimeType:m.image.mimeType}} : {}),
     }));
-    const saved=await sync({action:body.action,target_character:body.characterId,expected_epoch:body.epoch,incoming:messages});
+    const saved=body.action==="reset" && body.keepMemory===true
+      ? await rpc("live_data_work",{server_token:process.env.CHARACTER_HISTORY_KEY,action:"reset_keep_memory",target_character:body.characterId,data:{epoch:body.epoch}},15000)
+      : await sync({action:body.action,target_character:body.characterId,expected_epoch:body.epoch,incoming:messages});
     if(body.action!=="reset")after(()=>updateMemory(body.characterId).catch(()=>{console.warn("CHARACTER_MEMORY_RETRY",body.characterId);}));
     return Response.json(saved,{headers:noStore});
   } catch (error) { return failure(error); }

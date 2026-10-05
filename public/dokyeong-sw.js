@@ -1,5 +1,5 @@
-const CACHE = "dokyeong-live-shell-v5";
-self.addEventListener("install", (event) => { event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/dokyeong-live", "/dokyeong-icon.svg"]))); self.skipWaiting(); });
+const CACHE = "dokyeong-live-shell-v6";
+self.addEventListener("install", (event) => { event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/dokyeong-live", "/live-icon-192.png"]))); self.skipWaiting(); });
 self.addEventListener("activate", (event) => { event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("dokyeong-live-") && key !== CACHE).map((key) => caches.delete(key))))); self.clients.claim(); });
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || new URL(event.request.url).pathname.startsWith("/api/") || event.request.mode !== "navigate") return;
@@ -10,7 +10,8 @@ self.addEventListener('push',event=>{
  let data;try{data=event.data.json();}catch{return;}
  if(!data||typeof data.body!=='string'||typeof data.characterId!=='string')return;
  event.waitUntil(Promise.all([
-  self.registration.showNotification(data.title||'캐릭터라이브',{body:data.body,icon:'/dokyeong-icon-192.png',badge:'/dokyeong-icon-192.png',tag:data.messageId||'character-live',data:{characterId:data.characterId}}),
+  typeof self.navigator.setAppBadge==='function'?self.navigator.setAppBadge(Number(data.unreadCount)||1).catch(()=>{}):Promise.resolve(),
+  self.registration.showNotification(data.title||'LIVE',{body:data.body,icon:'/live-icon-192.png',badge:'/live-icon-192.png',tag:data.messageId||'live',renotify:true,data:{characterId:data.characterId}}),
   self.clients.matchAll({type:'window',includeUncontrolled:true}).then(clients=>{for(const client of clients)client.postMessage({type:'CHARACTER_MESSAGE',characterId:data.characterId});})
  ]));
 });

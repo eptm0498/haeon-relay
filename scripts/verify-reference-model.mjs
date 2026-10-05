@@ -34,7 +34,7 @@ if (process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes("[verify-reference-model]"))
   globalThis.fetch=async(url,options)=>{
     if (String(url).startsWith("https://api.openai.com/v1/images/")) {
       const payload=JSON.parse(options.body);
-      if (!String(url).endsWith("/edits") || payload.images?.length!==4 ||
+      if (!String(url).endsWith("/edits") || ![4,5].includes(payload.images?.length) ||
           !payload.prompt.includes("MASTER FACE") || !payload.prompt.includes("MASTER BODY")) throw new Error("Master reference role mapping missing");
       requests++;
     }
@@ -47,8 +47,8 @@ if (process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes("[verify-reference-model]"))
     const profile=await generateCharacterPhoto({...base,request:"자연스러운 프로필 사진을 만들어 줘.",profile:true});
     if (profile.referenceCount!==4 || profile.image.dataUrl.length>200000) throw new Error("Profile generation invalid");
     console.log("REFERENCE_PROFILE_GENERATION_OK "+JSON.stringify({references:profile.referenceCount,face:profile.faceCount,body:profile.bodyCount,model:profile.model}));
-    const scene=await generateCharacterPhoto({...base,signal:AbortSignal.timeout(230000),request:"흰 티셔츠를 입고 카페 창가에 앉아 있는 셀카 사진 보내줘."});
+    const scene=await generateCharacterPhoto({...base,sourceImage:profile.image.dataUrl,signal:AbortSignal.timeout(230000),request:"흰 티셔츠를 입고 카페 창가에 앉아 있는 셀카 사진 보내줘."});
     if (scene.referenceCount!==4 || !scene.image.dataUrl.startsWith("data:image/jpeg;base64,")) throw new Error("Scene generation invalid");
-    console.log("REFERENCE_SCENE_GENERATION_OK "+JSON.stringify({references:scene.referenceCount,face:scene.faceCount,body:scene.bodyCount,model:scene.model,requests}));
+    console.log("REFERENCE_SCENE_EDIT_GENERATION_OK "+JSON.stringify({references:scene.referenceCount,face:scene.faceCount,body:scene.bodyCount,model:scene.model,requests}));
   } finally {globalThis.fetch=savedFetch;rmSync(dir,{recursive:true,force:true});}
 }

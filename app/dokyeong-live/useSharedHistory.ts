@@ -29,10 +29,13 @@ function legacyMessages(value:unknown):Message[] {
     return {id:m.id || `legacy:${ts}:${hash}`,role:m.role,content:m.content,ts};
   });
 }
+let lastEtag="";
 async function request(body?:object) {
   const response = await fetch("/api/dokyeong/history", body ? {
     method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),
-  } : {cache:"no-store"});
+  } : {cache:"no-store",headers:lastEtag?{"If-None-Match":lastEtag}:{}});
+  if(response.status===304)return null;
+  if(body)lastEtag="";else lastEtag=response.headers.get("etag")||"";
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.error || "대화 동기화에 실패했어."),{status:response.status});
   return result;
@@ -71,7 +74,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
         }
         try {
           const saved:History = await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch});
-          states.current[id] = saved;
+          states.current[id] = {...saved,messages:states.current[id]?.epoch===saved.epoch?merge(states.current[id].messages,saved.messages):saved.messages};
           const sent = new Set(batch.map(m => m.id));
           pending.messages = pending.messages.filter(m => !sent.has(m.id));
           if (!pending.messages.length) { delete outboxes.current[id]; removeLocal(outboxKey(id)); }
@@ -94,7 +97,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
       try {
         await flush();
         const rows:History[] = await request();
-        for (let state of rows) {
+        for (let state of rows||[]) {
           const character = charactersRef.current.find(c => c.id===state.character_id);
           if (!character) continue;
           const id=state.character_id;
@@ -107,7 +110,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
             if (state.import_allowed && legacy.length) state=await request({action:"import",characterId:id,epoch:state.epoch,messages:legacy});
             writeLocal(migratedKey(id),"1");
           }
-          states.current[id]=state;
+          states.current[id]={...state,messages:states.current[id]?.epoch===state.epoch?merge(states.current[id].messages,state.messages):state.messages};
         }
         await flush();
         publish(); setReady(true); setError("");
@@ -138,7 +141,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     publish();
     void synchronize();
   }
-  async function reset(id:string) {
+  async function reset(id:string,keepMemory=false) {
     await synchronize();
     await task.current;
     busy.current = true;
@@ -146,7 +149,7 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
       try {
         const state=states.current[id];
         if (!state) throw new Error("대화를 먼저 불러와 줘.");
-        const saved:History=await request({action:"reset",characterId:id,epoch:state.epoch,messages:[]});
+        const saved:History=await request({action:"reset",characterId:id,epoch:state.epoch,messages:[],keepMemory});
         states.current[id]=saved; delete outboxes.current[id];
         removeLocal(outboxKey(id)); writeLocal(migratedKey(id),"1");
         publish();
@@ -155,5 +158,9 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     await task.current;
   }
 
-  return {histories,ready,error,append,reset,synchronize};
+  function addOlder(id:string,messages:Message[]) {
+    const state=states.current[id];if(!state)return;
+    state.messages=merge(messages,state.messages);publish();
+  }
+  return {histories,ready,error,append,reset,synchronize,addOlder};
 }

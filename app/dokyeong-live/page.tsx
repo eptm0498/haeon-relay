@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import {useCompanion} from "./useCompanion";
+import LiveTools from "./LiveTools";
+import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
@@ -144,7 +146,8 @@ export default function DokyeongLive() {
   const [characterId, setCharacterId] = useState("");
   const [resetting, setResetting] = useState(false);
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
-  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize();});
+  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize();},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
+  const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize();});
   const navigationReady=useRef(false);
   const swipeStart=useRef<{x:number;y:number}|null>(null);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
@@ -180,6 +183,7 @@ export default function DokyeongLive() {
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
+  const editImageRef=useRef<string|undefined>(undefined);
   const draftInputRef = useRef<HTMLInputElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
@@ -386,6 +390,7 @@ export default function DokyeongLive() {
     const text = userText.trim().slice(0, 1500);
     if (!text && !image) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
+    const editSource=editImageRef.current;editImageRef.current=undefined;
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
     const conversation = [...messageRef.current, { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image }]; setHistory(conversation);
@@ -543,10 +548,11 @@ export default function DokyeongLive() {
         setHistory([...conversation,waiting]);
         if(chatModeRef.current==="voice" && voice){queueSpeech(waiting.content,turn);}
         await sharedHistory.synchronize();
-        const response=await fetch(`${API}/images`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({characterId:requestCharacterId,text:text||"이 사진의 문맥대로 사진을 보내줘.",scene:photoPlan.scene,context:conversation.slice(-8).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-6000)}),signal:controller.signal});
+        const response=await fetch(`${API}/images`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({characterId:requestCharacterId,requestId:crypto.randomUUID(),text:text||"이 사진의 문맥대로 사진을 보내줘.",scene:photoPlan.scene,sourceMessageId:editSource||(/(이|그|방금|아까).{0,6}(사진|이미지)|옷만|배경만|수정|바꿔/.test(text)?[...conversation].reverse().find(m=>m.role==="assistant"&&m.image)?.id:undefined),context:conversation.slice(-8).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-6000)}),signal:controller.signal});
         const result=await response.json();if(!response.ok)throw Error(result.error||"사진을 만들지 못했어.");
         if(turn!==generation.current)return;
-        setHistory([...messageRef.current,result.message]);
+        if(result.message)setHistory([...messageRef.current,result.message]);
+        await sharedHistory.synchronize();
         if(chatModeRef.current==="voice" && voice)await queuedRef.current;
         return;
       }
@@ -703,12 +709,12 @@ export default function DokyeongLive() {
     return () => document.removeEventListener("visibilitychange", recover);
   }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
-  async function restart() {
+  async function restart(keepMemory=true) {
     if (resetting || !historyReady) return;
     endCall(); setResetting(true);
     const id = characterIdRef.current;
     try {
-      await sharedHistory.reset(id);
+      await sharedHistory.reset(id,keepMemory);
       if (characterIdRef.current === id) {
         messageRef.current = []; setMessages([]); setPartial(""); setError(""); setLatency(null);
       }
@@ -810,6 +816,12 @@ export default function DokyeongLive() {
   const activeName = activeCharacter?.name || "캐릭터";
   const activeAvatar = activeCharacter?.avatar_url;
 
+  useEffect(()=>{
+    const nav=navigator as Navigator & {setAppBadge?:(count:number)=>Promise<void>;clearAppBadge?:()=>Promise<void>};
+    const unread=Object.entries(sharedHistory.histories).reduce((count,[id,history])=>count+history.filter(m=>m.role==='assistant'&&(m.ts||0)>(companion.state.characters[id]?.seenAt||0)&&!(view==='chat'&&id===characterId&&!document.hidden)).length,0);
+    if(unread)void nav.setAppBadge?.(unread).catch(()=>{});else void nav.clearAppBadge?.().catch(()=>{});
+  },[sharedHistory.histories,companion.state.characters,view,characterId]);
+
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const showMessages = chatMode === "text" || captions;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
@@ -823,7 +835,7 @@ export default function DokyeongLive() {
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <div className={styles.listTitleRow}>
-            <strong>채팅</strong>
+            <strong className={styles.liveBrand}><img src="/live-icon-192.png" alt=""/>LIVE</strong>
             <div className={styles.listHeaderActions}>
               <button onClick={() => { setListSearchOpen((open) => !open); if (listSearchOpen) setListQuery(""); }} aria-label="채팅 검색">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
@@ -887,7 +899,7 @@ export default function DokyeongLive() {
           <strong>{activeName}</strong>
         </button>
         <div className={styles.headerCapsule}>
-          <button className={styles.headerTool} onClick={restart} aria-label="새 대화">
+          <button className={styles.headerTool} onClick={()=>setSettingsOpen(true)} aria-label="대화 검색">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
           </button>
           <button className={styles.headerTool} onClick={() => switchChatMode(chatMode === "voice" ? "text" : "voice")} aria-label={chatMode === "voice" ? "문자 채팅으로 전환" : "음성 채팅으로 전환"}>
@@ -920,16 +932,16 @@ export default function DokyeongLive() {
         <button type="button" className={styles.newChatButton} disabled={companion.registering} onClick={()=>void (companion.state.subscribed?companion.stopNotifications():companion.notifications())}>{companion.registering?"알림 등록 중…":companion.state.subscribed?"이 기기 알림 끄기":"앱을 닫아도 선톡 알림 받기"}</button>
         <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 알림을 허용해 줘. 선톡은 대화 흐름과 한국 시간에 맞춰 와.</p>
         {companion.error&&<p role="alert" className={styles.notificationHint}>{companion.error}</p>}
-        <button className={styles.newChatButton} onClick={() => { restart(); setSettingsOpen(false); }}>이 캐릭터와 새 대화</button>
+        <LiveTools key={characterId} characterId={characterId} name={activeName} onOlder={older=>sharedHistory.addOlder(characterId,older)} onReset={keep=>{void restart(keep);setSettingsOpen(false);}} onTestNotification={companion.testNotification}/>
         </section>
       </div>}
 
       <section className={styles.chatArea} ref={scrollRef} aria-live="polite">
-        <div className={styles.dateChip}>오늘</div>
+        <div className={styles.dateChip}>{new Date(messages.at(-1)?.ts||Date.now()).toLocaleDateString("ko-KR",{timeZone:"Asia/Seoul"})}</div>
 
         {status?.configured && !status.authenticated && <div className={styles.loginCard}>
           <div className={styles.loginAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
-          <strong>캐릭터라이브</strong>
+          <strong>LIVE</strong>
           <p>접속 코드를 입력하면 대화방이 열려.</p>
           <form onSubmit={login} className={styles.login}>
             <input type="password" autoComplete="current-password" aria-label="접속 코드" placeholder="접속 코드" value={code} onChange={(e) => setCode(e.target.value)} />
@@ -941,15 +953,16 @@ export default function DokyeongLive() {
         {status?.authenticated && !status.ready && <div className={styles.systemBubble}>서버 환경변수 설정 필요: {status.missing.join(", ")}</div>}
 
         {status?.authenticated && showMessages && messages.slice(-1000).map((message, index) => message.role === "assistant"
-          ? <div key={message.id || index} className={styles.assistantRow}>
+          ? <div id={"message-"+message.id} key={message.id || index} className={styles.assistantRow}>
               <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
               <div className={styles.messageColumn}>
                 <span className={styles.senderName}>{activeName}</span>
                 <div className={styles.bubbleLine}>
                   <div className={styles.userStack}>
                     {message.image && <div className={styles.imageBubble}>
-                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="생성된 사진 저장"><img src={message.image.dataUrl} alt={`${activeName}이 보낸 AI 생성 사진`} /></a>
+                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="생성된 사진 저장"><img loading="lazy" src={message.image.dataUrl} alt={`${activeName}이 보낸 AI 생성 사진`} /></a>
                       <span className={styles.imageLabel}>AI 생성 사진 · 눌러서 저장</span>
+                      <button className={styles.imageEdit} onClick={()=>{editImageRef.current=message.id;setDraft("이 사진에서 ");draftInputRef.current?.focus();}}>이 사진 이어서 수정</button>
                     </div>}
                     {message.content && <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>}
                   </div>
@@ -957,11 +970,11 @@ export default function DokyeongLive() {
                 </div>
               </div>
             </div>
-          : <div key={message.id || index} className={styles.userRow}>
+          : <div id={"message-"+message.id} key={message.id || index} className={styles.userRow}>
               <div className={styles.bubbleLine}>
                 {message.ts && <time>{formatMessageTime(message.ts)}</time>}
                 <div className={styles.userStack}>
-                  {message.image && <div className={styles.imageBubble}><img src={message.image.dataUrl} alt="보낸 이미지" /></div>}
+                  {message.image && <div className={styles.imageBubble}><img loading="lazy" src={message.image.dataUrl} alt="보낸 이미지" /></div>}
                   {message.content && <div className={[styles.bubble, styles.userBubble].join(" ")}>{message.content}</div>}
                 </div>
               </div>
@@ -991,6 +1004,7 @@ export default function DokyeongLive() {
 
         {status?.authenticated && chatMode === "voice" && !captions && <div className={styles.systemBubble}>음성 채팅 중 · 자막 꺼짐</div>}
         {status?.authenticated && !historyReady && <div className={styles.systemBubble}>대화 기록을 동기화하고 있어.</div>}
+        <ImageJobTray state={imageJobs}/>
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
         <div className={styles.chatSpacer} />

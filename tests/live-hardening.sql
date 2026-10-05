@@ -1,0 +1,31 @@
+begin;
+do $test$
+declare tok text:=$cap$__SERVER_CAPABILITY__$cap$;cid uuid;ep uuid;job uuid:=gen_random_uuid();claim jsonb;outcome jsonb;dev uuid:=gen_random_uuid();test_endpoint text:='https://fcm.googleapis.com/live-rollback-test';img jsonb:=jsonb_build_object('mimeType','image/jpeg','dataUrl','data:image/jpeg;base64,'||repeat('A',1849900));
+begin
+ insert into public.live_characters(name,prompt,voice_id,voice_name,is_default,sort_order) select '회귀 검증',prompt,voice_id,voice_name,false,999 from public.live_characters limit 1 returning id into cid;
+ insert into private.live_chat_history(character_id) values(cid) returning epoch into ep;
+ perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id','large-photo','role','assistant','content','','ts',floor(extract(epoch from now())*1000),'image',img,'imagePrompt','검증 장면')));
+ if (select octet_length(messages::text) from private.live_chat_history where character_id=cid)>2000 then raise exception 'inline image still in history';end if;
+ if public.live_data_work(tok,'media',cid,'{"messageId":"large-photo"}') is null then raise exception 'media missing';end if;
+ outcome=public.live_data_work(tok,'archive',cid);
+ if outcome->'messages'->0->>'content'<>'' then raise exception 'photo caption restored unexpectedly';end if;
+ perform public.live_data_work(tok,'memory_save',cid,jsonb_build_object('epoch',ep,'summary','사용자는 커피를 좋아한다.'));
+ outcome=public.live_data_work(tok,'reset_keep_memory',cid,jsonb_build_object('epoch',ep));ep=(outcome->>'epoch')::uuid;
+ if public.live_memory_work(tok,'read',cid)->>'summary'<>'사용자는 커피를 좋아한다.' then raise exception 'memory retention failed';end if;
+ if exists(select 1 from private.live_media where character_id=cid) then raise exception 'reset did not clear media';end if;
+ perform public.live_image_work(tok,'create',job,cid,'{"scene":"카페 셀카","text":"사진 보내줘"}');
+ perform public.live_image_work(tok,'create',job,cid,'{"scene":"카페 셀카","text":"사진 보내줘"}');
+ if (select count(*) from private.live_image_jobs where id=job)<>1 then raise exception 'duplicate job created';end if;
+ claim=public.live_image_work(tok,'claim',job);
+ if public.live_image_work(tok,'claim',job) is not null then raise exception 'duplicate generation lease';end if;
+ perform public.live_image_work(tok,'complete',job,null,jsonb_build_object('lease',claim->>'lease','image',img));
+ outcome=public.live_image_work(tok,'read',job);
+ if outcome->>'status'<>'complete' or outcome ? 'payload' or outcome ? 'lease' then raise exception 'job result incorrect';end if;
+ insert into private.live_push_subscriptions(endpoint,device_id,keys) values(test_endpoint,dev,'{"p256dh":"audit","auth":"audit"}');
+ perform public.live_test_push(tok,dev,cid);
+ if not exists(select 1 from private.live_push_jobs where live_push_jobs.endpoint=test_endpoint) then raise exception 'test push missing';end if;
+ delete from public.live_characters where id=cid;
+ if exists(select 1 from private.live_push_jobs where live_push_jobs.endpoint=test_endpoint) then raise exception 'deleted character push survived';end if;
+ if exists(select 1 from private.live_media where character_id=cid) or exists(select 1 from private.live_image_jobs where character_id=cid) then raise exception 'deleted character media/jobs survived';end if;
+end $test$;
+rollback;

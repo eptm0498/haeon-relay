@@ -16,14 +16,14 @@ export async function rpc<T>(name: string, body: object, timeout = 5000): Promis
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.code === "40001" ? "VERSION_CONFLICT" : `Settings request failed: ${response.status}`);
+    throw new Error(error.code === "40001" ? "VERSION_CONFLICT" : error.message === "IMAGE_DAILY_LIMIT" ? "IMAGE_DAILY_LIMIT" : `Settings request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
 
 export async function readCharacter() {
-  const rows = await rpc<CharacterRow[]>("dokyeong_read_character", {});
-  return rows[0] || { prompt: dokyeongPrompt, version: null, updated_at: null };
+  const row = await rpc<CharacterRow|null>("live_server_character", {server_token:process.env.CHARACTER_HISTORY_KEY,character_id:null});
+  return row || { prompt: dokyeongPrompt, version: null, updated_at: null };
 }
 
 export async function activeCharacterPrompt() {
