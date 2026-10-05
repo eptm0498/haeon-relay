@@ -15,6 +15,31 @@ type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: s
 type LiveVoice = { voice_id: string; name: string; category: string; labels?: Record<string,string> };
 type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 const voiceKey = (characterId: string) => `character-live-voice-v1:${characterId}`;
+const sleepModeKey = (characterId: string) => `character-live-sleep-v1:${characterId}`;
+
+function readSleepModeUntil(characterId: string) {
+  if (!characterId || typeof window === "undefined") return 0;
+  const value = Number(localStorage.getItem(sleepModeKey(characterId)) || 0);
+  if (!Number.isFinite(value) || value <= Date.now()) {
+    localStorage.removeItem(sleepModeKey(characterId));
+    return 0;
+  }
+  return value;
+}
+
+function storeSleepModeUntil(characterId: string, until: number) {
+  if (!characterId || typeof window === "undefined") return;
+  if (!Number.isFinite(until) || until <= Date.now()) {
+    localStorage.removeItem(sleepModeKey(characterId));
+    return;
+  }
+  localStorage.setItem(sleepModeKey(characterId), String(until));
+  window.setTimeout(() => {
+    const saved = Number(localStorage.getItem(sleepModeKey(characterId)) || 0);
+    if (saved && saved <= Date.now()) localStorage.removeItem(sleepModeKey(characterId));
+  }, Math.max(0, until - Date.now()) + 250);
+}
+
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "대기 중", listening: "듣고 있어", thinking: "답장 쓰는 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
@@ -420,6 +445,8 @@ export default function DokyeongLive() {
     };
 
     try {
+      const requestCharacterId = characterIdRef.current;
+      const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -432,11 +459,18 @@ export default function DokyeongLive() {
             return base;
           }),
           voice: chatModeRef.current === "voice" && voice,
-          characterId: characterIdRef.current || null,
+          characterId: requestCharacterId || null,
           voiceId: voiceIdRef.current || null,
+          sleepModeUntil: activeSleepModeUntil,
         }),
         signal: controller.signal,
       });
+
+      const sleepModeHeader = response.headers.get("X-Dokyeong-Sleep-Until");
+      if (sleepModeHeader !== null) {
+        storeSleepModeUntil(requestCharacterId, Number(sleepModeHeader));
+      }
+
       if (!response.ok || !response.body) {
         const body = await response.json().catch(() => ({}));
         throw Error(body.error || "응답을 받지 못했어.");
