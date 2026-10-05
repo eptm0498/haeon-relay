@@ -22,6 +22,14 @@ export function listCharacters(editToken: string) {
   return rpc<LiveCharacter[]>("live_list_characters", { edit_token: editToken }, 10000);
 }
 
+export function listCharacterSummaries(editToken:string) {
+  return rpc<LiveCharacter[]>("live_character_summaries",{edit_token:editToken},10000);
+}
+
+export function readEditorReferences(editToken:string,characterId:string) {
+  return rpc<ReferenceImages>("live_editor_character_references",{edit_token:editToken,character_id:characterId},15000);
+}
+
 export function listPublicCharacters() {
   return rpc<PublicCharacter[]>("live_public_characters", {}, 8000);
 }

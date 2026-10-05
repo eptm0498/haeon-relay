@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
-import { deleteLiveCharacter, listCharacters, saveLiveCharacter } from "@/lib/dokyeong/characters";
+import { deleteLiveCharacter, listCharacterSummaries, listCharacters, readEditorReferences, saveLiveCharacter } from "@/lib/dokyeong/characters";
 import { verifyEditor } from "@/lib/dokyeong/settings";
 import { emptyReferences, parseReferences } from "@/lib/dokyeong/reference-images";
 
@@ -8,11 +8,16 @@ export const runtime = "nodejs";
 type Context = { params: Promise<{ token: string }> };
 const deny = () => Response.json({ error: "편집 링크를 확인해 줘." }, { status: 404, headers: noStore });
 
-export async function GET(_request: NextRequest, { params }: Context) {
+export async function GET(request: NextRequest, { params }: Context) {
   const { token } = await params;
   try {
     if (!await verifyEditor(token)) return deny();
-    return Response.json(await listCharacters(token), { headers: noStore });
+    const id=request.nextUrl.searchParams.get("referencesFor");
+    if (id) {
+      if (!/^[a-f0-9-]{36}$/i.test(id)) return Response.json({error:"캐릭터를 확인해 줘."},{status:400,headers:noStore});
+      return Response.json(await readEditorReferences(token,id),{headers:noStore});
+    }
+    return Response.json(await (request.nextUrl.searchParams.get("listOnly")==="1" ? listCharacterSummaries(token) : listCharacters(token)), { headers: noStore });
   } catch {
     return Response.json({ error: "캐릭터를 불러오지 못했어." }, { status: 503, headers: noStore });
   }
@@ -41,8 +46,7 @@ export async function POST(request: NextRequest, { params }: Context) {
     // Legacy clients omit this field; preserve their saved master references.
     if (references!==undefined) body.reference_images=references;
     else {
-      const saved=body.id ? (await listCharacters(token)).find(c=>c.id===body.id) : null;
-      body.reference_images=saved?.reference_images || emptyReferences();
+      body.reference_images=body.id ? await readEditorReferences(token,body.id) : emptyReferences();
     }
     return Response.json(await saveLiveCharacter(token, body), { headers: noStore });
   } catch (error) {

@@ -108,18 +108,29 @@ export default function CharacterEditor({ token }: { token: string }) {
     setNotice(""); setError("");
   }, []);
 
+  const fetchReferences = useCallback(async (character:Character):Promise<Character> => {
+    if (!character.id || character.reference_images) return character;
+    const response=await fetch(`${api}/characters?referencesFor=${character.id}`,{cache:"no-store"});
+    const result=await response.json();
+    if (!response.ok)throw new Error(result.error || "기준 사진을 불러오지 못했어.");
+    return {...character,reference_images:result};
+  },[api]);
+
   const loadCharacters = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch(`${api}/characters`, { cache:"no-store" });
+      const response = await fetch(`${api}/characters?listOnly=1`, { cache:"no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
-      setCharacters(data);
       const keep = data.find((item: Character) => item.is_default) || data[0];
-      if (keep) applyCharacter(keep);
+      if (keep) {
+        const ready=await fetchReferences(keep);
+        setCharacters(data.map((item:Character)=>item.id===ready.id?ready:item));
+        applyCharacter(ready);
+      } else setCharacters(data);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "캐릭터를 불러오지 못했어."); }
     finally { setLoading(false); }
-  }, [api, applyCharacter]);
+  }, [api, applyCharacter, fetchReferences]);
 
   const loadVoices = useCallback(async () => {
     setVoiceLoading(true);
@@ -145,9 +156,16 @@ export default function CharacterEditor({ token }: { token: string }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  function chooseCharacter(character: Character) {
+  async function chooseCharacter(character: Character) {
+    if (saving || loading) return;
     if (dirty && !window.confirm("저장하지 않은 변경사항을 버리고 다른 캐릭터로 이동할까?")) return;
-    applyCharacter(character);
+    setLoading(true);setError("");
+    try {
+      const ready=await fetchReferences(character);
+      setCharacters(previous=>previous.map(item=>item.id===ready.id?ready:item));
+      applyCharacter(ready);
+    } catch(cause){setError(cause instanceof Error?cause.message:"기준 사진을 불러오지 못했어.");}
+    finally{setLoading(false);}
   }
 
   function newCharacter() {
