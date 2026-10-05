@@ -786,7 +786,7 @@ export default function DokyeongLive() {
       .filter((item) => !listQuery.trim() || item.name.toLowerCase().includes(listQuery.trim().toLowerCase()))
       .sort((a, b) => (chatPreviews[b.id]?.ts || 0) - (chatPreviews[a.id]?.ts || 0) || a.sort_order - b.sort_order);
 
-    return <main className={styles.shell}>
+    return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}>
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <div className={styles.listTitleRow}>
@@ -839,7 +839,7 @@ export default function DokyeongLive() {
     </main>;
   }
 
-  return <main className={styles.shell}>
+  return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
         <button className={styles.backButton} onClick={() => { endCall(); setSettingsOpen(false); setView("list"); }} aria-label="채팅 목록">
