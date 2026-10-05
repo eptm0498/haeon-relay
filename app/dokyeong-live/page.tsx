@@ -4,8 +4,11 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import { dokyeongFaceDataUrl } from "./dokyeong-face";
 
-type Message = { role: "user" | "assistant"; content: string; ts?: number };
+type ChatImage = { dataUrl: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; name?: string };
+type Message = { role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage };
 type ChatMode = "text" | "voice";
+type AppView = "list" | "chat";
+type ChatPreview = { text: string; ts?: number };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
 type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: string; avatar_url: string | null; is_default: boolean; sort_order: number };
@@ -47,12 +50,48 @@ function amplifySpeech(context: AudioContext, source: AudioNode) {
   return () => { source.disconnect(); gain.disconnect(); limiter.disconnect(); };
 }
 
+async function prepareChatImage(file: File): Promise<ChatImage> {
+  if (!file.type.startsWith("image/")) throw new Error("이미지 파일만 보낼 수 있어.");
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("사진을 읽지 못했어."));
+      el.src = objectUrl;
+    });
+    const longest = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = Math.min(1, 1280 / Math.max(1, longest));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("사진을 처리하지 못했어.");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.82;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > 1_650_000 && quality > 0.5) {
+      quality -= 0.08;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+    if (dataUrl.length > 1_850_000) throw new Error("사진이 너무 커. 다른 사진으로 보내줘.");
+    return { dataUrl, mimeType: "image/jpeg", name: file.name };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export default function DokyeongLive() {
   const [status, setStatus] = useState<Status | null>(null);
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState<Phase>("off");
   const [chatMode, setChatMode] = useState<ChatMode>("text");
+  const [view, setView] = useState<AppView>("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatPreviews, setChatPreviews] = useState<Record<string, ChatPreview>>({});
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [partial, setPartial] = useState("");
@@ -94,13 +133,24 @@ export default function DokyeongLive() {
   const lastInputAtRef = useRef(0);
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const imagePickerRef = useRef<HTMLInputElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const setHistory = (next: Message[]) => {
     const kept = next.slice(-40);
     messageRef.current = kept;
     setMessages(kept);
-    if (characterIdRef.current) localStorage.setItem(historyKey(characterIdRef.current), JSON.stringify(kept));
+    if (characterIdRef.current) {
+      const stored = kept.map((m) => m.image
+        ? { role: m.role, content: m.content || "[사진]", ts: m.ts }
+        : { role: m.role, content: m.content, ts: m.ts });
+      try { localStorage.setItem(historyKey(characterIdRef.current), JSON.stringify(stored)); } catch {}
+      const last = kept.at(-1);
+      if (last) setChatPreviews((prev) => ({
+        ...prev,
+        [characterIdRef.current]: { text: last.image && !last.content ? "사진" : last.content || "사진", ts: last.ts },
+      }));
+    }
   };
   useEffect(() => {
     fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setError("서버에 연결하지 못했어."));
@@ -114,6 +164,16 @@ export default function DokyeongLive() {
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
       setCharacters(list);
+      const previews: Record<string, ChatPreview> = {};
+      for (const item of list) {
+        try {
+          const raw = localStorage.getItem(historyKey(item.id)) || (item.is_default ? localStorage.getItem("dokyeong-live-history-v1") : null) || "[]";
+          const parsed = JSON.parse(raw);
+          const last = Array.isArray(parsed) ? parsed.filter((m) => m && typeof m.content === "string").at(-1) : null;
+          if (last) previews[item.id] = { text: String(last.content || ""), ts: typeof last.ts === "number" ? last.ts : undefined };
+        } catch {}
+      }
+      setChatPreviews(previews);
       const selected = list.find((item) => item.id === characterIdRef.current) || list.find((item) => item.is_default) || list[0];
       if (!selected) return;
       const changed = characterIdRef.current !== selected.id;
@@ -274,11 +334,12 @@ export default function DokyeongLive() {
     });
   }
 
-  async function reply(userText: string) {
-    const text = userText.trim().slice(0, 1500); if (!text) { if (running.current) setMode("listening"); return; }
+  async function reply(userText: string, image?: ChatImage) {
+    const text = userText.trim().slice(0, 1500);
+    if (!text && !image) { if (running.current) setMode("listening"); return; }
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
-    const conversation = [...messageRef.current, { role: "user" as const, content: text, ts: Date.now() }]; setHistory(conversation);
+    const conversation = [...messageRef.current, { role: "user" as const, content: text, ts: Date.now(), image }]; setHistory(conversation);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -345,7 +406,18 @@ export default function DokyeongLive() {
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: conversation.slice(-24), voice: chatModeRef.current === "voice" && voice, characterId: characterIdRef.current || null, voiceId: voiceIdRef.current || null }),
+        body: JSON.stringify({
+          messages: conversation.slice(-24).map((m, index, arr) => {
+            const base: any = { role: m.role, content: m.content };
+            if (index === arr.length - 1 && m.image) {
+              base.image = { mimeType: m.image.mimeType, data: m.image.dataUrl.split(",")[1] || "" };
+            }
+            return base;
+          }),
+          voice: chatModeRef.current === "voice" && voice,
+          characterId: characterIdRef.current || null,
+          voiceId: voiceIdRef.current || null,
+        }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -591,6 +663,25 @@ export default function DokyeongLive() {
     if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
     else stopAudio();
   }
+  function openConversation(nextId: string) {
+    switchCharacter(nextId);
+    setView("chat");
+  }
+  function closeVoicePanel() {
+    if (chatModeRef.current === "voice") switchChatMode("text");
+  }
+  async function sendPickedImage(file?: File) {
+    if (!file) return;
+    try {
+      setError("");
+      const image = await prepareChatImage(file);
+      await reply("", image);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "사진을 보내지 못했어.");
+    } finally {
+      if (imagePickerRef.current) imagePickerRef.current.value = "";
+    }
+  }
   function submitText(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; const value = draft; if (running.current) lastInputAtRef.current = performance.now(); setDraft(""); void reply(value); }
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
@@ -599,11 +690,37 @@ export default function DokyeongLive() {
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const showMessages = chatMode === "text" || captions;
+  const avatarFor = (item: LiveCharacter) => item.avatar_url || (item.name === "도경" ? dokyeongFaceDataUrl : null);
+
+  if (view === "list" && status?.authenticated) {
+    return <main className={styles.shell}>
+      <div className={styles.phone}>
+        <header className={styles.listHeader}>
+          <strong>채팅</strong>
+          <button className={styles.listMenuButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="설정">☰</button>
+        </header>
+        <section className={styles.chatList}>
+          {characters.map((item) => {
+            const preview = chatPreviews[item.id];
+            const avatar = avatarFor(item);
+            return <button key={item.id} className={styles.chatListRow} onClick={() => openConversation(item.id)}>
+              <span className={styles.listAvatar}>{avatar ? <img src={avatar} alt="" /> : item.name.slice(0,2)}</span>
+              <span className={styles.listCopy}>
+                <strong>{item.name}</strong>
+                <small>{preview?.text || "대화를 시작해."}</small>
+              </span>
+              <time>{preview?.ts ? formatMessageTime(preview.ts) : ""}</time>
+            </button>;
+          })}
+        </section>
+      </div>
+    </main>;
+  }
 
   return <main className={styles.shell}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
-        <button className={styles.backButton} onClick={() => window.history.back()} aria-label="뒤로 가기">
+        <button className={styles.backButton} onClick={() => { endCall(); setSettingsOpen(false); setView("list"); }} aria-label="채팅 목록">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 8 12l7.5 7.5" /></svg>
         </button>
         <button className={styles.headerTitle} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
@@ -622,7 +739,9 @@ export default function DokyeongLive() {
         </div>
       </header>
 
-      {settingsOpen && <section className={styles.settingsPanel}>
+      {settingsOpen && <div className={styles.panelBackdrop} onClick={() => setSettingsOpen(false)}>
+        <section className={styles.settingsPanel} onClick={(event) => event.stopPropagation()}>
+        <button className={styles.panelClose} onClick={() => setSettingsOpen(false)} aria-label="설정 닫기">×</button>
         <div className={styles.settingRow}>
           <label htmlFor="character-live-select">캐릭터</label>
           <select id="character-live-select" value={characterId} onChange={(e)=>switchCharacter(e.target.value)}>
@@ -638,7 +757,8 @@ export default function DokyeongLive() {
         </div>
         <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
         <button className={styles.newChatButton} onClick={() => { restart(); setSettingsOpen(false); }}>이 캐릭터와 새 대화</button>
-      </section>}
+        </section>
+      </div>}
 
       <section className={styles.chatArea} ref={scrollRef} aria-live="polite">
         <div className={styles.dateChip}>오늘</div>
@@ -670,7 +790,10 @@ export default function DokyeongLive() {
           : <div key={index} className={styles.userRow}>
               <div className={styles.bubbleLine}>
                 {message.ts && <time>{formatMessageTime(message.ts)}</time>}
-                <div className={[styles.bubble, styles.userBubble].join(" ")}>{message.content}</div>
+                <div className={styles.userStack}>
+                  {message.image && <div className={styles.imageBubble}><img src={message.image.dataUrl} alt="보낸 이미지" /></div>}
+                  {message.content && <div className={[styles.bubble, styles.userBubble].join(" ")}>{message.content}</div>}
+                </div>
               </div>
             </div>)}
 
@@ -703,7 +826,8 @@ export default function DokyeongLive() {
 
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
         <div className={styles.composerPill}>
-          <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">
+          <input ref={imagePickerRef} className={styles.hiddenFile} type="file" accept="image/*" onChange={(event) => void sendPickedImage(event.target.files?.[0])} />
+          <button type="button" className={styles.plusButton} onClick={() => imagePickerRef.current?.click()} aria-label="이미지 보내기">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           </button>
           <input aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
@@ -722,7 +846,10 @@ export default function DokyeongLive() {
         </div>
       </form>}
 
-      {status?.authenticated && chatMode === "voice" && <section className={styles.voiceDock}>
+      {status?.authenticated && chatMode === "voice" && <>
+        <button className={styles.voiceBackdrop} onClick={closeVoicePanel} aria-label="음성 창 닫기" />
+        <section className={styles.voiceDock}>
+        <button className={styles.voiceClose} onClick={closeVoicePanel} aria-label="음성 창 닫기">×</button>
         <div className={styles.voiceStatus}>
           <span className={[styles.voiceDot, running.current && phase !== "paused" ? styles.voiceDotOn : ""].filter(Boolean).join(" ")} />
           <div><strong>{running.current && phase !== "paused" ? labels[phase] : "음성 채팅 준비"}</strong><small>{needsTap ? "가운데 버튼을 다시 눌러줘" : running.current ? "말을 멈추면 " + activeName + "이 대답해" : activeVoiceName + " 목소리"}</small></div>
@@ -734,7 +861,8 @@ export default function DokyeongLive() {
           <button className={styles.voiceSideButton} onClick={() => setCaptions(!captions)} aria-pressed={captions}><span>▤</span><small>자막</small></button>
         </div>
         {phase === "speaking" && <button className={styles.interruptButton} onClick={interrupt}>말 끊기</button>}
-      </section>}
+      </section>
+      </>}
     </div>
   </main>;
 }
