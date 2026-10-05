@@ -3,9 +3,12 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { rpc } from "@/lib/dokyeong/settings";
 
+import { deliverReplies } from "@/lib/dokyeong/reply-jobs";
+import { deliverPushJobs } from "@/lib/dokyeong/push";
+import { runImageJob } from "@/lib/dokyeong/image-jobs";
 import { updateMemory } from "@/lib/dokyeong/memory";
 export const runtime = "nodejs";
-export const maxDuration=180;
+export const maxDuration=300;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function sync(body: object) {
   const token = process.env.CHARACTER_HISTORY_KEY;
@@ -21,6 +24,8 @@ const failure = (error: unknown) => Response.json({
 export async function GET(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   try {
+    const delivered=await deliverReplies();
+    if(delivered.count)after(async()=>{await Promise.all([deliverPushJobs().catch(()=>0),...delivered.photos.slice(0,1).map(id=>runImageJob(id)),...delivered.characters.map(id=>updateMemory(id,1).catch(()=>0))]);});
     const versions=await rpc("live_data_work",{server_token:process.env.CHARACTER_HISTORY_KEY,action:"versions"},15000);
     const etag='"'+createHash('sha256').update(JSON.stringify(versions)).digest('hex')+'"';
     if(request.headers.get('if-none-match')===etag)return new Response(null,{status:304,headers:{...noStore,ETag:etag}});

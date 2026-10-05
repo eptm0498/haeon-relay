@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
@@ -7,10 +7,13 @@ import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
 import { sleepIntent } from "@/lib/dokyeong/sleep-intent";
 import { wantsPhoto,declinesPhoto } from "@/lib/dokyeong/photo-intent";
+import { queueReply,runReplyWorker } from "@/lib/dokyeong/reply-jobs";
+import { serverRpc } from "@/lib/dokyeong/memory";
+import { timingPrompt,timingPlan } from "@/lib/dokyeong/reply-timing";
 import { relatedSampleContext } from "@/lib/dokyeong/samples";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type MessageImage = { mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string };
 type Message = { role: "user" | "assistant"; content: string; image?: MessageImage };
@@ -246,6 +249,9 @@ export async function POST(request: NextRequest) {
 
   let messages: Message[];
   let wantVoice = true;
+  let realtime=false;
+  let requestId:string|undefined;
+  let sourceMessageId:string|undefined;
   let characterId: string | null = null;
   let voiceIdOverride: string | null = null;
   let requestedSleepModeUntil = 0;
@@ -253,6 +259,9 @@ export async function POST(request: NextRequest) {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
+    realtime=parsed.realtime===true;
+    requestId=typeof parsed.requestId==="string"&&/^[a-f0-9-]{36}$/i.test(parsed.requestId)?parsed.requestId:undefined;
+    sourceMessageId=typeof parsed.sourceMessageId==="string"&&/^[A-Za-z0-9:_-]{1,120}$/.test(parsed.sourceMessageId)?parsed.sourceMessageId:undefined;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
     voiceIdOverride = typeof parsed.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(parsed.voiceId) ? parsed.voiceId : null;
     requestedSleepModeUntil = Number.isFinite(Number(parsed.sleepModeUntil)) ? Number(parsed.sleepModeUntil) : 0;
@@ -277,6 +286,14 @@ export async function POST(request: NextRequest) {
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
 
+  if(!realtime&&!wantVoice&&requestId){
+    try{
+      await queueReply(character.id,requestId,{messages,sourceMessageId});
+      after(()=>runReplyWorker(requestId).catch(()=>console.warn("LIVE_REPLY_WORKER_RETRY")));
+      return new Response(JSON.stringify({type:"queued",requestId})+"\n",{status:202,headers:{...noStore,"Content-Type":"application/x-ndjson; charset=utf-8"}});
+    }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
+  }
+  const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const now = Date.now();
   const isDokyeong = character.name.trim() === "도경";
   const requestedSleepModeActive =
@@ -292,7 +309,7 @@ export async function POST(request: NextRequest) {
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
   const remembered=await memoryContext(character.id);
-  const prompt = character.prompt + currentTimeContext() + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
+  const prompt = character.prompt + currentTimeContext() + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`;
   const activeVoiceId = voiceIdOverride || character.voice_id;
@@ -429,6 +446,10 @@ export async function POST(request: NextRequest) {
           if (!completedText) {
             send({ type: "error", message: "답장을 만들지 못했어." });
           } else {
+            if(realtime&&requestId){
+              const activityPlan=timingPlan({},completedText);
+              if(activityPlan.awaySeconds)await serverRpc("live_reply_work",{action:"voice_activity",target_character:character.id,target_job:requestId,data:activityPlan}).catch(()=>console.warn("LIVE_VOICE_ACTIVITY_RETRY"));
+            }
             // Commit text immediately. Audio must never hold the visible answer hostage.
             send({
               type: "text_done",

@@ -2,7 +2,7 @@ import {mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {resolve} from 'node:path';import {pathToFileURL} from 'node:url';import ts from 'typescript';
 if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-companion]')){
  const dir=resolve('node_modules/.cache/companion-verify');mkdirSync(dir,{recursive:true});
- const names=['config','character','settings','time-context','gemini-json','memory','photo-tool'];
+ const names=['config','character','settings','time-context','gemini-json','memory','photo-tool','characters','reference-images'];
  for(const name of names){let source=readFileSync(`lib/dokyeong/${name}.ts`,'utf8');let compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
   compiled=compiled.replace(/from (["'])\.\/([^"']+)\1/g,(_,quote,file)=>`from ${quote}./${file}.mjs${quote}`);writeFileSync(`${dir}/${name}.mjs`,compiled);
  }
@@ -25,7 +25,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-companion]')){
    if(request.action==='claim')value={epoch:'fixture',summary:'사용자는 형이라는 호칭을 좋아한다.',covered_count:0,lease:'fixture',messages};
    else if(request.action==='commit'){committed=request.new_summary;value={covered_count:100};}
    else value={};return new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
-  }return originalFetch(url,options);
+  }if(String(url).endsWith('/rpc/live_server_character'))return new Response(JSON.stringify({id:'fixture',prompt:'검증 캐릭터'}),{headers:{'Content-Type':'application/json'}});return originalFetch(url,options);
  };
  try{await updateMemory('fixture',1);if(!committed||!/슬국생|학원/.test(committed)||!/호칭|형/.test(committed))throw new Error('Memory summary lost source facts');console.log('MEMORY_GENERATION_OK');}
  finally{globalThis.fetch=originalFetch;rmSync(dir,{recursive:true,force:true});}

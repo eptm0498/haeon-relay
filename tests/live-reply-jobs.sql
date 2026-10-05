@@ -1,0 +1,63 @@
+begin;
+do $test$
+declare tok text:=$cap$__SERVER_CAPABILITY__$cap$;cid uuid;ep uuid;job uuid:=gen_random_uuid();job2 uuid:=gen_random_uuid();claim jsonb;outcome jsonb;activity_until timestamptz;dev uuid:=gen_random_uuid();endpoint_test text:='https://fcm.googleapis.com/reply-rollback-test';
+begin
+ insert into public.live_characters(name,prompt,voice_id,voice_name,is_default,sort_order) select '예약 답장 회귀 검증',prompt,voice_id,voice_name,false,999 from public.live_characters limit 1 returning id into cid;
+ insert into private.live_chat_history(character_id) values(cid) returning epoch into ep;
+ insert into private.live_push_subscriptions(endpoint,device_id,keys) values(endpoint_test,dev,'{"p256dh":"fixture","auth":"fixture"}');
+ perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id',job,'role','user','content','씻고 와','ts',floor(extract(epoch from now())*1000))));
+ perform public.live_reply_work(tok,'enqueue',job,cid,'{"urgent":false}');
+ perform public.live_reply_work(tok,'enqueue',job,cid,'{"urgent":false}');
+ if (select count(*) from private.live_reply_jobs where id=job)<>1 then raise exception 'idempotency failed';end if;
+ claim=public.live_reply_work(tok,'claim',job);
+ if claim is null or public.live_reply_work(tok,'claim',job) is not null then raise exception 'exclusive claim failed';end if;
+ perform public.live_reply_work(tok,'schedule',job,null,jsonb_build_object('lease',claim->>'lease','text','20분 씻고 올게.','delaySeconds',8,'awaySeconds',1200,'activity','샤워'));
+ outcome=public.live_reply_work(tok,'deliver');
+ if (select count(*) from private.live_message_events where character_id=cid and message->>'role'='assistant')<>0 then raise exception 'reply delivered before due time';end if;
+ update private.live_reply_jobs set due_at=now()-interval '1 second' where id=job;
+ outcome=public.live_reply_work(tok,'deliver');
+ if not exists(select 1 from private.live_message_events where character_id=cid and message_id='reply:'||job) then raise exception 'due reply not saved';end if;
+ if not exists(select 1 from private.live_push_jobs where endpoint=endpoint_test and message_id='reply:'||job and payload->>'title'='예약 답장 회귀 검증' and payload->>'body'='20분 씻고 올게.') then raise exception 'notification content mismatch';end if;
+ activity_until=(select until_at from private.live_activity where character_id=cid);
+ if activity_until<now()+interval '19 minutes' then raise exception 'activity length too short';end if;
+ if public.live_reply_work(tok,'claim') is not null then raise exception 'return generated before activity completed';end if;
+ perform public.live_reply_work(tok,'deliver');
+ if (select count(*) from private.live_message_events where character_id=cid and message_id='reply:'||job)<>1 then raise exception 'duplicate delivery';end if;
+ -- New normal messages wait for the current activity and replace old return work.
+ perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id',job2,'role','user','content','오늘 뭐 했어?','ts',floor(extract(epoch from now())*1000))));
+ perform public.live_reply_work(tok,'enqueue',job2,cid,'{"urgent":false}');
+ if (select due_at from private.live_reply_jobs where id=job2)<>activity_until then raise exception 'busy activity not honored';end if;
+ if public.live_reply_work(tok,'claim',job2) is not null then raise exception 'busy reply generated early';end if;
+ if exists(select 1 from private.live_reply_jobs where character_id=cid and kind='return' and status in ('queued','generating','ready')) then raise exception 'superseded return survived';end if;
+ update private.live_reply_jobs set due_at=now()-interval '1 second' where id=job2;
+ claim=public.live_reply_work(tok,'claim',job2);
+ perform public.live_reply_work(tok,'schedule',job2,null,jsonb_build_object('lease',claim->>'lease','text','다 씻고 왔어. 오늘은 집에서 쉬었지.','delaySeconds',5,'awaySeconds',0,'activity',''));
+ -- A rapid new user message cancels the ready draft and its stale worker cannot reschedule it.
+ job=gen_random_uuid();
+ perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id',job,'role','user','content','가지마 급해','ts',floor(extract(epoch from now())*1000))));
+ perform public.live_reply_work(tok,'enqueue',job,cid,'{"urgent":true}');
+ if (select status from private.live_reply_jobs where id=job2)<>'cancelled' then raise exception 'stale draft not cancelled';end if;
+ if public.live_reply_work(tok,'schedule',job2,null,jsonb_build_object('lease',claim->>'lease','text','중복','delaySeconds',5,'awaySeconds',0)) is not null then raise exception 'stale worker scheduled reply';end if;
+ if public.live_reply_work(tok,'claim',job) is null then raise exception 'urgent wait could not interrupt';end if;
+ -- Reset with memory retained still invalidates all tasks and the activity.
+ perform public.live_data_work(tok,'reset_keep_memory',cid,jsonb_build_object('epoch',ep));
+ if exists(select 1 from private.live_reply_jobs where character_id=cid) or exists(select 1 from private.live_activity where character_id=cid) then raise exception 'reset left pending replies';end if;
+ ep=(select epoch from private.live_chat_history where character_id=cid);job=gen_random_uuid();
+ perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id',job,'role','user','content','씻고 와.','ts',floor(extract(epoch from now())*1000))));
+ perform public.live_reply_work(tok,'voice_activity',job,cid,'{"awaySeconds":900,"activity":"샤워"}');
+ perform public.live_reply_work(tok,'voice_activity',job,cid,'{"awaySeconds":900,"activity":"샤워"}');
+ if (select count(*) from private.live_reply_jobs where id=job)<>1 then raise exception 'voice return duplication';end if;
+ if public.live_reply_work(tok,'claim',job) is not null then raise exception 'voice returned early';end if;
+ update private.live_activity set until_at=now()-interval '1 second' where character_id=cid;
+ update private.live_reply_jobs set due_at=now()-interval '1 second' where id=job;
+ claim=public.live_reply_work(tok,'claim',job);
+ if claim->>'kind'<>'return' then raise exception 'return not claimed';end if;
+ perform public.live_reply_work(tok,'schedule',job,null,jsonb_build_object('lease',claim->>'lease','text','다 씻고 왔어 도혁아.','delaySeconds',5,'awaySeconds',0,'activity',''));
+ update private.live_reply_jobs set due_at=now()-interval '1 second' where id=job;
+ perform public.live_reply_work(tok,'deliver');
+ if exists(select 1 from private.live_activity where character_id=cid) then raise exception 'finished activity not cleared';end if;
+ if not exists(select 1 from private.live_message_events where character_id=cid and message->>'content'='다 씻고 왔어 도혁아.') then raise exception 'return message missing';end if;
+ delete from public.live_characters where id=cid;
+ if exists(select 1 from private.live_push_jobs where endpoint=endpoint_test) then raise exception 'ghost push survived';end if;
+end $test$;
+rollback;

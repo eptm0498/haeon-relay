@@ -460,6 +460,7 @@ export default function DokyeongLive() {
     try {
       const requestCharacterId = characterIdRef.current;
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
+      await sharedHistory.synchronize();
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -472,6 +473,9 @@ export default function DokyeongLive() {
             return base;
           }),
           voice: chatModeRef.current === "voice" && voice,
+          realtime:chatModeRef.current === "voice",
+          requestId:conversation.at(-1)?.id,
+          sourceMessageId:editSource,
           characterId: requestCharacterId || null,
           voiceId: voiceIdRef.current || null,
           sleepModeUntil: activeSleepModeUntil,
@@ -508,6 +512,7 @@ export default function DokyeongLive() {
           try { event = JSON.parse(line); } catch { continue; }
           if (turn !== generation.current) return;
 
+          if(event.type==="queued"){setPartial("");return;}
           if(event.type==="photo" && typeof event.scene==="string") {photoPlan={scene:event.scene,waitMessage:event.waitMessage||"잠깐만, 사진 찍어서 보내줄게."};setPartial("");}
           if (event.type === "delta" && typeof event.text === "string") {
             full += event.text;
@@ -835,7 +840,7 @@ export default function DokyeongLive() {
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <div className={styles.listTitleRow}>
-            <strong className={styles.liveBrand}><img src="/live-icon-192.png" alt=""/>LIVE</strong>
+            <strong className={styles.liveBrand}><img src="/live-chat-icon-192.png" alt=""/>LIVE</strong>
             <div className={styles.listHeaderActions}>
               <button onClick={() => { setListSearchOpen((open) => !open); if (listSearchOpen) setListQuery(""); }} aria-label="채팅 검색">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
