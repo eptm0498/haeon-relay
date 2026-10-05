@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles, Trash2, Volume2 } from "lucide-react";
 import SampleManager from "./SampleManager";
 import ProfilePhoto from "./ProfilePhoto";
+import ReferenceModel from "./ReferenceModel";
+import { emptyReferences, type ReferenceImages } from "@/lib/dokyeong/reference-images";
 import styles from "./editor.module.css";
 
 type Section = { id: string; title: string; body: string };
@@ -15,6 +17,7 @@ type Character = {
   voice_id: string;
   voice_name: string;
   avatar_url: string | null;
+  reference_images?: ReferenceImages;
   is_default: boolean;
   sort_order: number;
   version: number | null;
@@ -78,6 +81,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [voiceLoading, setVoiceLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
@@ -86,7 +90,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const currentPrompt = rawMode ? raw : composed;
   const serialized = working ? JSON.stringify({
     name: working.name, prompt: currentPrompt, voice_id: working.voice_id, voice_name: working.voice_name,
-    avatar_url: working.avatar_url || "", is_default: working.is_default, sort_order: working.sort_order,
+    avatar_url: working.avatar_url || "", reference_images:working.reference_images || emptyReferences(), is_default: working.is_default, sort_order: working.sort_order,
   }) : "";
   const dirty = !!working && serialized !== baseline;
 
@@ -99,7 +103,7 @@ export default function CharacterEditor({ token }: { token: string }) {
     setTab("profile");
     setBaseline(JSON.stringify({
       name: character.name, prompt: character.prompt, voice_id: character.voice_id, voice_name: character.voice_name,
-      avatar_url: character.avatar_url || "", is_default: character.is_default, sort_order: character.sort_order,
+      avatar_url: character.avatar_url || "", reference_images:character.reference_images || emptyReferences(), is_default: character.is_default, sort_order: character.sort_order,
     }));
     setNotice(""); setError("");
   }, []);
@@ -164,7 +168,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   function toggleMode() { if (rawMode) { setDraft(parsePrompt(raw)); setActive("intro"); } else setRaw(composed); setRawMode(!rawMode); }
 
   async function save() {
-    if (!working || saving) return;
+    if (!working || saving || imageBusy) return;
     if (!working.name.trim() || currentPrompt.length < 100 || currentPrompt.length > 30000 || !working.voice_id) {
       setError("이름, 캐릭터 설정, ElevenLabs 목소리를 확인해 줘."); return;
     }
@@ -205,7 +209,7 @@ export default function CharacterEditor({ token }: { token: string }) {
       <div className={styles.brand}><span className={styles.mark}>C.</span><span>CHARACTER<span className={styles.brandLight}>LIVE</span><small>MULTI CHARACTER STUDIO</small></span></div>
       <div className={styles.topActions}>
         <a className={styles.liveLink} href="/dokyeong-live" target="_blank" rel="noreferrer">라이브 열기 <ChevronRight size={16}/></a>
-        <button className={styles.saveTop} disabled={!dirty || saving} onClick={() => void save()}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>
+        <button className={styles.saveTop} disabled={!dirty || saving || imageBusy} onClick={() => void save()}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>
       </div>
     </header>
 
@@ -226,6 +230,16 @@ export default function CharacterEditor({ token }: { token: string }) {
         <div className={styles.titleRow}><div><h1>{working?.name || "캐릭터 설정실"}<span className={styles.titleStar}>✳</span></h1><p>성격, 대화 샘플, 프로필과 ElevenLabs 목소리를 캐릭터마다 따로 관리해.</p></div><div className={styles.badge}>● LIVE SETTINGS</div></div>
 
         {loading ? <div className={styles.centerState}>캐릭터를 불러오는 중…</div> : !working ? <div className={styles.centerState}><CircleAlert size={26}/>캐릭터가 없어.</div> : <>
+          <div className={styles.mobileNav}>
+            <label htmlFor="mobile-character">편집할 캐릭터</label>
+            <select id="mobile-character" value={working.id || "new"} disabled={saving || imageBusy} onChange={e=>{
+              if(e.target.value==="new")newCharacter();
+              else {const character=characters.find(c=>c.id===e.target.value);if(character)chooseCharacter(character);}
+            }}>
+              {characters.map(character=><option key={character.id} value={character.id}>{character.name}</option>)}
+              <option value="new">새 캐릭터 추가</option>
+            </select>
+          </div>
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
@@ -260,7 +274,11 @@ export default function CharacterEditor({ token }: { token: string }) {
                   })}
                 </div>}
                 {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%",marginTop:12}}/>}
-                <ProfilePhoto key={working.id || "new"} name={working.name} value={working.avatar_url} disabled={saving}
+                <ReferenceModel key={`references-${working.id || "new"}`} name={working.name} prompt={currentPrompt} api={api} value={working.reference_images || emptyReferences()} disabled={saving}
+                  onBusyChange={setImageBusy}
+                  onChange={reference_images=>{setWorking(previous=>previous?{...previous,reference_images}:previous);setNotice("");}}
+                  onProfile={avatar_url=>{setWorking(previous=>previous?{...previous,avatar_url}:previous);setNotice("프로필을 만들었어. 저장하면 기준 사진과 함께 적용돼.");}}/>
+                <ProfilePhoto key={`profile-${working.id || "new"}`} name={working.name} value={working.avatar_url} disabled={saving || imageBusy}
                   onChange={avatar_url => { setWorking(previous => previous ? {...previous, avatar_url} : previous); setNotice(""); }}/>
                 <label style={{display:"flex",gap:8,alignItems:"center",marginTop:14}}><input type="checkbox" checked={working.is_default} onChange={e=>setWorking({...working,is_default:e.target.checked})}/> 앱을 열었을 때 기본 캐릭터로 사용</label>
               </div>
@@ -278,9 +296,9 @@ export default function CharacterEditor({ token }: { token: string }) {
             </div>
 
             <div className={styles.bottomRow}><div className={styles.tip}><span>✦</span> 캐릭터를 바꿔도 다른 캐릭터의 설정과 대화 샘플은 섞이지 않아.</div><div className={styles.bottomButtons}>
-              {working.id && <button onClick={()=>void remove()} disabled={saving}><Trash2 size={16}/> 삭제</button>}
-              <button onClick={()=>{ if (baseline==="__NEW__") newCharacter(); else { const original=characters.find(c=>c.id===working.id); if(original) applyCharacter(original); } }} disabled={!dirty}><RotateCcw size={16}/> 되돌리기</button>
-              <button className={styles.primaryButton} onClick={()=>void save()} disabled={!dirty||saving}><Save size={16}/>{saving?"저장 중…":"변경사항 저장"}</button>
+              {working.id && <button onClick={()=>void remove()} disabled={saving || imageBusy}><Trash2 size={16}/> 삭제</button>}
+              <button onClick={()=>{ if (baseline==="__NEW__") newCharacter(); else { const original=characters.find(c=>c.id===working.id); if(original) applyCharacter(original); } }} disabled={!dirty || saving || imageBusy}><RotateCcw size={16}/> 되돌리기</button>
+              <button className={styles.primaryButton} onClick={()=>void save()} disabled={!dirty||saving||imageBusy}><Save size={16}/>{saving?"저장 중…":"변경사항 저장"}</button>
             </div></div>
           </>}
 
@@ -289,6 +307,9 @@ export default function CharacterEditor({ token }: { token: string }) {
         </>}
       </section>
     </main>
+    {!loading && working && <div className={styles.mobileBottom}>
+      <a href="/dokyeong-live" target="_blank" rel="noreferrer">라이브 열기 <ChevronRight size={15}/></a>
+      <button type="button" disabled={!dirty || saving || imageBusy} onClick={()=>void save()}><Save size={17}/>{saving?"저장 중…":"변경사항 저장"}</button>
+    </div>}
   </div>;
 }
-

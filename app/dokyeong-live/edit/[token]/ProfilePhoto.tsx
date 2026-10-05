@@ -61,7 +61,7 @@ export default function ProfilePhoto({ name, value, disabled, onChange }: {
         <button type="button" className={styles.modeButton} disabled={busy || disabled} onClick={() => picker.current?.click()}>{busy ? "사진 처리 중…" : "사진 선택 / 변경"}</button>
         {value && <button type="button" className={styles.modeButton} disabled={busy || disabled} onClick={() => { onChange(null); }}>사진 삭제</button>}
         <p>사진 중앙을 정사각형으로 맞춰. 변경사항을 저장하면 채팅 목록과 대화방에 적용돼.</p>
-        <p>사진 요청 시 이 프로필을 인물 기준으로 사용해. 얼굴이 잘 보이는 단독 사진을 넣으면 좋아.</p>
+        <p>얼굴·전신 기준 사진이 있으면 그 원본을 사용해 사진을 생성해. 기준 사진이 없을 때는 이 프로필을 참고해.</p>
       </div>
     </div>
     {error && <p role="alert" className={styles.photoError}>{error}</p>}

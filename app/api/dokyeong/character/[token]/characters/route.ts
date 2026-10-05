@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
 import { deleteLiveCharacter, listCharacters, saveLiveCharacter } from "@/lib/dokyeong/characters";
 import { verifyEditor } from "@/lib/dokyeong/settings";
+import { emptyReferences, parseReferences } from "@/lib/dokyeong/reference-images";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ token: string }> };
@@ -23,17 +24,25 @@ export async function POST(request: NextRequest, { params }: Context) {
   try {
     if (!await verifyEditor(token)) return deny();
     const raw = await request.text();
-    if (raw.length > 240000) return Response.json({ error: "설정이 너무 길어." }, { status: 413, headers: noStore });
+    if (raw.length > 2800000) return Response.json({ error: "설정이 너무 길어." }, { status: 413, headers: noStore });
     const body = JSON.parse(raw);
     if (typeof body.name !== "string" || body.name.trim().length < 1 || body.name.length > 40 ||
         typeof body.prompt !== "string" || body.prompt.length < 100 || body.prompt.length > 30000 ||
         typeof body.voice_id !== "string" || body.voice_id.length < 8 || body.voice_id.length > 100)
       return Response.json({ error: "캐릭터 설정을 확인해 줘." }, { status: 400, headers: noStore });
     const avatar = body.avatar_url;
+    const references=body.reference_images === undefined ? undefined : parseReferences(body.reference_images);
+    if (references===null) return Response.json({error:"얼굴·전신 기준 사진을 다시 선택해 줘."},{status:400,headers:noStore});
     if (avatar != null && avatar !== "" && (typeof avatar !== "string" ||
         !(avatar.length <= 200000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar) ||
           avatar.length <= 2000 && /^https?:\/\//i.test(avatar)))) {
       return Response.json({ error: "프로필 사진을 다시 선택하거나 이미지 주소를 확인해 줘." }, { status: 400, headers: noStore });
+    }
+    // Legacy clients omit this field; preserve their saved master references.
+    if (references!==undefined) body.reference_images=references;
+    else {
+      const saved=body.id ? (await listCharacters(token)).find(c=>c.id===body.id) : null;
+      body.reference_images=saved?.reference_images || emptyReferences();
     }
     return Response.json(await saveLiveCharacter(token, body), { headers: noStore });
   } catch (error) {
@@ -54,4 +63,3 @@ export async function DELETE(request: NextRequest, { params }: Context) {
     return Response.json({ error: "캐릭터를 삭제하지 못했어." }, { status: 503, headers: noStore });
   }
 }
-

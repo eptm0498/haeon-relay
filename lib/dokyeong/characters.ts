@@ -1,4 +1,5 @@
 import { rpc } from "./settings";
+import { emptyReferences, type ReferenceImages } from "./reference-images";
 
 export type LiveCharacter = {
   id: string;
@@ -7,6 +8,7 @@ export type LiveCharacter = {
   voice_id: string;
   voice_name: string;
   avatar_url: string | null;
+  reference_images?: ReferenceImages;
   is_default: boolean;
   sort_order: number;
   version: number;
@@ -30,7 +32,7 @@ export async function readLiveCharacter(characterId?: string | null) {
 }
 
 export function saveLiveCharacter(editToken: string, character: Partial<LiveCharacter>) {
-  return rpc<LiveCharacter>("live_save_character", {
+  return rpc<LiveCharacter>("live_save_character_with_references", {
     edit_token: editToken,
     character_id: character.id || null,
     character_name: character.name,
@@ -41,7 +43,14 @@ export function saveLiveCharacter(editToken: string, character: Partial<LiveChar
     make_default: !!character.is_default,
     new_sort_order: Number.isInteger(character.sort_order) ? character.sort_order : 0,
     expected_version: character.id ? character.version ?? null : null,
+    new_reference_images: character.reference_images || emptyReferences(),
   }, 10000);
+}
+
+export function readCharacterReferences(characterId: string) {
+  const token=process.env.CHARACTER_HISTORY_KEY;
+  if (!token) throw new Error("reference images not configured");
+  return rpc<ReferenceImages>("live_read_character_references",{server_token:token,target_character:characterId},15000);
 }
 
 export function deleteLiveCharacter(editToken: string, characterId: string) {
