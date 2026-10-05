@@ -1,12 +1,12 @@
 {
   "name": "도경LIVE",
   "short_name": "도경",
-  "description": "도경과 대화하기",
+  "description": "캐릭터와 문자 또는 음성으로 대화하기",
   "start_url": "/dokyeong-live",
   "scope": "/dokyeong-live",
   "display": "standalone",
-  "background_color": "#090a0d",
-  "theme_color": "#090a0d",
+  "background_color": "#b2c7d9",
+  "theme_color": "#f7f7f7",
   "icons": [
     { "src": "/dokyeong-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/dokyeong-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
