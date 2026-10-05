@@ -408,7 +408,7 @@ export default function DokyeongLive() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: conversation.slice(-24).map((m, index, arr) => {
-            const base: any = { role: m.role, content: m.content };
+            const base: any = { role: m.role, content: m.content || (m.image ? "[사진을 보냈어]" : "") };
             if (index === arr.length - 1 && m.image) {
               base.image = { mimeType: m.image.mimeType, data: m.image.dataUrl.split(",")[1] || "" };
             }
@@ -697,7 +697,6 @@ export default function DokyeongLive() {
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <strong>채팅</strong>
-          <button className={styles.listMenuButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="설정">☰</button>
         </header>
         <section className={styles.chatList}>
           {characters.map((item) => {
