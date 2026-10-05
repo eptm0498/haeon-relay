@@ -603,14 +603,15 @@ export default function DokyeongLive() {
   return <main className={styles.shell}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
-        <button className={styles.iconButton} onClick={() => window.history.back()} aria-label="뒤로 가기">‹</button>
-        <button className={styles.headerProfile} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
-          <span className={styles.headerAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</span>
-          <span className={styles.headerText}><strong>{activeName}</strong><small>{chatMode === "voice" ? labels[phase] : phase === "thinking" ? "답장 쓰는 중…" : "1:1 대화"}</small></span>
+        <button className={styles.backButton} onClick={() => window.history.back()} aria-label="뒤로 가기">‹</button>
+        <button className={styles.headerTitle} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
+          <strong>{activeName}</strong>
+          <small>{chatMode === "voice" ? labels[phase] : phase === "thinking" ? "답장 쓰는 중…" : "1:1 대화"}</small>
         </button>
         <div className={styles.headerActions}>
-          <button className={styles.iconButton} onClick={restart} aria-label="새 대화">↻</button>
-          <button className={styles.iconButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">☰</button>
+          <button className={styles.headerTool} onClick={restart} aria-label="새 대화">↻</button>
+          <button className={styles.headerTool} onClick={() => switchChatMode(chatMode === "voice" ? "text" : "voice")} aria-label={chatMode === "voice" ? "문자 채팅으로 전환" : "음성 채팅으로 전환"}>☎</button>
+          <button className={styles.headerTool} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">☰</button>
         </div>
       </header>
 
@@ -631,15 +632,6 @@ export default function DokyeongLive() {
         <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
         <button className={styles.newChatButton} onClick={() => { restart(); setSettingsOpen(false); }}>이 캐릭터와 새 대화</button>
       </section>}
-
-      <nav className={styles.modeTabs} aria-label="대화 방식">
-        <button className={chatMode === "text" ? styles.modeActive : ""} onClick={() => switchChatMode("text")}>
-          <span>⌨</span>문자 채팅
-        </button>
-        <button className={chatMode === "voice" ? styles.modeActive : ""} onClick={() => switchChatMode("voice")}>
-          <span>◉</span>음성 채팅
-        </button>
-      </nav>
 
       <section className={styles.chatArea} ref={scrollRef} aria-live="polite">
         <div className={styles.dateChip}>오늘</div>
@@ -703,11 +695,13 @@ export default function DokyeongLive() {
       </section>
 
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
-        <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">＋</button>
-        <div className={styles.inputWrap}>
-          <input aria-label="메시지" placeholder="메시지를 입력하세요" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
+        <div className={styles.composerPill}>
+          <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">＋</button>
+          <input aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
+          {draft.trim()
+            ? <button type="submit" className={styles.sendButton} aria-label="전송">➤</button>
+            : <button type="button" className={styles.micButton} onClick={() => switchChatMode("voice")} aria-label="음성 채팅으로 전환">◖▮◗</button>}
         </div>
-        <button type="submit" className={styles.sendButton} disabled={!draft.trim()} aria-label="전송">➤</button>
       </form>}
 
       {status?.authenticated && chatMode === "voice" && <section className={styles.voiceDock}>
