@@ -4,8 +4,8 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import CharacterAvatar from "./CharacterAvatar";
 
-type ChatImage = { dataUrl: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; name?: string };
-type Message = { role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage };
+import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
+
 type ChatMode = "text" | "voice";
 type AppView = "list" | "chat";
 type ChatPreview = { text: string; ts?: number };
@@ -14,7 +14,6 @@ type Status = { configured: boolean; authenticated: boolean; ready: boolean; mis
 type LiveCharacter = { id: string; name: string; voice_id: string; voice_name: string; avatar_url: string | null; is_default: boolean; sort_order: number };
 type LiveVoice = { voice_id: string; name: string; category: string; labels?: Record<string,string> };
 type WakeLockHandle = { released: boolean; release: () => Promise<void> };
-const historyKey = (characterId: string) => `character-live-history-v2:${characterId}`;
 const voiceKey = (characterId: string) => `character-live-voice-v1:${characterId}`;
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "대기 중", listening: "듣고 있어", thinking: "답장 쓰는 중", speaking: "말하는 중", paused: "잠시 멈춤" };
@@ -116,6 +115,9 @@ export default function DokyeongLive() {
   const [needsTap, setNeedsTap] = useState(false);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
+  const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
   const [voiceId, setVoiceId] = useState("");
   const messageRef = useRef<Message[]>([]);
@@ -151,21 +153,27 @@ export default function DokyeongLive() {
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
   const setHistory = (next: Message[]) => {
-    const kept = next.slice(-40);
+    const previous = new Set(messageRef.current.map(m => m.id));
+    const added = next.filter(m => m.id && !previous.has(m.id));
+    const kept = next.slice(-1000);
     messageRef.current = kept;
     setMessages(kept);
-    if (characterIdRef.current) {
-      const stored = kept.map((m) => m.image
-        ? { role: m.role, content: m.content || "[사진]", ts: m.ts }
-        : { role: m.role, content: m.content, ts: m.ts });
-      try { localStorage.setItem(historyKey(characterIdRef.current), JSON.stringify(stored)); } catch {}
-      const last = kept.at(-1);
-      if (last) setChatPreviews((prev) => ({
-        ...prev,
-        [characterIdRef.current]: { text: last.image && !last.content ? "사진" : last.content || "사진", ts: last.ts },
-      }));
-    }
+    sharedHistory.append(characterIdRef.current, added);
   };
+  useEffect(() => {
+    const previews: Record<string, ChatPreview> = {};
+    for (const [id, history] of Object.entries(sharedHistory.histories)) {
+      const last = history.at(-1);
+      if (last) previews[id] = {text:last.content || "사진", ts:last.ts};
+    }
+    setChatPreviews(previews);
+    const saved = sharedHistory.histories[characterId];
+    if (saved && phase !== "thinking" && phase !== "speaking") {
+      messageRef.current = saved;
+      setMessages(saved);
+    }
+  }, [sharedHistory.histories, characterId, phase]);
+
   useEffect(() => {
     fetch(`${API}/status`, { cache: "no-store" }).then((r) => r.json()).then(setStatus).catch(() => setError("서버에 연결하지 못했어."));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/dokyeong-sw.js", { scope: "/dokyeong-live" }).catch(() => {});
@@ -178,33 +186,14 @@ export default function DokyeongLive() {
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
       setCharacters(list);
-      const previews: Record<string, ChatPreview> = {};
-      for (const item of list) {
-        try {
-          const raw = localStorage.getItem(historyKey(item.id)) || (item.is_default ? localStorage.getItem("dokyeong-live-history-v1") : null) || "[]";
-          const parsed = JSON.parse(raw);
-          const last = Array.isArray(parsed) ? parsed.filter((m) => m && typeof m.content === "string").at(-1) : null;
-          if (last) previews[item.id] = { text: String(last.content || ""), ts: typeof last.ts === "number" ? last.ts : undefined };
-        } catch {}
-      }
-      setChatPreviews(previews);
       const selected = list.find((item) => item.id === characterIdRef.current) || list.find((item) => item.is_default) || list[0];
       if (!selected) return;
-      const changed = characterIdRef.current !== selected.id;
       characterIdRef.current = selected.id;
       setCharacterId(selected.id);
       const selectedVoice = localStorage.getItem(voiceKey(selected.id)) || selected.voice_id;
       voiceIdRef.current = selectedVoice;
       setVoiceId(selectedVoice);
-      if (changed || !messageRef.current.length) {
-        let saved: Message[] = [];
-        try {
-          const raw = localStorage.getItem(historyKey(selected.id)) || (selected.is_default ? localStorage.getItem("dokyeong-live-history-v1") : null) || "[]";
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map((m) => ({ role:m.role, content:m.content, ts:typeof m.ts === "number" ? m.ts : undefined })).slice(-40);
-        } catch {}
-        messageRef.current = saved; setMessages(saved); setPartial("");
-      }
+
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "캐릭터를 불러오지 못했어.");
     }
@@ -364,9 +353,10 @@ export default function DokyeongLive() {
   async function reply(userText: string, image?: ChatImage) {
     const text = userText.trim().slice(0, 1500);
     if (!text && !image) { if (running.current) setMode("listening"); return; }
+    if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
-    const conversation = [...messageRef.current, { role: "user" as const, content: text, ts: Date.now(), image }]; setHistory(conversation);
+    const conversation = [...messageRef.current, { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image }]; setHistory(conversation);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -385,7 +375,7 @@ export default function DokyeongLive() {
       full = completed;
       textCommitted = true;
       complete = true;
-      setHistory([...conversation, { role: "assistant", content: completed, ts: Date.now() }]);
+      setHistory([...conversation, { id: crypto.randomUUID(), role: "assistant", content: completed, ts: Date.now() }]);
       setPartial("");
     };
 
@@ -656,7 +646,18 @@ export default function DokyeongLive() {
     return () => document.removeEventListener("visibilitychange", recover);
   }, [interrupt, closeMic, keepAwake, releaseWakeLock]);
 
-  function restart() { endCall(); setHistory([]); setPartial(""); setError(""); setLatency(null); }
+  async function restart() {
+    if (resetting || !historyReady) return;
+    endCall(); setResetting(true);
+    const id = characterIdRef.current;
+    try {
+      await sharedHistory.reset(id);
+      if (characterIdRef.current === id) {
+        messageRef.current = []; setMessages([]); setPartial(""); setError(""); setLatency(null);
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "새 대화를 시작하지 못했어."); }
+    finally { setResetting(false); }
+  }
   function switchChatMode(next: ChatMode) {
     if (next === chatModeRef.current) return;
     if (running.current || phaseRef.current === "speaking" || phaseRef.current === "thinking") endCall();
@@ -675,11 +676,7 @@ export default function DokyeongLive() {
     const nextVoice = localStorage.getItem(voiceKey(next.id)) || next.voice_id;
     voiceIdRef.current = nextVoice;
     setVoiceId(nextVoice);
-    let saved: Message[] = [];
-    try {
-      const parsed = JSON.parse(localStorage.getItem(historyKey(next.id)) || "[]");
-      if (Array.isArray(parsed)) saved = parsed.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string").map((m) => ({ role:m.role, content:m.content, ts:typeof m.ts === "number" ? m.ts : undefined })).slice(-40);
-    } catch {}
+    const saved = sharedHistory.histories[next.id] || [];
     messageRef.current = saved; setMessages(saved); setPartial(""); setError(""); setLatency(null);
   }
   function changeVoice(nextVoiceId: string) {
@@ -825,7 +822,7 @@ export default function DokyeongLive() {
 
         {status?.configured && !status.authenticated && <div className={styles.loginCard}>
           <div className={styles.loginAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
-          <strong>도경LIVE</strong>
+          <strong>캐릭터라이브</strong>
           <p>접속 코드를 입력하면 대화방이 열려.</p>
           <form onSubmit={login} className={styles.login}>
             <input type="password" autoComplete="current-password" aria-label="접속 코드" placeholder="접속 코드" value={code} onChange={(e) => setCode(e.target.value)} />
@@ -836,8 +833,8 @@ export default function DokyeongLive() {
         {status && !status.configured && <div className={styles.systemBubble}>서버 접속 코드 설정이 필요해.</div>}
         {status?.authenticated && !status.ready && <div className={styles.systemBubble}>서버 환경변수 설정 필요: {status.missing.join(", ")}</div>}
 
-        {status?.authenticated && showMessages && messages.slice(-40).map((message, index) => message.role === "assistant"
-          ? <div key={index} className={styles.assistantRow}>
+        {status?.authenticated && showMessages && messages.slice(-1000).map((message, index) => message.role === "assistant"
+          ? <div key={message.id || index} className={styles.assistantRow}>
               <div className={styles.messageAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
               <div className={styles.messageColumn}>
                 <span className={styles.senderName}>{activeName}</span>
@@ -847,7 +844,7 @@ export default function DokyeongLive() {
                 </div>
               </div>
             </div>
-          : <div key={index} className={styles.userRow}>
+          : <div key={message.id || index} className={styles.userRow}>
               <div className={styles.bubbleLine}>
                 {message.ts && <time>{formatMessageTime(message.ts)}</time>}
                 <div className={styles.userStack}>
@@ -880,6 +877,8 @@ export default function DokyeongLive() {
         </div>}
 
         {status?.authenticated && chatMode === "voice" && !captions && <div className={styles.systemBubble}>음성 채팅 중 · 자막 꺼짐</div>}
+        {status?.authenticated && !historyReady && <div className={styles.systemBubble}>대화 기록을 동기화하고 있어.</div>}
+        {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
         <div className={styles.chatSpacer} />
       </section>
@@ -887,7 +886,7 @@ export default function DokyeongLive() {
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
         <div className={styles.composerPill}>
           <input ref={imagePickerRef} className={styles.hiddenFile} type="file" accept="image/*" onChange={(event) => void sendPickedImage(event.target.files?.[0])} />
-          <button type="button" className={styles.plusButton} onClick={() => imagePickerRef.current?.click()} aria-label="이미지 보내기">
+          <button type="button" className={styles.plusButton} disabled={!historyReady || resetting} onClick={() => imagePickerRef.current?.click()} aria-label="이미지 보내기">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           </button>
           <input aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
@@ -900,7 +899,7 @@ export default function DokyeongLive() {
               <span/><span/><span/><span/><span/>
             </button>
           </>}
-          {draft.trim() && <button type="submit" className={styles.sendButton} aria-label="전송">
+          {draft.trim() && <button type="submit" className={styles.sendButton} disabled={!historyReady || resetting} aria-label="전송">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
           </button>}
         </div>
@@ -917,7 +916,7 @@ export default function DokyeongLive() {
         </div>
         <div className={styles.voiceActions}>
           <button className={styles.voiceSideButton} onClick={() => { setVoice(!voice); if (voice) stopAudio(); }} aria-pressed={voice}><span>{voice ? "🔊" : "🔇"}</span><small>음성</small></button>
-          <button className={[styles.callButton, running.current && phase !== "paused" ? styles.endButton : ""].filter(Boolean).join(" ")} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready} aria-label={running.current && phase !== "paused" ? "통화 종료" : "통화 시작"}>{running.current && phase !== "paused" ? "■" : "●"}</button>
+          <button className={[styles.callButton, running.current && phase !== "paused" ? styles.endButton : ""].filter(Boolean).join(" ")} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready || !historyReady || resetting} aria-label={running.current && phase !== "paused" ? "통화 종료" : "통화 시작"}>{running.current && phase !== "paused" ? "■" : "●"}</button>
           <button className={styles.voiceSideButton} onClick={() => setCaptions(!captions)} aria-pressed={captions}><span>▤</span><small>자막</small></button>
         </div>
         {phase === "speaking" && <button className={styles.interruptButton} onClick={interrupt}>말 끊기</button>}

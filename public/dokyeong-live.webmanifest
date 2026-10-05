@@ -1,6 +1,6 @@
 {
-  "name": "도경LIVE",
-  "short_name": "도경",
+  "name": "캐릭터라이브",
+  "short_name": "캐릭터라이브",
   "description": "캐릭터와 문자 또는 음성으로 대화하기",
   "start_url": "/dokyeong-live",
   "scope": "/dokyeong-live",
@@ -13,3 +13,4 @@
     { "src": "/dokyeong-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
+
