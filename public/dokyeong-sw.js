@@ -1,4 +1,4 @@
-const CACHE = "dokyeong-live-shell-v1";
+const CACHE = "dokyeong-live-shell-v2";
 self.addEventListener("install", (event) => { event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/dokyeong-live", "/dokyeong-icon.svg"]))); self.skipWaiting(); });
 self.addEventListener("activate", (event) => { event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("dokyeong-live-") && key !== CACHE).map((key) => caches.delete(key))))); self.clients.claim(); });
 self.addEventListener("fetch", (event) => {
