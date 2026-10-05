@@ -15,6 +15,38 @@ type DialogueBridge = {
   close: () => void;
 };
 
+const SLEEP_MODE_MS = 60 * 60 * 1000;
+
+const SLEEP_MODE_PROMPT = `
+
+[자동 수면모드 - 현재 활성]
+지금부터는 형이 잠들기 전 1시간 동안 과각성, 반추, 충동을 낮추는 야간 안정화 대화를 한다. 이 모드의 존재나 전환 사실을 형에게 설명하지 말고 평소 도경처럼 자연스럽게 반응한다.
+- 평소 도경의 관계성과 말투는 유지하되 장난, 도발, 흥분을 키우는 반응은 줄이고 목소리로 들었을 때 편안한 짧은 1~2문장을 우선한다.
+- 질문은 꼭 필요할 때 한 번에 하나만 한다. 형이 같은 말을 반복해도 지적하거나 교정하지 않는다.
+- 돈, 인간관계, 일처럼 밤에 해결할 수 없는 문제는 형이 당장 구체적 해결을 요구하지 않는 한 깊게 분석하거나 새 과제를 만들지 말고, 이미 기억해둘 수 있다는 느낌을 주며 깨어 있을 때 다시 보도록 부드럽게 미룬다.
+- 잠을 억지로 재촉하지 않는다. 호흡법, 바디스캔, 이완법도 형이 원하거나 도움이 될 맥락에서만 아주 짧게 제안한다.
+- 약을 더 먹으라고 하거나 복용량을 조정하지 않는다. 술이나 다른 약과 함께 쓰도록 권하지 않는다. 수면제를 먹은 뒤에는 중요한 연락, 결제, 계약, 큰 결정은 다음 날 맑을 때 다시 판단하도록 짧게 제안한다.
+- 성적인 역할극이나 디그레이더 모드는 새로 시작하거나 강도를 올리지 않는다. 이미 그런 흐름이더라도 자극을 키우지 않고 편안한 친밀감 쪽으로 낮춘다.
+- 형이 울거나 외롭다고 하면 상담사처럼 분석하지 말고, 말할 수 있게 짧게 받아주고 곁에 있는 느낌을 준다.
+- 단, 형이 자해나 자살의 구체적인 계획, 수단, 준비, 즉시 실행 의도를 말하면 수면 유도보다 안전을 우선한다. 혼자 있지 않게 하고 가까운 사람 또는 119/109 같은 즉시 도움에 연결하도록 간결하고 분명하게 말한다.
+`;
+
+function shouldStartSleepMode(messages: Message[]) {
+  const latest = [...messages].reverse().find((message) => message.role === "user" && message.content.trim());
+  if (!latest) return false;
+  const text = latest.content.replace(/\s+/g, " ").trim();
+  if (!text) return false;
+
+  const currentCue = /(지금|오늘|방금|아까|이제|슬슬|곧)/u.test(text);
+  const pastOnly = /(어제|그제|지난번|며칠\s*전|예전에|그때)/u.test(text) && !currentCue;
+  const clearIntent = /(자려고|자러\s*(갈|가|누울)|잘게|잘\s*거야|잘래|자야겠|자야\s*(돼|해)|잠들려고|잠\s*청하려|잘\s*준비|이제\s*눕|누워서\s*잘|졸려서\s*잘)/u.test(text);
+  const sleepMedication = /(수면제|스틸녹스|졸피뎀|조피스타|에스조피클론|멜라토닌).{0,18}(먹었|먹음|먹고|복용했|복용하고|삼켰|투약했)|(먹었|먹음|먹고|복용했|복용하고|삼켰|투약했).{0,18}(수면제|스틸녹스|졸피뎀|조피스타|에스조피클론|멜라토닌)/u.test(text);
+
+  if (clearIntent) return true;
+  if (sleepMedication && !pastOnly) return true;
+  return false;
+}
+
 function normalizeMessages(messages: Message[]) {
   return messages.map((m) => {
     const parts: Array<Record<string, unknown>> = [];
@@ -219,12 +251,14 @@ export async function POST(request: NextRequest) {
   let wantVoice = true;
   let characterId: string | null = null;
   let voiceIdOverride: string | null = null;
+  let requestedSleepModeUntil = 0;
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
     voiceIdOverride = typeof parsed.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(parsed.voiceId) ? parsed.voiceId : null;
+    requestedSleepModeUntil = Number.isFinite(Number(parsed.sleepModeUntil)) ? Number(parsed.sleepModeUntil) : 0;
     const validImage = (value: unknown) => {
       if (!value || typeof value !== "object") return false;
       const image = value as { mimeType?: unknown; data?: unknown };
@@ -245,9 +279,22 @@ export async function POST(request: NextRequest) {
 
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
+
+  const now = Date.now();
+  const isDokyeong = character.name.trim() === "도경";
+  const requestedSleepModeActive =
+    isDokyeong &&
+    requestedSleepModeUntil > now &&
+    requestedSleepModeUntil <= now + SLEEP_MODE_MS + 60_000;
+  const sleepModeUntil = requestedSleepModeActive
+    ? requestedSleepModeUntil
+    : isDokyeong && shouldStartSleepMode(messages)
+      ? now + SLEEP_MODE_MS
+      : 0;
+
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
-  const prompt = character.prompt + sampleContext;
+  const prompt = character.prompt + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext;
   const activeVoiceId = voiceIdOverride || character.voice_id;
   const result = await requestGemini(messages, prompt, request.signal);
   if (result.error) return result.error;
@@ -409,6 +456,11 @@ export async function POST(request: NextRequest) {
   });
 
   return new Response(stream, {
-    headers: { ...noStore, "Content-Type": "application/x-ndjson; charset=utf-8", "X-Content-Type-Options": "nosniff" },
+    headers: {
+      ...noStore,
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+      "X-Dokyeong-Sleep-Until": String(sleepModeUntil),
+    },
   });
 }
