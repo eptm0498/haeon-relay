@@ -286,14 +286,6 @@ export async function POST(request: NextRequest) {
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
 
-  if(!realtime&&!wantVoice&&requestId){
-    try{
-      await queueReply(character.id,requestId,{messages,sourceMessageId});
-      after(()=>runReplyWorker(requestId).catch(()=>console.warn("LIVE_REPLY_WORKER_RETRY")));
-      return new Response(JSON.stringify({type:"queued",requestId})+"\n",{status:202,headers:{...noStore,"Content-Type":"application/x-ndjson; charset=utf-8"}});
-    }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
-  }
-  const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const now = Date.now();
   const isDokyeong = character.name.trim() === "도경";
   const requestedSleepModeActive =
@@ -306,6 +298,14 @@ export async function POST(request: NextRequest) {
       ? now + SLEEP_MODE_MS
       : 0;
 
+  if(!realtime&&!wantVoice&&requestId){
+    try{
+      await queueReply(character.id,requestId,{messages,sourceMessageId,sleepModeUntil,sleepModePrompt:sleepModeUntil>now?SLEEP_MODE_PROMPT:undefined});
+      after(()=>runReplyWorker(requestId).catch(()=>console.warn("LIVE_REPLY_WORKER_RETRY")));
+      return new Response(JSON.stringify({type:"queued",requestId})+"\n",{status:202,headers:{...noStore,"Content-Type":"application/x-ndjson; charset=utf-8","X-Dokyeong-Sleep-Until":String(sleepModeUntil)}});
+    }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
+  }
+  const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
   const remembered=await memoryContext(character.id);
