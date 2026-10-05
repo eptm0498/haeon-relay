@@ -603,15 +603,22 @@ export default function DokyeongLive() {
   return <main className={styles.shell}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
-        <button className={styles.backButton} onClick={() => window.history.back()} aria-label="뒤로 가기">‹</button>
+        <button className={styles.backButton} onClick={() => window.history.back()} aria-label="뒤로 가기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 8 12l7.5 7.5" /></svg>
+        </button>
         <button className={styles.headerTitle} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
           <strong>{activeName}</strong>
-          <small>{chatMode === "voice" ? labels[phase] : phase === "thinking" ? "답장 쓰는 중…" : "1:1 대화"}</small>
         </button>
-        <div className={styles.headerActions}>
-          <button className={styles.headerTool} onClick={restart} aria-label="새 대화">↻</button>
-          <button className={styles.headerTool} onClick={() => switchChatMode(chatMode === "voice" ? "text" : "voice")} aria-label={chatMode === "voice" ? "문자 채팅으로 전환" : "음성 채팅으로 전환"}>☎</button>
-          <button className={styles.headerTool} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">☰</button>
+        <div className={styles.headerCapsule}>
+          <button className={styles.headerTool} onClick={restart} aria-label="새 대화">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+          </button>
+          <button className={styles.headerTool} onClick={() => switchChatMode(chatMode === "voice" ? "text" : "voice")} aria-label={chatMode === "voice" ? "문자 채팅으로 전환" : "음성 채팅으로 전환"}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.1 3.8 4.8 6.1c-.8.8-.8 2 0 2.8l2.2 2.2a15.4 15.4 0 0 0 5.9 5.9l2.2 2.2c.8.8 2 .8 2.8 0l2.3-2.3-4-4-2 2c-2.1-1-4.1-3-5.1-5.1l2-2-4-4Z"/></svg>
+          </button>
+          <button className={styles.headerTool} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
         </div>
       </header>
 
@@ -696,11 +703,22 @@ export default function DokyeongLive() {
 
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
         <div className={styles.composerPill}>
-          <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">＋</button>
+          <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
           <input aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
-          {draft.trim()
-            ? <button type="submit" className={styles.sendButton} aria-label="전송">➤</button>
-            : <button type="button" className={styles.micButton} onClick={() => switchChatMode("voice")} aria-label="음성 채팅으로 전환">◖▮◗</button>}
+          {!draft.trim() && <>
+            <button type="button" className={styles.composerIcon} aria-label="이모티콘">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M8.5 14c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/></svg>
+            </button>
+            <button type="button" className={styles.composerHash} aria-label="샵">#</button>
+            <button type="button" className={styles.composerVoice} onClick={() => switchChatMode("voice")} aria-label="음성 채팅으로 전환">
+              <span/><span/><span/><span/><span/>
+            </button>
+          </>}
+          {draft.trim() && <button type="submit" className={styles.sendButton} aria-label="전송">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
+          </button>}
         </div>
       </form>}
 
