@@ -597,33 +597,132 @@ export default function DokyeongLive() {
   const activeName = activeCharacter?.name || "캐릭터";
   const activeAvatar = activeCharacter?.avatar_url || (activeName === "도경" ? dokyeongFaceDataUrl : null);
 
+  const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
+  const showMessages = chatMode === "text" || captions;
+
   return <main className={styles.shell}>
     <div className={styles.phone}>
-      <header className={styles.top}><span className={styles.overline}>CHARACTER LIVE</span><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>{characters.length>1 && <select aria-label="캐릭터 선택" value={characterId} onChange={(e)=>switchCharacter(e.target.value)} style={{maxWidth:110,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{characters.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}{activeCharacter && availableVoices.length>0 && <select aria-label="목소리 선택" value={voiceId || activeCharacter.voice_id} onChange={(e)=>changeVoice(e.target.value)} style={{maxWidth:125,background:"#15161b",color:"#f3eee9",border:"1px solid #393a42",borderRadius:10,padding:"7px 9px"}}>{voiceId && !availableVoices.some((item)=>item.voice_id===voiceId) && <option value={voiceId}>{activeCharacter.voice_name || "현재 목소리"}</option>}{availableVoices.map((item)=><option key={item.voice_id} value={item.voice_id}>{item.name}</option>)}</select>}<button className={styles.restart} onClick={restart} aria-label="대화 새로 시작">새 대화</button></div></header>
-      <div className={styles.hero}>
-        <div className={`${styles.avatar} ${phase === "speaking" ? styles.speaking : ""} ${phase === "listening" ? styles.listening : ""}`} aria-hidden="true">{activeAvatar ? <img src={activeAvatar} alt="" /> : <span>{activeName.slice(0,2)}</span>}</div>
-        <h1>{activeName}</h1><p className={styles.state}><span className={styles.dot} />{labels[phase]}</p>
-        {latency !== null && <p className={styles.latency}>첫 음성까지 {(latency / 1000).toFixed(1)}초</p>}
-      </div>
-      <section className={styles.transcript} ref={scrollRef} aria-live="polite">
-        {captions && messages.slice(-16).map((message, index) => <div key={index} className={`${styles.line} ${message.role === "user" ? styles.mine : styles.his}`}><span>{message.role === "user" ? "나" : activeName}</span><p>{message.content}</p></div>)}
-        {captions && partial && <div className={`${styles.line} ${styles.his}`}><span>{activeName}</span><p>{partial}</p></div>}
-        {!captions && <p className={styles.empty}>자막 꺼짐</p>}
-        {captions && !messages.length && !partial && <p className={styles.empty}>마이크를 누르고 편하게 말해.</p>}
-      </section>
-      {error && <p className={styles.error} role="alert">{error}</p>}
-      {status && !status.configured && <p className={styles.notice}>서버 접속 코드 설정이 필요해.</p>}
-      {status?.authenticated && !status.ready && <p className={styles.notice}>서버 환경변수 설정 필요: {status.missing.join(", ")}</p>}
-      {status?.configured && !status.authenticated && <form onSubmit={login} className={styles.login}><input type="password" autoComplete="current-password" aria-label="접속 코드" placeholder="접속 코드" value={code} onChange={(e) => setCode(e.target.value)} /><button type="submit">입장</button></form>}
-      {status?.authenticated && <>
-        <form onSubmit={submitText} className={styles.textForm}><input aria-label="문자로 말하기" placeholder="문자로 말하기" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} /><button type="submit" disabled={!draft.trim()}>전송</button></form>
-        <div className={styles.controls}>
-          <button className={styles.smallButton} onClick={() => { setVoice(!voice); if (voice) stopAudio(); }} aria-label={voice ? "음성 끄기" : "음성 켜기"} aria-pressed={voice}><span>{voice ? "◖))" : "◖×"}</span>음성</button>
-          <button className={`${styles.callButton} ${running.current && phase !== "paused" ? styles.endButton : ""}`} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready} aria-label={running.current && phase !== "paused" ? "통화 종료" : "마이크 시작"}>{running.current && phase !== "paused" ? "■" : "♩"}</button>
-          <button className={styles.smallButton} onClick={() => setCaptions(!captions)} aria-label={captions ? "자막 끄기" : "자막 켜기"} aria-pressed={captions}><span>▤</span>자막</button>
+      <header className={styles.chatHeader}>
+        <button className={styles.iconButton} onClick={() => window.history.back()} aria-label="뒤로 가기">‹</button>
+        <button className={styles.headerProfile} onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen}>
+          <span className={styles.headerAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</span>
+          <span className={styles.headerText}><strong>{activeName}</strong><small>{chatMode === "voice" ? labels[phase] : phase === "thinking" ? "답장 쓰는 중…" : "1:1 대화"}</small></span>
+        </button>
+        <div className={styles.headerActions}>
+          <button className={styles.iconButton} onClick={restart} aria-label="새 대화">↻</button>
+          <button className={styles.iconButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">☰</button>
         </div>
-        <div className={styles.bottom}><span>{needsTap ? "재생 또는 마이크 연결을 위해 가운데 버튼을 눌러줘" : running.current ? `말을 멈추면 ${activeName}이 대답해` : "가운데 버튼을 눌러 통화 시작"}</span>{phase === "speaking" && <button onClick={interrupt}>말 끊기</button>}</div>
-      </>}
+      </header>
+
+      {settingsOpen && <section className={styles.settingsPanel}>
+        <div className={styles.settingRow}>
+          <label htmlFor="character-live-select">캐릭터</label>
+          <select id="character-live-select" value={characterId} onChange={(e)=>switchCharacter(e.target.value)}>
+            {characters.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </div>
+        <div className={styles.settingRow}>
+          <label htmlFor="voice-live-select">목소리</label>
+          <select id="voice-live-select" value={voiceId || activeCharacter?.voice_id || ""} onChange={(e)=>changeVoice(e.target.value)} disabled={!availableVoices.length}>
+            {voiceId && !availableVoices.some((item)=>item.voice_id===voiceId) && <option value={voiceId}>{activeCharacter?.voice_name || "현재 목소리"}</option>}
+            {availableVoices.map((item)=><option key={item.voice_id} value={item.voice_id}>{item.name}</option>)}
+          </select>
+        </div>
+        <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
+        <button className={styles.newChatButton} onClick={() => { restart(); setSettingsOpen(false); }}>이 캐릭터와 새 대화</button>
+      </section>}
+
+      <nav className={styles.modeTabs} aria-label="대화 방식">
+        <button className={chatMode === "text" ? styles.modeActive : ""} onClick={() => switchChatMode("text")}>
+          <span>⌨</span>문자 채팅
+        </button>
+        <button className={chatMode === "voice" ? styles.modeActive : ""} onClick={() => switchChatMode("voice")}>
+          <span>◉</span>음성 채팅
+        </button>
+      </nav>
+
+      <section className={styles.chatArea} ref={scrollRef} aria-live="polite">
+        <div className={styles.dateChip}>오늘</div>
+
+        {status?.configured && !status.authenticated && <div className={styles.loginCard}>
+          <div className={styles.loginAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <strong>도경LIVE</strong>
+          <p>접속 코드를 입력하면 대화방이 열려.</p>
+          <form onSubmit={login} className={styles.login}>
+            <input type="password" autoComplete="current-password" aria-label="접속 코드" placeholder="접속 코드" value={code} onChange={(e) => setCode(e.target.value)} />
+            <button type="submit">입장</button>
+          </form>
+        </div>}
+
+        {status && !status.configured && <div className={styles.systemBubble}>서버 접속 코드 설정이 필요해.</div>}
+        {status?.authenticated && !status.ready && <div className={styles.systemBubble}>서버 환경변수 설정 필요: {status.missing.join(", ")}</div>}
+
+        {status?.authenticated && showMessages && messages.slice(-40).map((message, index) => message.role === "assistant"
+          ? <div key={index} className={styles.assistantRow}>
+              <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+              <div className={styles.messageColumn}>
+                <span className={styles.senderName}>{activeName}</span>
+                <div className={styles.bubbleLine}>
+                  <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>
+                  {message.ts && <time>{formatMessageTime(message.ts)}</time>}
+                </div>
+              </div>
+            </div>
+          : <div key={index} className={styles.userRow}>
+              <div className={styles.bubbleLine}>
+                {message.ts && <time>{formatMessageTime(message.ts)}</time>}
+                <div className={[styles.bubble, styles.userBubble].join(" ")}>{message.content}</div>
+              </div>
+            </div>)}
+
+        {status?.authenticated && showMessages && partial && <div className={styles.assistantRow}>
+          <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.messageColumn}>
+            <span className={styles.senderName}>{activeName}</span>
+            <div className={styles.bubbleLine}><div className={[styles.bubble, styles.assistantBubble].join(" ")}>{partial}<span className={styles.cursor}>▋</span></div></div>
+          </div>
+        </div>}
+
+        {status?.authenticated && !partial && phase === "thinking" && <div className={styles.assistantRow}>
+          <div className={styles.messageAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <div className={styles.messageColumn}>
+            <span className={styles.senderName}>{activeName}</span>
+            <div className={[styles.bubble, styles.assistantBubble, styles.typingBubble].join(" ")}><i></i><i></i><i></i></div>
+          </div>
+        </div>}
+
+        {status?.authenticated && showMessages && !messages.length && !partial && phase !== "thinking" && <div className={styles.emptyChat}>
+          <div className={styles.emptyAvatar}>{activeAvatar ? <img src={activeAvatar} alt="" /> : activeName.slice(0,2)}</div>
+          <strong>{activeName}</strong>
+          <span>{chatMode === "text" ? "메시지를 보내서 대화를 시작해." : "아래 통화 버튼을 누르면 바로 이야기할 수 있어."}</span>
+        </div>}
+
+        {status?.authenticated && chatMode === "voice" && !captions && <div className={styles.systemBubble}>음성 채팅 중 · 자막 꺼짐</div>}
+        {error && <div className={styles.errorBubble} role="alert">{error}</div>}
+        <div className={styles.chatSpacer} />
+      </section>
+
+      {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
+        <button type="button" className={styles.plusButton} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">＋</button>
+        <div className={styles.inputWrap}>
+          <input aria-label="메시지" placeholder="메시지를 입력하세요" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
+        </div>
+        <button type="submit" className={styles.sendButton} disabled={!draft.trim()} aria-label="전송">➤</button>
+      </form>}
+
+      {status?.authenticated && chatMode === "voice" && <section className={styles.voiceDock}>
+        <div className={styles.voiceStatus}>
+          <span className={[styles.voiceDot, running.current && phase !== "paused" ? styles.voiceDotOn : ""].filter(Boolean).join(" ")} />
+          <div><strong>{running.current && phase !== "paused" ? labels[phase] : "음성 채팅 준비"}</strong><small>{needsTap ? "가운데 버튼을 다시 눌러줘" : running.current ? "말을 멈추면 " + activeName + "이 대답해" : activeVoiceName + " 목소리"}</small></div>
+          {latency !== null && <em>{(latency / 1000).toFixed(1)}s</em>}
+        </div>
+        <div className={styles.voiceActions}>
+          <button className={styles.voiceSideButton} onClick={() => { setVoice(!voice); if (voice) stopAudio(); }} aria-pressed={voice}><span>{voice ? "🔊" : "🔇"}</span><small>음성</small></button>
+          <button className={[styles.callButton, running.current && phase !== "paused" ? styles.endButton : ""].filter(Boolean).join(" ")} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready} aria-label={running.current && phase !== "paused" ? "통화 종료" : "통화 시작"}>{running.current && phase !== "paused" ? "■" : "●"}</button>
+          <button className={styles.voiceSideButton} onClick={() => setCaptions(!captions)} aria-pressed={captions}><span>▤</span><small>자막</small></button>
+        </div>
+        {phase === "speaking" && <button className={styles.interruptButton} onClick={interrupt}>말 끊기</button>}
+      </section>}
     </div>
   </main>;
 }
