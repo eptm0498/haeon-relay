@@ -6,6 +6,13 @@ begin
  insert into private.live_chat_history(character_id) values(cid) returning epoch into ep;
  insert into private.live_push_subscriptions(endpoint,device_id,keys) values(endpoint_test,dev,'{"p256dh":"fixture","auth":"fixture"}');
  perform public.live_sync_history(tok,'append',cid,ep,jsonb_build_array(jsonb_build_object('id',job,'role','user','content','씻고 와','ts',floor(extract(epoch from now())*1000))));
+ perform public.live_memory_work(tok,'read',cid);
+ update private.live_memory set summary='읽기 후에도 유지할 기억' where character_id=cid;
+ -- A GET between saving and enqueueing must not erase the archive or memory.
+ perform public.live_sync_history(tok,'read');
+ perform public.live_sync_history(tok,'read');
+ if not exists(select 1 from private.live_message_events where character_id=cid and message_id=job::text) then raise exception 'history read erased saved message';end if;
+ if not exists(select 1 from private.live_memory where character_id=cid and summary='읽기 후에도 유지할 기억') then raise exception 'history read erased memory';end if;
  perform public.live_reply_work(tok,'enqueue',job,cid,'{"urgent":false}');
  perform public.live_reply_work(tok,'enqueue',job,cid,'{"urgent":false}');
  if (select count(*) from private.live_reply_jobs where id=job)<>1 then raise exception 'idempotency failed';end if;
