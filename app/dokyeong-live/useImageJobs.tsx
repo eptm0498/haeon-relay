@@ -1,16 +1,16 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import styles from './live.module.css';
-type Job={id:string;status:string;attempts:number;error:string;updated_at:string};
+type Job={id:string;status:string;attempts:number;error:string;created_at:string;updated_at:string};
 const dismissedKey=(id:string)=>'live-dismissed-image-errors:'+id;
 function dismissed(id:string):string[]{try{const value=JSON.parse(localStorage.getItem(dismissedKey(id))||'[]');return Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[];}catch{return [];}}
-function visible(jobs:Job[],characterId:string){const hidden=new Set(dismissed(characterId));return jobs.filter(j=>j.status!=='failed'||!hidden.has(j.id)&&Date.parse(j.updated_at)>Date.now()-60*60*1000);}
-export function useImageJobs(characterId:string,enabled:boolean,onChange:()=>void){
+function visible(jobs:Job[],characterId:string,lastUserAt:number){const hidden=new Set(dismissed(characterId));return jobs.filter(j=>j.status!=='failed'||!hidden.has(j.id)&&lastUserAt<=Date.parse(j.created_at));}
+export function useImageJobs(characterId:string,enabled:boolean,onChange:()=>void,lastUserAt=0){
  const [snapshot,setSnapshot]=useState<{characterId:string;jobs:Job[]}>({characterId:'',jobs:[]}),[error,setError]=useState('');const refresh=useRef(onChange);refresh.current=onChange;
- const jobs=snapshot.characterId===characterId?snapshot.jobs:[];
+ const jobs=snapshot.characterId===characterId?visible(snapshot.jobs,characterId,lastUserAt):[];
  useEffect(()=>{
   if(!enabled||!characterId)return;let alive=true;let running=false;let prior='';
-  const poll=async()=>{if(running||document.hidden)return;running=true;try{const r=await fetch('/api/dokyeong/images?characterId='+characterId,{cache:'no-store'});if(!r.ok)return;const next=visible(await r.json(),characterId);const key=JSON.stringify(next);if(alive&&prior!==key){prior=key;setSnapshot({characterId,jobs:next});refresh.current();}}catch{}finally{running=false;}};
+  const poll=async()=>{if(running||document.hidden)return;running=true;try{const r=await fetch('/api/dokyeong/images?characterId='+characterId,{cache:'no-store'});if(!r.ok)return;const next:Job[]=await r.json();const key=JSON.stringify(next);if(alive&&prior!==key){prior=key;setSnapshot({characterId,jobs:next});refresh.current();}}catch{}finally{running=false;}};
   void poll();const timer=setInterval(()=>void poll(),3000);window.addEventListener('focus',poll);return()=>{alive=false;clearInterval(timer);window.removeEventListener('focus',poll);};
  },[characterId,enabled]);
  function dismiss(id:string){try{localStorage.setItem(dismissedKey(characterId),JSON.stringify([...new Set([...dismissed(characterId),id])].slice(-100)));}catch{}setSnapshot(current=>({...current,jobs:current.jobs.filter(j=>j.id!==id)}));setError('');}

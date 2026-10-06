@@ -147,7 +147,7 @@ export default function DokyeongLive() {
   const [resetting, setResetting] = useState(false);
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
   const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
-  const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize().catch(()=>{});});
+  const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
   const navigationReady=useRef(false);
   const swipeStart=useRef<{x:number;y:number}|null>(null);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
