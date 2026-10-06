@@ -22,7 +22,7 @@ export async function rpcTransport<T>(endpoint: string, key: string, name: strin
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        const cause = Object.assign(new Error(error.code === '40001' ? 'VERSION_CONFLICT' : error.message === 'IMAGE_DAILY_LIMIT' ? 'IMAGE_DAILY_LIMIT' : `Settings request failed: ${response.status}`), {status:response.status, code:typeof error.code === 'string' ? error.code : undefined});
+        const cause = Object.assign(new Error(['40001','PT409'].includes(error.code) ? 'VERSION_CONFLICT' : error.message === 'IMAGE_DAILY_LIMIT' ? 'IMAGE_DAILY_LIMIT' : `Settings request failed: ${response.status}`), {status:response.status, code:typeof error.code === 'string' ? error.code : undefined});
         throw cause;
       }
       return await response.json() as T;
