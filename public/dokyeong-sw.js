@@ -1,4 +1,4 @@
-const CACHE = "dokyeong-live-shell-v7";
+const CACHE = "dokyeong-live-shell-v8";
 self.addEventListener("install", (event) => { event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(["/dokyeong-live", "/live-chat-icon-192.png"]))); self.skipWaiting(); });
 self.addEventListener("activate", (event) => { event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("dokyeong-live-") && key !== CACHE).map((key) => caches.delete(key))))); self.clients.claim(); });
 self.addEventListener("fetch", (event) => {
@@ -20,6 +20,6 @@ self.addEventListener('notificationclick',event=>{
  if(!/^[a-f0-9-]{36}$/i.test(id||''))return;
  event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async clients=>{
   for(const client of clients){if(new URL(client.url).pathname.startsWith('/dokyeong-live')){await client.focus();client.postMessage({type:'OPEN_CHARACTER',characterId:id});return;}}
-  await self.clients.openWindow('/dokyeong-live?character='+encodeURIComponent(id));
+  await self.clients.openWindow('/dokyeong-live?notification=1&character='+encodeURIComponent(id));
  }));
 });

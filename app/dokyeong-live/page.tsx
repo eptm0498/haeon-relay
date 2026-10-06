@@ -128,7 +128,7 @@ export default function DokyeongLive() {
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState<Phase>("off");
   const [chatMode, setChatMode] = useState<ChatMode>("text");
-  const [view, setView] = useState<AppView>("chat");
+  const [view, setView] = useState<AppView>("list");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [listSearchOpen, setListSearchOpen] = useState(false);
   const [listQuery, setListQuery] = useState("");
@@ -148,7 +148,7 @@ export default function DokyeongLive() {
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
   const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
   const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
-  const navigationReady=useRef(false);
+  const [pendingConversation, setPendingConversation] = useState<string | null>(null);
   const swipeStart=useRef<{x:number;y:number}|null>(null);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
@@ -224,8 +224,7 @@ export default function DokyeongLive() {
       if (!response.ok) throw new Error(data.error || "캐릭터를 불러오지 못했어.");
       const list: LiveCharacter[] = Array.isArray(data.characters) ? data.characters : [];
       setCharacters(list);
-      const requestedId=new URLSearchParams(window.location.search).get("character");
-      const selected = list.find((item) => item.id === (characterIdRef.current||requestedId)) || list.find((item) => item.is_default) || list[0];
+      const selected = list.find((item) => item.id === characterIdRef.current) || list.find((item) => item.is_default) || list[0];
       if (!selected) return;
       characterIdRef.current = selected.id;
       setCharacterId(selected.id);
@@ -760,6 +759,7 @@ export default function DokyeongLive() {
     else stopAudio();
   }
   function openConversation(nextId: string) {
+    if (!characters.some(item => item.id === nextId)) return;
     switchCharacter(nextId);setSettingsOpen(false);
     const url=`/dokyeong-live?character=${encodeURIComponent(nextId)}`;
     if(window.history.state?.characterLive==="chat")window.history.replaceState({characterLive:"chat",characterId:nextId},"",url);
@@ -772,24 +772,39 @@ export default function DokyeongLive() {
     if(window.history.state?.characterLive==="chat")window.history.back();else setView("list");
   }
   useEffect(()=>{
-    if(!status?.authenticated||!characterId||navigationReady.current)return;
-    navigationReady.current=true;
-    if(window.history.state?.characterLive){setView(window.history.state.characterLive==="chat"?"chat":"list");return;}
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("notification") === "1" ? params.get("character") : null;
+    if(target && /^[a-f0-9-]{36}$/i.test(target))setPendingConversation(target);
+    // Consume notification intent once. Previous chat URLs/history are not launch intent.
     window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
-    window.history.pushState({characterLive:"chat",characterId},"",`/dokyeong-live?character=${characterId}`);
-  },[status?.authenticated,characterId]);
+    const open=(event:MessageEvent)=>{
+      if(event.data?.type==="OPEN_CHARACTER" && /^[a-f0-9-]{36}$/i.test(event.data.characterId||""))setPendingConversation(event.data.characterId);
+    };
+    const background=()=>{
+      if(!document.hidden || running.current)return;
+      setView("list");setSettingsOpen(false);
+      window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
+    };
+    navigator.serviceWorker?.addEventListener("message",open);
+    document.addEventListener("visibilitychange",background);
+    return()=>{navigator.serviceWorker?.removeEventListener("message",open);document.removeEventListener("visibilitychange",background);};
+  },[]);
+  useEffect(()=>{
+    if(!status?.authenticated || !pendingConversation || !characters.length)return;
+    if(characters.some(item=>item.id===pendingConversation))openConversation(pendingConversation);
+    setPendingConversation(null);
+  },[status?.authenticated,pendingConversation,characters]);
   useEffect(()=>{
     const pop=(event:PopStateEvent)=>{
       endCall();setSettingsOpen(false);
       if(event.state?.characterLive==="chat"){
         const id=event.state.characterId;const next=characters.find(c=>c.id===id);
         if(next){characterIdRef.current=id;setCharacterId(id);messageRef.current=sharedHistory.histories[id]||[];setMessages(messageRef.current);const v=localStorage.getItem(voiceKey(id))||next.voice_id;voiceIdRef.current=v;setVoiceId(v);}
-        setView("chat");
+        setView(next ? "chat" : "list");
       }else setView("list");
     };
-    const open=(event:MessageEvent)=>{if(event.data?.type==="OPEN_CHARACTER" && characters.some(c=>c.id===event.data.characterId))openConversation(event.data.characterId);};
-    window.addEventListener("popstate",pop);navigator.serviceWorker?.addEventListener("message",open);
-    return()=>{window.removeEventListener("popstate",pop);navigator.serviceWorker?.removeEventListener("message",open);};
+    window.addEventListener("popstate",pop);
+    return()=>{window.removeEventListener("popstate",pop);};
   },[characters,sharedHistory.histories,endCall]);
 
   function closeVoicePanel() {
@@ -821,7 +836,7 @@ export default function DokyeongLive() {
   }
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
-  const activeName = activeCharacter?.name || "캐릭터";
+  const activeName = activeCharacter?.name || "LIVE";
   const activeAvatar = activeCharacter?.avatar_url;
 
   useEffect(()=>{
@@ -834,7 +849,7 @@ export default function DokyeongLive() {
   const showMessages = chatMode === "text" || captions;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
 
-  if (view === "list" && status?.authenticated) {
+  if ((view === "list" || !activeCharacter) && status?.authenticated !== false) {
     const listItems = [...characters]
       .filter((item) => !listQuery.trim() || item.name.toLowerCase().includes(listQuery.trim().toLowerCase()))
       .sort((a, b) => (chatPreviews[b.id]?.ts || 0) - (chatPreviews[a.id]?.ts || 0) || a.sort_order - b.sort_order);
@@ -889,7 +904,7 @@ export default function DokyeongLive() {
               })()}</span>
             </button>;
           })}
-          {!listItems.length && <div className={styles.listEmpty}>검색 결과가 없어.</div>}
+          {!listItems.length && <div className={styles.listEmpty}>{error || (!characters.length ? "대화목록을 불러오고 있어." : "검색 결과가 없어.")}</div>}
         </section>
       </div>
     </main>;
@@ -1004,7 +1019,7 @@ export default function DokyeongLive() {
           </div>
         </div>}
 
-        {status?.authenticated && showMessages && !messages.length && !partial && phase !== "thinking" && <div className={styles.emptyChat}>
+        {status?.authenticated && historyReady && showMessages && !messages.length && !partial && phase !== "thinking" && <div className={styles.emptyChat}>
           <div className={styles.emptyAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <strong>{activeName}</strong>
           <span>{chatMode === "text" ? "메시지를 보내서 대화를 시작해." : "아래 통화 버튼을 누르면 바로 이야기할 수 있어."}</span>

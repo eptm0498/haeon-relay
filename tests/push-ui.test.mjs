@@ -6,5 +6,5 @@ test('push shows LIVE notification and opens the matching character',async()=>{
  const id='55af4088-3e3c-4da8-a45a-1f6bbb69c57f';handlers.push({data:{json:()=>({title:'온유',body:'형, 오늘 어땠어?',characterId:id,messageId:'test',unreadCount:3})},waitUntil:p=>promise=p});await promise;
  assert.equal(notifications[0].title,'온유');assert.equal(notifications[0].options.icon,'/live-chat-icon-192.png');assert.equal(notifications[0].options.body,'형, 오늘 어땠어?');assert.equal(badges[0],3);
  handlers.notificationclick({notification:{close:()=>{},data:{characterId:id}},waitUntil:p=>promise=p});await promise;assert.equal(posted.at(-1).type,'OPEN_CHARACTER');assert.equal(posted.at(-1).characterId,id);assert.equal(opened.length,0);
- context.self.clients.matchAll=async()=>[];handlers.notificationclick({notification:{close:()=>{},data:{characterId:id}},waitUntil:p=>promise=p});await promise;assert.equal(opened[0],'/dokyeong-live?character='+id);
+ context.self.clients.matchAll=async()=>[];handlers.notificationclick({notification:{close:()=>{},data:{characterId:id}},waitUntil:p=>promise=p});await promise;assert.equal(opened[0],'/dokyeong-live?notification=1&character='+id);
 });
