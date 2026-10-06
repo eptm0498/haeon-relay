@@ -6,6 +6,7 @@ import {useCompanion} from "./useCompanion";
 import LiveTools from "./LiveTools";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
+import { useChatScroll } from "./useChatScroll";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
 
@@ -181,7 +182,7 @@ export default function DokyeongLive() {
   const listenBoostUntilRef = useRef(0);
   const lastInputAtRef = useRef(0);
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const chatScroll = useChatScroll(view === "chat", characterId, historyReady, messages, partial);
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
   const editImageRef=useRef<string|undefined>(undefined);
   const draftInputRef = useRef<HTMLInputElement | null>(null);
@@ -262,8 +263,6 @@ export default function DokyeongLive() {
     }
   }, []);
   useEffect(() => { if (status?.authenticated) void loadVoices(); }, [status?.authenticated, loadVoices]);
-
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, partial]);
 
   const keepAwake = useCallback(async () => {
     if (document.hidden || (wakeLockRef.current && !wakeLockRef.current.released)) return;
@@ -959,7 +958,9 @@ export default function DokyeongLive() {
         </section>
       </div>}
 
-      <section className={styles.chatArea} ref={scrollRef} aria-live="polite">
+      <div className={styles.chatViewport}>
+      <section className={styles.chatArea} ref={chatScroll.scrollRef} onScroll={chatScroll.onScroll} aria-live="polite">
+        <div ref={chatScroll.contentRef} className={styles.chatContent}>
         <div className={styles.dateChip}>{new Date(messages.at(-1)?.ts||Date.now()).toLocaleDateString("ko-KR",{timeZone:"Asia/Seoul"})}</div>
 
         {status?.configured && !status.authenticated && <div className={styles.loginCard}>
@@ -1031,7 +1032,12 @@ export default function DokyeongLive() {
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
         <div className={styles.chatSpacer} />
+        </div>
       </section>
+      {chatScroll.showLatest && <button type="button" className={styles.latestButton} onClick={chatScroll.goLatest} onPointerDown={event=>event.preventDefault()} aria-label="최신 메시지로 이동">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>}
+      </div>
 
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
         <div className={styles.composerPill}>

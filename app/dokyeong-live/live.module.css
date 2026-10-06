@@ -14,6 +14,11 @@
 .settingsPanel{position:absolute;top:max(82px,calc(env(safe-area-inset-top) + 66px));left:10px;right:10px;background:#1a1a1a;border-radius:16px;padding:14px;box-shadow:0 14px 44px #000c;z-index:50;border:1px solid #303030}
 .settingRow{display:grid;grid-template-columns:58px minmax(0,1fr);align-items:center;gap:9px;margin-bottom:9px}.settingRow label{font-size:11px;color:#aaa}.settingRow select{width:100%;min-width:0;border:1px solid #383838;background:#242424;border-radius:10px;padding:9px 10px;color:#f3f3f3;font-size:16px;outline:none}.settingSummary{border-top:1px solid #2c2c2c;margin-top:4px;padding-top:11px;display:flex;justify-content:space-between;gap:14px;font-size:10.5px;color:#858585}.settingSummary strong{color:#ddd;font-weight:600}.newChatButton{width:100%;margin-top:11px;border:0;border-radius:10px;background:#292929;color:#eee;padding:10px;font-size:11.5px;font-weight:700;cursor:pointer}
 
+.chatViewport{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.chatContent{display:flow-root}
+.latestButton{position:absolute;right:14px;bottom:12px;z-index:20;width:44px;height:44px;border:1px solid #383838;border-radius:50%;background:#292929;color:#f3f3f3;display:grid;place-items:center;padding:0;box-shadow:0 2px 8px #0006;cursor:pointer}
+.latestButton svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.latestButton:active{background:#3a3a3a}.latestButton:focus-visible{outline:2px solid #fee500;outline-offset:3px}
 .chatArea{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 17px 0;background:#000;scrollbar-width:none}.chatArea::-webkit-scrollbar{display:none}
 .dateChip{width:max-content;margin:0 auto 18px;background:#222;color:#b6b6b6;border-radius:999px;padding:5px 12px;font-size:10px;font-weight:500}
 
