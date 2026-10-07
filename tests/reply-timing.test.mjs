@@ -13,7 +13,7 @@ test('clock promises use KST including midnight and impossible values are bounde
  const now=Date.parse('2026-10-05T14:40:00Z');
  assert.equal(timingPlan({awaySeconds:900},'씻고 밤 12시에 연락할게.',now).awaySeconds,1200);
  assert.equal(timingPlan({delaySeconds:Infinity,awaySeconds:Infinity},'씻고 올게.').delaySeconds,8);
- assert.equal(timingPlan({delaySeconds:999999,awaySeconds:999999},'방송하고 올게.').awaySeconds,43200);
+ assert.equal(timingPlan({delaySeconds:999999,awaySeconds:999999},'방송하고 올게.').awaySeconds,86400);
 });
 test('urgent needs and cancellations interrupt the wait',()=>{
  assert.equal(urgentMessage('지금 숨을 못 쉬겠어 살려줘'),true);

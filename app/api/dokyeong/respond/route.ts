@@ -309,7 +309,7 @@ export async function POST(request: NextRequest) {
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
   const remembered=await memoryContext(character.id);
-  const prompt = character.prompt + currentTimeContext() + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
+  const prompt = character.prompt + currentTimeContext(new Date(),character.id) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`;
   const activeVoiceId = voiceIdOverride || character.voice_id;
