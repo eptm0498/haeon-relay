@@ -2,9 +2,10 @@ import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
+import { voiceFailure, type VoiceFailure } from "@/lib/dokyeong/voice-failure";
 
 export const runtime = "nodejs";
-export const maxDuration = 40;
+export const maxDuration = 60;
 
 async function callDialogue(text: string, voiceId: string, signal: AbortSignal, timeoutMs: number) {
   const voice = liveConfig.elevenlabs;
@@ -49,14 +50,13 @@ async function callFlash(text: string, voiceId: string, signal: AbortSignal, tim
 }
 
 async function describeFailure(response: Response) {
-  const detail = await response.text().catch(() => "");
-  return { status: response.status, detail: detail.slice(0, 600) };
+  return voiceFailure(await response.json().catch(()=>null),response.status);
 }
 
 export async function POST(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   if (!sameOrigin(request)) return Response.json({ error: "요청을 확인해 줘." }, { status: 403 });
-  if (!process.env.ELEVENLABS_API_KEY) return Response.json({ error: "ElevenLabs 연결 설정이 필요해." }, { status: 503 });
+  if (!process.env.ELEVENLABS_API_KEY && !process.env.OPENAI_API_KEY) return Response.json({ error: "음성 연결 설정이 필요해." }, { status: 503 });
 
   const raw = await request.text();
   if (raw.length > 5000) return Response.json({ error: "발화가 너무 길어." }, { status: 413 });
@@ -76,8 +76,10 @@ export async function POST(request: NextRequest) {
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   const voice = liveConfig.elevenlabs;
   const voiceId = voiceIdOverride || character.voice_id;
+  let failure:VoiceFailure=voiceFailure({code:'voice_unavailable'});
 
   try {
+    if(process.env.ELEVENLABS_API_KEY){
     try {
       const dialogue = await callDialogue(text, voiceId, request.signal, 18000);
       if (dialogue.ok && dialogue.body) {
@@ -90,16 +92,17 @@ export async function POST(request: NextRequest) {
           },
         });
       }
-      console.warn("[dokyeong/tts] dialogue failed", await describeFailure(dialogue));
+      failure=await describeFailure(dialogue);
+      console.warn("[dokyeong/tts] dialogue failed", {status:dialogue.status,code:failure.code});
     } catch (error) {
       if (request.signal.aborted) throw error;
-      console.warn("[dokyeong/tts] dialogue connection failed", error instanceof Error ? error.message : "unknown");
+      console.warn("[dokyeong/tts] dialogue connection failed");
     }
 
     // Reliable low-latency fallback. Retry once because transient ElevenLabs 5xx errors do occur.
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; !failure.terminal && attempt <= 2; attempt++) {
       try {
-        const fallback = await callFlash(text, voiceId, request.signal, attempt === 1 ? 14000 : 10000);
+        const fallback = await callFlash(text, voiceId, request.signal, attempt === 1 ? 10000 : 7000);
         if (fallback.ok && fallback.body) {
           return new Response(fallback.body, {
             headers: {
@@ -110,16 +113,29 @@ export async function POST(request: NextRequest) {
             },
           });
         }
-        console.warn("[dokyeong/tts] flash failed", { attempt, ...(await describeFailure(fallback)) });
-        if (fallback.status === 401 || fallback.status === 429) break;
+        failure=await describeFailure(fallback);
+        console.warn("[dokyeong/tts] flash failed", {attempt,status:fallback.status,code:failure.code});
+        if (failure.terminal || fallback.status === 429) break;
       } catch (error) {
         if (request.signal.aborted) throw error;
-        console.warn("[dokyeong/tts] flash connection failed", { attempt, detail: error instanceof Error ? error.message : "unknown" });
+        console.warn("[dokyeong/tts] flash connection failed", { attempt });
       }
     }
+    }
+    // Keep the saved character voice. Use a clearly labelled backup only while
+    // the preferred provider is unavailable, and try the preferred voice next time.
+    if(process.env.OPENAI_API_KEY&&!request.signal.aborted){
+      const backup=await fetch('https://api.openai.com/v1/audio/speech',{
+        method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},
+        body:JSON.stringify({model:'gpt-4o-mini-tts',voice:'ash',input:text,response_format:'mp3',instructions:'한국어 표준어로 자연스럽게 말해. 젊은 성인 남성의 편안하고 다정한 일상 대화 톤. 입력 문장만 읽고 내용을 추가하거나 바꾸지 마.'}),
+        signal:AbortSignal.any([request.signal,AbortSignal.timeout(18000)]),cache:'no-store'
+      });
+      if(backup.ok&&backup.body)return new Response(backup.body,{headers:{...noStore,'Content-Type':'audio/mpeg','X-Content-Type-Options':'nosniff','X-Dokyeong-TTS-Model':'gpt-4o-mini-tts','X-Dokyeong-TTS-Provider':'openai','X-Dokyeong-TTS-Fallback':failure.code}});
+      console.warn('[dokyeong/tts] backup failed',{status:backup.status});
+    }
 
-    return Response.json({ error: "도경 목소리를 만들지 못했어." }, { status: 502, headers: noStore });
+    return Response.json({ error: failure.message+' 임시 음성도 연결되지 않았어.',code:failure.code }, { status: 503, headers: noStore });
   } catch {
-    return Response.json({ error: "목소리 생성에 실패했어." }, { status: 502, headers: noStore });
+    return Response.json({ error: failure.message,code:failure.code }, { status: 502, headers: noStore });
   }
 }

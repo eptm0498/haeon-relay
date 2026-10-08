@@ -11,6 +11,7 @@ import { queueReply,runReplyWorker } from "@/lib/dokyeong/reply-jobs";
 import { serverRpc } from "@/lib/dokyeong/memory";
 import { timingPrompt,timingPlan } from "@/lib/dokyeong/reply-timing";
 import { relatedSampleContext } from "@/lib/dokyeong/samples";
+import {voiceFailure,type VoiceFailure} from "@/lib/dokyeong/voice-failure";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,7 +20,7 @@ type MessageImage = { mimeType: "image/jpeg" | "image/png" | "image/webp"; data:
 type Message = { role: "user" | "assistant"; content: string; image?: MessageImage };
 type DialogueBridge = {
   push: (text: string) => void;
-  finish: () => Promise<{ hadAudio: boolean; completed: boolean }>;
+  finish: () => Promise<{ hadAudio: boolean; completed: boolean; failure?:VoiceFailure }>;
   close: () => void;
 };
 
@@ -129,10 +130,14 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
   let finalAudio = false;
   let settled = false;
   let sendChain = Promise.resolve();
+  let failure:VoiceFailure|undefined;
 
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
   const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  // An early handshake rejection must not become an unhandled rejection while
+  // the text model is still generating its first token.
+  void ready.catch(()=>{});
 
   let resolveFinished!: () => void;
   const finished = new Promise<void>((resolve) => { resolveFinished = resolve; });
@@ -141,8 +146,13 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
     settled = true;
     resolveFinished();
   };
+  const openTimer=setTimeout(()=>{
+    failed=true;rejectReady(new Error('Voice connection timed out'));
+    try{ws.close();}catch{}settleFinished();
+  },5000);
 
   ws.addEventListener("open", () => {
+    clearTimeout(openTimer);
     opened = true;
     try {
       ws.send(JSON.stringify({
@@ -172,6 +182,8 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
         }
         if (message.error || message.type === "error") {
           failed = true;
+          failure=voiceFailure(message);
+          console.warn('[dokyeong/respond] voice unavailable',{code:failure.code,model:voice.dialogueRealtimeModelId});
           settleFinished();
         }
       } catch {}
@@ -179,17 +191,21 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
   });
 
   ws.addEventListener("error", () => {
+    clearTimeout(openTimer);
     failed = true;
     if (!opened) rejectReady(new Error("ElevenLabs websocket failed"));
     settleFinished();
   });
 
   ws.addEventListener("close", () => {
+    clearTimeout(openTimer);
     if (!opened) rejectReady(new Error("ElevenLabs websocket closed"));
     settleFinished();
   });
 
   signal.addEventListener("abort", () => {
+    clearTimeout(openTimer);
+    rejectReady(new Error('interrupted'));
     try { ws.close(); } catch {}
     settleFinished();
   }, { once: true });
@@ -217,23 +233,24 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
       await ready;
       if (!failed && ws.readyState === 1 && !signal.aborted) {
         ws.send(JSON.stringify({ close_socket: true }));
-        await Promise.race([
-          finished,
-          new Promise<void>((resolve) => setTimeout(resolve, 9000)),
-        ]);
+        let finishTimer:ReturnType<typeof setTimeout>|undefined;
+        try{await Promise.race([finished,new Promise<void>((resolve)=>{finishTimer=setTimeout(()=>{failed=true;resolve();},12000);})]);}
+        finally{clearTimeout(finishTimer);}
       }
     } catch {
       failed = true;
     } finally {
       try { if (ws.readyState === 0 || ws.readyState === 1) ws.close(); } catch {}
     }
-    return { hadAudio, completed: hadAudio && finalAudio && !failed };
+    return { hadAudio, completed: hadAudio && finalAudio && !failed, failure };
   };
 
   return {
     push,
     finish,
     close: () => {
+      clearTimeout(openTimer);
+      rejectReady(new Error('interrupted'));
       try { ws.close(); } catch {}
       settleFinished();
     },
@@ -458,9 +475,9 @@ export async function POST(request: NextRequest) {
               model: activeModel,
             });
 
-            let audioStatus = { hadAudio: false, completed: false };
+            let audioStatus:{hadAudio:boolean;completed:boolean;failure?:VoiceFailure} = { hadAudio: false, completed: false };
             if (dialogue) audioStatus = await dialogue.finish();
-            send({ type: audioStatus.completed ? "audio_done" : "audio_unavailable", hadAudio: audioStatus.hadAudio });
+            send({ type: audioStatus.completed ? "audio_done" : "audio_unavailable", hadAudio: audioStatus.hadAudio,code:audioStatus.failure?.code });
 
             send({
               type: "done",
