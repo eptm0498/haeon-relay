@@ -10,6 +10,3 @@ export function voiceFailure(value:unknown,status=502):VoiceFailure {
  if(status===403)return {code:'permission_denied',message:'이 목소리를 사용할 권한을 확인해야 해.',terminal:true};
  return {code:code||'voice_unavailable',message:'목소리 생성이 일시적으로 끊겼어. 다시 시도해 줘.',terminal:false};
 }
-export function backupVoiceNotice(code:string){
- return `${voiceFailure({code}).message} 임시 OpenAI 음성으로 대화 중이야.`;
-}

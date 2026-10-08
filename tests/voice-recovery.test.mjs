@@ -3,14 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import {voiceFailure,backupVoiceNotice} from '../lib/dokyeong/voice-failure.ts';
+import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 test('billing and credit failures are distinct and never expose upstream details',()=>{
  const payment=voiceFailure({detail:{status:'payment_issue',message:'private billing details'}},401);
  assert.equal(payment.code,'payment_issue');assert.equal(payment.terminal,true);
  assert.match(payment.message,/결제 문제/);assert.doesNotMatch(payment.message,/private/);
  assert.equal(voiceFailure({detail:{status:'quota_exceeded'}},401).code,'quota_exceeded');
- assert.match(backupVoiceNotice('payment_issue'),/임시 OpenAI 음성/);
 });
 
 async function speech(responses,{backup=true}={}){
@@ -33,14 +32,11 @@ async function speech(responses,{backup=true}={}){
 const blocked=()=>Response.json({detail:{status:'payment_issue',message:'private account details'}},{status:401});
 const audio=()=>new Response(new Uint8Array([73,68,51,1,2,3]),{headers:{'Content-Type':'audio/mpeg'}});
 
-test('payment block immediately uses backup audio instead of repeating ElevenLabs calls',async()=>{
- const {result,calls}=await speech([blocked(),audio()]);
- assert.equal(result.status,200);assert.equal(calls.length,2);
- assert.ok(calls[1].url.startsWith('https://api.openai.com/'));
- assert.equal(calls[1].body.input,'목소리 확인할게.');
- assert.equal(result.headers.get('X-Dokyeong-TTS-Fallback'),'payment_issue');
- assert.equal(result.headers.get('X-Dokyeong-TTS-Provider'),'openai');
- assert.equal((await result.arrayBuffer()).byteLength,6);
+test('payment blocks never call OpenAI even when its key is configured',async()=>{
+ const {result,calls}=await speech([blocked()]);
+ assert.equal(result.status,503);assert.equal(calls.length,1);
+ assert.ok(calls.every(c=>c.url.startsWith('https://api.elevenlabs.io/')));
+ assert.equal((await result.json()).code,'payment_issue');
 });
 test('healthy preferred voice returns without invoking backup',async()=>{
  const {result,calls}=await speech([audio()]);
@@ -54,11 +50,11 @@ test('transient model failure retains the character voice through Flash',async()
  assert.ok(calls[1].url.includes('saved-character-voice'));
  assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),'eleven_flash_v2_5');
 });
-test('both unavailable providers return a clear payment explanation',async()=>{
- const {result,calls}=await speech([blocked(),Response.json({error:'private'},{status:429})]);
- assert.equal(calls.length,2);assert.equal(result.status,503);
- const failure=await result.json();assert.equal(failure.code,'payment_issue');
- assert.match(failure.error,/결제 문제/);assert.doesNotMatch(failure.error,/private/);
+test('credit exhaustion stops without switching providers',async()=>{
+ const {result,calls}=await speech([Response.json({detail:{status:'quota_exceeded'}},{status:401})]);
+ assert.equal(calls.length,1);assert.equal(result.status,503);
+ const failure=await result.json();assert.equal(failure.code,'quota_exceeded');
+ assert.match(failure.error,/크레딧/);
 });
 
 function bridgeHarness(){

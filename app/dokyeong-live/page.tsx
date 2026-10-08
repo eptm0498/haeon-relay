@@ -7,7 +7,6 @@ import LiveTools from "./LiveTools";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import { useChatScroll } from "./useChatScroll";
-import {backupVoiceNotice} from "@/lib/dokyeong/voice-failure";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
 
@@ -142,7 +141,6 @@ export default function DokyeongLive() {
   const [voice, setVoice] = useState(true);
   const [captions, setCaptions] = useState(true);
   const [error, setError] = useState("");
-  const [voiceNotice,setVoiceNotice]=useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
@@ -328,8 +326,6 @@ export default function DokyeongLive() {
       throw Error(failure.error||"목소리 생성에 실패했어.");
     }
     if (signal.aborted || turn !== generation.current) { upstream.body.cancel().catch(() => {}); return; }
-    const backup=upstream.headers.get('X-Dokyeong-TTS-Provider')==='openai';
-    setVoiceNotice(backup?backupVoiceNotice(upstream.headers.get('X-Dokyeong-TTS-Fallback')||'voice_unavailable'):"");
     // MP3 MediaSource starts as soon as the first bytes arrive. Older iOS builds use the decoded-blob fallback.
     if (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported("audio/mpeg")) {
       const media = new MediaSource(); const url = URL.createObjectURL(media);
@@ -459,7 +455,6 @@ export default function DokyeongLive() {
 
       if (firstAudio) {
         firstAudio = false;
-        setVoiceNotice("");
         setLatency(Math.round(performance.now() - start));
         setMode("speaking");
       }
@@ -1039,7 +1034,6 @@ export default function DokyeongLive() {
         <ImageJobTray state={imageJobs}/>
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
-        {chatMode==='voice'&&voiceNotice&&<div className={styles.systemBubble} role="status">{voiceNotice}</div>}
         <div className={styles.chatSpacer} />
         </div>
       </section>
@@ -1082,7 +1076,7 @@ export default function DokyeongLive() {
         <button className={styles.voiceClose} onClick={closeVoicePanel} aria-label="음성 창 닫기">×</button>
         <div className={styles.voiceStatus}>
           <span className={[styles.voiceDot, running.current && phase !== "paused" ? styles.voiceDotOn : ""].filter(Boolean).join(" ")} />
-          <div><strong>{running.current && phase !== "paused" ? labels[phase] : "음성 채팅 준비"}</strong><small>{needsTap ? "가운데 버튼을 다시 눌러줘" : voiceNotice|| (running.current ? "말을 멈추면 " + activeName + "이 대답해" : activeVoiceName + " 목소리")}</small></div>
+          <div><strong>{running.current && phase !== "paused" ? labels[phase] : "음성 채팅 준비"}</strong><small>{needsTap ? "가운데 버튼을 다시 눌러줘" : (running.current ? "말을 멈추면 " + activeName + "이 대답해" : activeVoiceName + " 목소리")}</small></div>
           {latency !== null && <em>{(latency / 1000).toFixed(1)}s</em>}
         </div>
         {error&&<div className={styles.errorBubble} role="alert">{error}</div>}
