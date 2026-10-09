@@ -11,7 +11,7 @@ export function timingPlan(value: Partial<TimingPlan>,text:string,now=Date.now()
  delay=Number.isFinite(delay)?Math.max(5,Math.min(86400,Math.round(delay))):8;
  away=Number.isFinite(away)?Math.max(0,Math.min(86400,Math.round(away))):0;
  let activity=typeof value.activity==='string'?value.activity.trim().slice(0,160):'';
- let departure=/(?:씻|샤워|먹|운동|방송|일|수업|자|잠|다녀|갔다).{0,25}(?:올게|올께|오겠|연락할게|톡할게|연락해줄게|하고 올|끝나고|일어나서)/.test(text)||/(?:자러|씻으러|밥 먹으러|운동하러|방송하러).{0,12}(?:갈게|가야|간다)/.test(text);
+ let departure=/(?:씻|샤워|먹|운동|방송|일|수업|자|잠|다녀|갔다).{0,25}(?:올게|올께|오겠|연락할게|톡할게|연락해줄게|하고 올)/.test(text)||/(?:자러|씻으러|밥 먹으러|운동하러|방송하러).{0,12}(?:갈게|가야|간다)/.test(text);
  if(!departure||/(?:네가|너가|형이|도혁이).{0,12}(?:씻|먹|자|운동|방송)/.test(text)||/(안 갈|가지 않|안 할|하지 않|안 씻|안 먹|안 자)/.test(text)){departure=false;away=0;activity='';}
  if(departure){
   const explicit=text.match(/(\d{1,2})\s*(분|시간)\s*(?:정도|쯤|만|후|뒤|있다|걸|하고|자고)/);
