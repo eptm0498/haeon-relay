@@ -16,7 +16,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-live-hardening]')){
   const jobs=await call('/api/dokyeong/images?characterId='+c.id);if(!jobs.ok||!Array.isArray(await jobs.json()))throw Error('Job list failed');
   const anonymous=await fetch(origin+'/api/dokyeong/history');if(anonymous.status!==401)throw Error('Private history authentication failed');
   const invalidWorker=await fetch(origin+'/api/dokyeong/worker',{method:'POST',headers:{Authorization:'Bearer '+ 'é'.repeat((process.env.LIVE_WORKER_SECRET||'').length)}});if(invalidWorker.status!==401)throw Error('Malformed worker header failed');
-  const manifest=await (await fetch(origin+'/dokyeong-live.webmanifest')).json();if(manifest.name!=='LIVE'||manifest.icons.some(i=>!i.src.startsWith('/live-chat-icon-')))throw Error('Brand assets missing');
+  const manifest=await (await fetch(origin+'/dokyeong-live.webmanifest')).json();if(manifest.name!=='kakao'||manifest.icons.some(i=>!i.src.startsWith('/live-chat-icon-')))throw Error('Brand assets missing');
   console.log('LIVE_HARDENING_ROUTES_OK: private media, history ETag/304, memory/search/preferences, image jobs, auth boundaries, LIVE manifest');
  }finally{server.kill('SIGTERM');}
 }

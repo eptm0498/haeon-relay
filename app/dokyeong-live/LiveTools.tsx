@@ -55,7 +55,7 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
    <button disabled={busy} onClick={()=>void work(download)}>전체 대화 TXT 내려받기</button>
   </div></details>
   <details><summary>아이폰 알림 설정 방법</summary><div className={styles.toolFields}>
-   <ol><li>Safari에서 LIVE를 열고 공유 → 홈 화면에 추가.</li><li>홈 화면의 LIVE 아이콘으로 앱을 열어.</li><li>위의 ‘앱을 닫아도 선톡 알림 받기’를 누르고 허용.</li><li>아이폰 설정 → 알림 → LIVE에서 잠금 화면·알림 센터·배너·사운드·배지를 켜.</li><li>아래 테스트 알림을 누르고 앱을 홈 화면으로 내려서 도착하는지 확인해.</li></ol>
+   <ol><li>Safari에서 kakao를 열고 공유 → 홈 화면에 추가.</li><li>홈 화면의 kakao 아이콘으로 앱을 열어.</li><li>위의 ‘앱을 닫아도 선톡 알림 받기’를 누르고 허용.</li><li>아이폰 설정 → 알림 → kakao에서 잠금 화면·알림 센터·배너·사운드·배지를 켜.</li><li>아래 테스트 알림을 누르고 앱을 홈 화면으로 내려서 도착하는지 확인해.</li></ol>
    <p>알림이 안 오면 집중 모드와 알림 요약, 네트워크 연결을 확인해. 선톡은 5분마다 상황을 판단하므로 정각에 꼭 오는 방식은 아니야.</p>
    <button disabled={busy} onClick={()=>void work(async()=>{await onTestNotification();setFeedback('테스트 알림을 전송했어. 앱을 내려서 확인해 줘.');})}>테스트 알림 보내기</button>
   </div></details>

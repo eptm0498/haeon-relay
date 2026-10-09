@@ -1,7 +1,7 @@
 {
-  "name": "LIVE",
-  "short_name": "LIVE",
-  "description": "캐릭터와 대화하고 사진과 선톡을 받는 LIVE",
+  "name": "kakao",
+  "short_name": "kakao",
+  "description": "캐릭터와 대화하고 사진과 선톡을 받는 kakao",
   "start_url": "/dokyeong-live",
   "scope": "/dokyeong-live",
   "display": "standalone",
