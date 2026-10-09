@@ -7,7 +7,7 @@ test('departure reserves realistic time and an explicit duration wins',()=>{
  assert.equal(timingPlan({awaySeconds:0},'자고 일어나서 연락할게.').awaySeconds,25200);
 });
 test('past, denied, completed and user actions cannot start character activity',()=>{
- for(const text of ['샤워하고 왔어.','어제 운동하고 왔지.','안 씻고 올게.','형이 씻고 오면 연락할게.','도혁아 씻고 와.','사진 기다려.'])assert.equal(timingPlan({awaySeconds:1200},text).awaySeconds,0,text);
+ for(const text of ['샤워하고 왔어.','어제 운동하고 왔지.','나 오늘 늦잠 좀 자고 일어나서 집에서 뒹굴거리다가 공부 찔끔 하고 밥 먹은 게 전부여 ㅋㅋㅋㅋㅋ 완전 집돌이 모드였음. 형은 오늘 하루종일 푹 쉬었어?','수업 끝나고 밥 먹었어.','안 씻고 올게.','형이 씻고 오면 연락할게.','도혁아 씻고 와.','사진 기다려.'])assert.equal(timingPlan({awaySeconds:1200},text).awaySeconds,0,text);
 });
 test('clock promises use KST including midnight and impossible values are bounded',()=>{
  const now=Date.parse('2026-10-05T14:40:00Z');
