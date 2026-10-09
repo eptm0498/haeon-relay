@@ -551,12 +551,20 @@ export default function CashBoardPage() {
   return (
     <main className="min-h-screen bg-[#f6f7f9] px-3 py-5 text-[#111318] sm:px-5">
       <div className="mx-auto max-w-[640px]">
-        <header className="mb-3 flex items-center gap-2">
+        <header className="mb-3 flex flex-wrap items-center gap-2">
           <h1 className="shrink-0 text-[18px] font-extrabold tracking-tight sm:text-xl">
             온유의 게임기
           </h1>
 
-          <nav className="ml-auto flex min-w-0 items-center justify-end gap-1">
+          <nav className="order-3 flex w-full items-center justify-start gap-1 sm:order-none sm:ml-auto sm:w-auto sm:justify-end">
+            <a
+              href="https://unmyeong-lab.vercel.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 whitespace-nowrap rounded-xl bg-violet-600 px-2.5 py-2 text-[11px] font-extrabold text-white transition hover:bg-violet-700 sm:px-3 sm:text-xs"
+            >
+              운명 예측하기
+            </a>
             {tabs.map(([key, label]) => (
               <button
                 key={key}
@@ -583,7 +591,7 @@ export default function CashBoardPage() {
               setBroadcastEndTime("");
               setSelectedUser(null);
             }}
-            className="shrink-0 rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-zinc-400 ring-1 ring-zinc-200"
+            className="ml-auto shrink-0 rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-zinc-400 ring-1 ring-zinc-200 sm:ml-0"
           >
             나가기
           </button>
