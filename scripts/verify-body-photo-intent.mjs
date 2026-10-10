@@ -23,12 +23,17 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-body-photo-intent]')
   const summary=characters.find(c=>c.name==='두리');assert.ok(summary);
   const character=await readLiveCharacter(summary.id);assert.ok(character);
   let messages=[];
-  let scheduled;let draft=null;
+  let scheduled;let draft=null;let observedDraft=null;
   const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options)=>{
    const path=String(url);
-   if(path.includes('generativelanguage.googleapis.com')&&draft){
-    return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(draft)}]}}]});
+   if(path.includes('generativelanguage.googleapis.com')){
+    if(draft)return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(draft)}]}}]});
+    const response=await originalFetch(url,options);
+    const body=await response.clone().json();
+    const text=body.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+    try{observedDraft=JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g,''));}catch{observedDraft=null;}
+    return response;
    }
    if(!path.includes('/rpc/'))return originalFetch(url,options);
    const body=JSON.parse(options.body);
@@ -51,6 +56,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-body-photo-intent]')
     messages=scenario.context.map(([role,content],i)=>({role,content,ts:Date.now()-60000*(scenario.context.length-i)}));
     messages.push({role:'user',content:scenario.request,ts:Date.now()});
     scheduled=null;await prepareReply('body-photo-fixture');
+    if(!scheduled?.photo)console.log('LIVE_BODY_PHOTO_PLAN_MISSING',JSON.stringify({scenario:scenario.name,modelKind:observedDraft?.kind,reply:(scheduled?.text||'').replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]+|\b0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}\b/g,'[redacted]').slice(0,240)}));
     assert.ok(scheduled?.photo,`ordinary photo request did not produce a photo plan: ${scenario.name}`);
     assert.equal(scheduled.photo.text,scenario.request,'original request was changed');
     assert.match(scheduled.photo.scene,/배|복부|복근|abdomen|abs|stomach/i);
