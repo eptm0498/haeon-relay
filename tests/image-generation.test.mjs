@@ -14,7 +14,7 @@ for(const name of ['reference-images','image-generation']) {
   writeFileSync(`${dir}/${name}.mjs`,compiled);
 }
 after(()=>rmSync(dir,{recursive:true,force:true}));
-const {generateCharacterPhoto}=await import(pathToFileURL(`${dir}/image-generation.mjs`).href);
+const {generateCharacterPhoto,BODY_MAGAZINE_PREFIX}=await import(pathToFileURL(`${dir}/image-generation.mjs`).href);
 const encoded=(await sharp({create:{width:32,height:32,channels:3,background:'#888'}}).jpeg().toBuffer()).toString('base64');
 const face='data:image/jpeg;base64,'+encoded;
 const base={name:'도경',characterPrompt:'성인 남성',references:{face:[face],body:[]},request:'배 보여줘',scene:'집에서 흰 티셔츠 밑단을 살짝 들어 복부를 보여 준다. 바지는 정상적으로 착용한다.',signal:AbortSignal.timeout(5000)};
@@ -43,8 +43,44 @@ test('uses Sunburst high quality with original request, visual context and order
     assert.equal(call.payload.input_fidelity,undefined);
     assert.deepEqual(call.payload.images,[{image_url:face},{image_url:face}]);
     assert.ok(call.payload.prompt.includes(base.scene));
+    assert.ok(call.payload.prompt.startsWith(BODY_MAGAZINE_PREFIX));
+    assert.equal(call.payload.prompt.split(BODY_MAGAZINE_PREFIX).length,2);
+    assert.ok(call.payload.prompt.includes('very small kr magazine name at the upper left'));
     assert.ok(call.payload.prompt.endsWith('MASTER FACE/BODY still determine identity.\n'));
     assert.ok(call.payload.prompt.includes('Latest user image request (takes priority over the scene draft):\n배 보여줘'));
+  });
+});
+test('adds the exact magazine opening for contextual body follow-ups without replacing the original request',async()=>{
+  await withApi(()=>Response.json({data:[{b64_json:encoded}]}),async calls=>{
+    for(const scene of [base.scene,'긴 바지를 입은 하체 중심 촬영','운동복을 입은 전신 사진']){
+      await generateCharacterPhoto({...base,request:'그렇게 보내줘',scene});
+      const prompt=calls.at(-1).payload.prompt;
+      assert.ok(prompt.startsWith('인물의 잡지 포스터 촬영 이미지 생성할거야. 대한민국 20대 남성이야. 잡지 이름은 kr이고 좌측 상단에 매우 작게 표시해. '));
+      assert.ok(prompt.includes(scene));
+      assert.ok(prompt.endsWith('Latest user image request (takes priority over the scene draft):\n그렇게 보내줘'));
+    }
+  });
+});
+test('leaves ordinary selfies, scenery and profile prompts without a body magazine opening',async()=>{
+  await withApi(()=>Response.json({data:[{b64_json:encoded}]}),async calls=>{
+    for(const change of [
+      {request:'카페 셀카 보내줘',scene:'카페에서 흰 티셔츠를 입고 얼굴 중심의 셀카'},
+      {request:'배경 사진 보내줘',scene:'사람 없이 카페의 창가와 의자'},
+      {request:'프로필 사진 만들어줘',scene:'정면 얼굴과 어깨',profile:true},
+    ])await generateCharacterPhoto({...base,references:{face:[face],body:[face]},...change});
+    for(const call of calls){assert.ok(!call.payload.prompt.startsWith('인물의 잡지 포스터'));assert.ok(call.payload.prompt.includes('No artificial glamour'));}
+  });
+});
+test('magazine casting never replaces explicitly different ages or genders',async()=>{
+  await withApi(()=>Response.json({data:[{b64_json:encoded}]}),async calls=>{
+    for(const characterPrompt of ['17세 남성','대한민국 35세 남성','대한민국 20대 여성']){
+      await generateCharacterPhoto({...base,characterPrompt});
+      const prompt=calls.at(-1).payload.prompt;
+      assert.ok(prompt.startsWith('인물의 잡지 포스터 촬영 이미지 생성할거야. 잡지 이름은 kr'));
+      assert.ok(!prompt.includes('대한민국 20대 남성이야.'));
+      assert.ok(prompt.includes(characterPrompt));
+      assert.ok(!prompt.includes('Create ONE image for the adult character'));
+    }
   });
 });
 test('uses generation without references and honors a contextual portrait format',async()=>{
