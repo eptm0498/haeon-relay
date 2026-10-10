@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { categoryFor, ImportedSample, SampleCategory } from "./sample-parser";
 import { rpc } from "./settings";
+import { dialogueStylePrompt, selectVoiceSamples, styleQuery, type DialogueMedium } from "./dialogue-style";
 
 export type DialogueSample = {
   id: string; cue: string; reply: string; spoken: string;
@@ -42,50 +43,18 @@ export function importSampleBatch(editToken: string, characterId: string, sample
   return rpc<number>("live_import_samples", { edit_token: editToken, character_id: characterId, samples }, 15000);
 }
 
-function grams(value: string) {
-  const clean = value.toLowerCase().replace(/[^가-힣a-z0-9]/g, "");
-  const result = new Set<string>();
-  for (let i = 0; i < clean.length - 1; i++) result.add(clean.slice(i, i + 2));
-  return result;
-}
-
-function similarity(query: Set<string>, cue: string) {
-  const candidate = grams(cue);
-  if (!query.size || !candidate.size) return 0;
-  let shared = 0;
-  for (const part of query) if (candidate.has(part)) shared++;
-  return shared / Math.sqrt(query.size * candidate.size);
-}
-
-export async function relatedSampleContext(messages: { role: string; content: string }[], characterId: string, characterName: string) {
-  const latest = messages.at(-1)?.content?.trim() || "";
-  if (!latest || !characterId) return "";
-  const intentTerms = ["사랑", "보고싶", "잘자", "고마워", "미안", "졸려", "귀여워", "힘들"];
-  const compact = latest.replace(/\s+/g, "");
-  const term = intentTerms.find((candidate) => compact.includes(candidate));
-  if (!term) return "";
+export async function relatedSampleContext(messages: { role: string; content: string }[], characterId: string, characterName: string, medium: DialogueMedium = "chat") {
+  if (!["온유", "도경", "두리"].includes(characterName)) return "";
+  const query = styleQuery(messages);
+  const category = categoryFor(query.context, "");
   try {
-    const category = categoryFor(latest, "");
-    const candidates = await rpc<DialogueSample[]>("live_match_samples", {
-      reader_token: readerToken(), character_id: characterId, sample_category: category, cue_term: term,
+    const candidates = await rpc<DialogueSample[]>("live_voice_samples", {
+      server_token: process.env.CHARACTER_HISTORY_KEY, target_character: characterId,
+      query_terms: query.terms, preferred_category: category, variation: query.seed,
     }, 4000);
-    const query = grams(latest);
-    const ranked = candidates.map((sample) => ({
-      sample,
-      score: similarity(query, sample.cue) * 100 + sample.quality / 15 -
-        Math.abs(latest.length - sample.cue.length) / 90,
-    })).sort((a, b) => b.score - a.score);
-    const chosen: DialogueSample[] = [];
-    for (const { sample } of ranked) {
-      if (similarity(query, sample.cue) < 0.38 || sample.cue.length > 120 || sample.spoken.length > 120 ||
-        chosen.some((other) => other.spoken === sample.spoken)) continue;
-      chosen.push(sample);
-      if (chosen.length === 2) break;
-    }
-    if (!chosen.length) return "";
-    return `\n\n[과거 대화의 반응 참고 — 현재 사실이나 기억 아님]\n아래는 ${characterName}의 대화 리듬 참고용 예시다. 당시 인물·장소·일정·관계를 현재에 적용하거나 문장을 그대로 반복하지 마. 지금 사용자의 말에 맞춰 자연스러운 입말로 반응해.\n` +
-      chosen.map((sample, i) => `예시 ${i + 1}\n사용자: ${sample.cue}\n${characterName}: ${sample.spoken}`).join("\n\n");
+    return dialogueStylePrompt(messages, characterName, selectVoiceSamples(candidates, messages, category), medium);
   } catch {
-    return "";
+    console.warn("LIVE_VOICE_SAMPLES_UNAVAILABLE", characterId);
+    return dialogueStylePrompt(messages, characterName, [], medium);
   }
 }

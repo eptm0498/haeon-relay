@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+await import("./verify-dialogue-style.mjs");
 await import("./verify-message-session.mjs");
 await import("./verify-image-sunburst.mjs");
 await import("./verify-live-audio.mjs");

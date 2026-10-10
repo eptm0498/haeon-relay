@@ -324,7 +324,7 @@ export async function POST(request: NextRequest) {
   }
   const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name);
+  const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat");
   const remembered=await memoryContext(character.id);
   const prompt = character.prompt + currentTimeContext(new Date(),character.id) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + `
 [사진을 보내는 실제 기능]
