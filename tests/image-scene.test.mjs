@@ -7,6 +7,8 @@ test('keeps the latest request separate from conflicting drafts and old memory',
   assert.ok(prompt.endsWith('[최신 사용자 원문]\n배 보여줘'));
   assert.ok(prompt.includes('흰 티셔츠와 청 반바지'));
   assert.ok(prompt.includes('[기존 장면 초안]\n얼굴만 보이는 셀카'));
+  assert.ok(prompt.includes('사용자가 알려준 기본 목적은'));
+  assert.ok(prompt.includes('무조건적인 승인 표시는 아니다'));
 });
 test('retains contextual edit instructions and validates the scene contract',()=>{
   const prompt=photoScenePrompt({name:'도경',characterPrompt:'성인 남성',request:'그 사진에서 옷만 흰색으로 바꿔',proposedScene:'집에서 찍은 사진',editing:true});
