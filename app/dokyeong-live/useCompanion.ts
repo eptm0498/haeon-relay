@@ -1,11 +1,13 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from 'react';
-type State={characters:Record<string,{enabled:boolean;seenAt:number}>;subscribed:boolean;publicKey:string};
+import type {MessageSession} from '@/lib/dokyeong/message-session';
+type State={characters:Record<string,{enabled:boolean;seenAt:number;session?:MessageSession|null}>;subscribed:boolean;publicKey:string};
 const empty:State={characters:{},subscribed:false,publicKey:''};
 export function useCompanion(enabled:boolean,activeId:string,view:string,busy:boolean,onMessage:()=>void,latestMessageAt=0) {
  const [state,setState]=useState<State>(empty);const [error,setError]=useState('');const [registering,setRegistering]=useState(false);const device=useRef('');
  const refreshMessage=useRef(onMessage);refreshMessage.current=onMessage;
  const heartbeatBusy=useRef(false);
+ const hasSession=Object.values(state.characters).some(c=>c.session?.status==='active');
  const call=useCallback(async(action:string,characterId?:string,data?:object)=>{
   if(!device.current){device.current=localStorage.getItem('character-live-device')||crypto.randomUUID();localStorage.setItem('character-live-device',device.current);}
   const response=await fetch('/api/dokyeong/companion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,deviceId:device.current,characterId,data}),signal:AbortSignal.timeout(60000)});
@@ -14,12 +16,14 @@ export function useCompanion(enabled:boolean,activeId:string,view:string,busy:bo
  useEffect(()=>{
   if(!enabled)return;
   const heartbeat=()=>{if(heartbeatBusy.current)return;heartbeatBusy.current=true;void call('presence',view==='chat'?activeId:undefined,{visible:!document.hidden,busy}).catch(()=>{}).finally(()=>{heartbeatBusy.current=false;});};
-  heartbeat();const timer=window.setInterval(heartbeat,30000);
+  heartbeat();const timer=window.setInterval(heartbeat,hasSession?5000:30000);
   document.addEventListener('visibilitychange',heartbeat);window.addEventListener('focus',heartbeat);
   const message=(event:MessageEvent)=>{if(event.data?.type==='CHARACTER_MESSAGE')refreshMessage.current();};
   navigator.serviceWorker?.addEventListener('message',message);
   return()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',heartbeat);window.removeEventListener('focus',heartbeat);navigator.serviceWorker?.removeEventListener('message',message);};
- },[enabled,activeId,view,busy,call,latestMessageAt]);
+ },[enabled,activeId,view,busy,call,latestMessageAt,hasSession]);
+ async function startSession(minutes:number,count:number){setError('');try{await call('session_start',activeId,{minutes,count,sessionId:crypto.randomUUID()});}catch(e){setError((e as Error).message);await call('status').catch(()=>{});}}
+ async function stopSession(){const session=state.characters[activeId]?.session;if(!session)return;setError('');try{await call('session_stop',activeId,{sessionId:session.id});}catch(e){setError((e as Error).message);}}
  async function toggle(){setError('');try{await call('preference',activeId,{enabled:state.characters[activeId]?.enabled===false});}catch(e){setError((e as Error).message);}}
  async function notifications(){
   setError('');
@@ -40,5 +44,5 @@ export function useCompanion(enabled:boolean,activeId:string,view:string,busy:bo
   const response=await fetch('/api/dokyeong/companion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'test',deviceId:device.current,characterId:activeId})});
   const result=await response.json();if(!response.ok)throw Error(result.error||'테스트 알림을 보내지 못했어.');
  }
- return {state,error,registering,toggle,notifications,stopNotifications,testNotification};
+ return {state,error,registering,toggle,notifications,stopNotifications,testNotification,startSession,stopSession};
 }

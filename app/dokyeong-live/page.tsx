@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import styles from "./live.module.css";
 import {useCompanion} from "./useCompanion";
+import {MessageSessionSettings} from "./MessageSessionSettings";
 import LiveTools from "./LiveTools";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
@@ -954,6 +955,7 @@ export default function DokyeongLive() {
         </div>
         <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
         <div className={styles.settingRow}><span>이 캐릭터 선톡</span><button type="button" className={styles.notificationButton} aria-pressed={companion.state.characters[characterId]?.enabled!==false} onClick={()=>void companion.toggle()}>{companion.state.characters[characterId]?.enabled===false?"꺼짐":"켜짐"}</button></div>
+        <MessageSessionSettings key={characterId} name={activeName} session={companion.state.characters[characterId]?.session} onStart={companion.startSession} onStop={companion.stopSession}/>
         <button type="button" className={styles.newChatButton} disabled={companion.registering} onClick={()=>void (companion.state.subscribed?companion.stopNotifications():companion.notifications())}>{companion.registering?"알림 등록 중…":companion.state.subscribed?"이 기기 알림 끄기":"앱을 닫아도 선톡 알림 받기"}</button>
         <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 알림을 허용해 줘. 선톡은 대화 흐름과 한국 시간에 맞춰 와.</p>
         {companion.error&&<p role="alert" className={styles.notificationHint}>{companion.error}</p>}
