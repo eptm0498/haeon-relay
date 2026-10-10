@@ -2,9 +2,13 @@ export type MessageSession = {
  id:string; status:'active'|'completed'|'stopped'|'expired';
  minutes:number; total:number; sent:number; startedAt:number; endsAt:number;
 };
+export const MESSAGE_SESSION_MAX_MINUTES=180;
+export const MESSAGE_SESSION_MAX_PER_MINUTE=60;
+export const MESSAGE_SESSION_MAX_COUNT=MESSAGE_SESSION_MAX_MINUTES*MESSAGE_SESSION_MAX_PER_MINUTE;
+export const MESSAGE_SESSION_SETTINGS_ERROR='1~180분으로 설정해 줘. 분당 최대 60개까지 가능해.';
 export function validMessageSessionSettings(minutes:unknown,count:unknown) {
- return typeof minutes==='number' && Number.isInteger(minutes) && minutes>=1 && minutes<=180
-  && typeof count==='number' && Number.isInteger(count) && count>=1 && count<=120 && count<=minutes*2;
+ return typeof minutes==='number' && Number.isInteger(minutes) && minutes>=1 && minutes<=MESSAGE_SESSION_MAX_MINUTES
+  && typeof count==='number' && Number.isInteger(count) && count>=1 && count<=MESSAGE_SESSION_MAX_COUNT && count<=minutes*MESSAGE_SESSION_MAX_PER_MINUTE;
 }
 export const shortMessageSchema={type:'OBJECT',properties:{text:{type:'STRING'}},required:['text']};
 export function shortMessagePrompt(input:{characterPrompt:string;context:string;memory:string;time:string;routine:string;situation:string;sent:number;total:number}) {
@@ -18,4 +22,16 @@ export function parseShortMessage(result:unknown) {
  const text=normalized.match(/^.*?[.!?。！？…]+(?:\s|$)/u)?.[0].trim()||normalized;
  if(!text||Array.from(text).length>80)throw Error('Invalid short message');
  return text;
+}
+
+export const shortMessageBatchSchema={type:'OBJECT',properties:{texts:{type:'ARRAY',items:{type:'STRING'}}},required:['texts']};
+export function shortMessageBatchPrompt(input:Parameters<typeof shortMessagePrompt>[0],count:number,pending:string[]=[]) {
+ return shortMessagePrompt(input)+`\n[다음 짧은 톡 준비]\n아직 전송되지 않은 앞선 톡: ${JSON.stringify(pending)}\n이 톡들의 다음 내용을 이어서 정확히 ${count}개의 짧은 톡을 texts 배열로 작성해. 각 항목이 별개의 메시지 하나이고 각각 한 문장 또는 몇 단어, 80자 이내다. 앞선 톡과 같은 말이나 질문을 반복하지 말고 대화 흐름을 자연스럽게 이어가. 답장이 없는 동안의 짧은 독백처럼 써. 사용자 대사나 새로운 사용자 답변을 만들어 내지 마. 모든 항목을 같은 시작 단어나 어미로 쓰지 마.`;
+}
+export function parseShortMessageBatch(result:unknown,count:number) {
+ const texts=(result as {texts?:unknown}|null)?.texts;
+ if(!Array.isArray(texts)||texts.length!==count||count<1||count>30)throw Error('Invalid short message batch');
+ const parsed=texts.map(text=>parseShortMessage({text}));
+ if(new Set(parsed).size!==parsed.length)throw Error('Repeated short messages');
+ return parsed;
 }

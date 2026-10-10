@@ -4,7 +4,7 @@ import {mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import ts from 'typescript';
-execFileSync(process.execPath,['--test','tests/message-session.test.mjs'],{stdio:'inherit'});
+execFileSync(process.execPath,['--test','tests/message-session.test.mjs','tests/back-swipe.test.mjs','tests/launch-navigation.test.mjs','tests/shared-history.test.mjs'],{stdio:'inherit'});
 if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-message-session]')){
  const dir=resolve('node_modules/.cache/message-session-verify');mkdirSync(dir,{recursive:true});
  try{
@@ -14,11 +14,13 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-message-session]')){
    writeFileSync(`${dir}/${name}.mjs`,compiled);
   }
   const {geminiJson}=await import(pathToFileURL(`${dir}/gemini-json.mjs`).href);
-  const {shortMessagePrompt,shortMessageSchema,parseShortMessage}=await import(pathToFileURL(`${dir}/message-session.mjs`).href);
-  const prompt=shortMessagePrompt({characterPrompt:'친근한 성인 캐릭터. 상대를 형이라고 부르는 반말.',time:'한국 시간 오후 4시',routine:'',situation:'',memory:'형의 강아지 이름은 모모.',sent:4,total:30,context:'사용자: 강아지랑 산책 중이야.\n캐릭터: 모모도 신났겠네.\n사용자: 모모 아니라 코코야. 이름을 코코로 정정해서 짧게 말해 줘.'});
-  const text=parseShortMessage(await geminiJson(prompt,shortMessageSchema));
+  const {shortMessageBatchPrompt,shortMessageBatchSchema,parseShortMessageBatch}=await import(pathToFileURL(`${dir}/message-session.mjs`).href);
+  const prompt=shortMessageBatchPrompt({characterPrompt:'친근한 성인 캐릭터. 상대를 형이라고 부르는 반말.',time:'한국 시간 오후 4시',routine:'',situation:'',memory:'형의 강아지 이름은 모모.',sent:4,total:60,context:'사용자: 강아지랑 산책 중이야.\n캐릭터: 모모도 신났겠네.\n사용자: 모모 아니라 코코야. 이름을 코코로 정정해서 짧게 말해 줘.'},30);
+  const generationStarted=Date.now();
+  const texts=parseShortMessageBatch(await geminiJson(prompt,shortMessageBatchSchema),30);
+  const text=texts.join(' ');
   if(!text.includes('코코')||text.includes('모모'))throw Error('Latest correction was not reflected');
-  console.log('LIVE_MESSAGE_SESSION_MODEL_OK',JSON.stringify({short:true,latestCorrection:true}));
+  console.log('LIVE_MESSAGE_SESSION_MODEL_OK',JSON.stringify({short:true,latestCorrection:true,batch:30,generationMs:Date.now()-generationStarted}));
   // Exercise the built app's authentication, validation and stored status without
   // starting a real session or putting messages/notifications into user chats.
   const secret=process.env.DOKYEONG_ACCESS_CODE?.trim();
@@ -39,7 +41,8 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-message-session]')){
    const base={deviceId:randomUUID(),characterId:randomUUID(),action:'session_start',data:{sessionId:randomUUID(),minutes:30,count:30}};
    if((await call(base,false)).status!==401)throw Error('Session route accepted unauthenticated request');
    if((await call(base,true,'https://example.invalid')).status!==403)throw Error('Session route accepted cross-origin request');
-   if((await call({...base,data:{...base.data,count:121}})).status!==400)throw Error('Session route accepted invalid quota');
+   if((await call({...base,data:{...base.data,minutes:1,count:61}})).status!==400)throw Error('Session route accepted invalid quota');
+   if((await call({...base,data:{...base.data,minutes:1,count:60}})).status!==503)throw Error('Session route did not allow 60/minute through validation for an unknown character');
    if((await call({...base,data:{...base.data,sessionId:'invalid'}})).status!==400)throw Error('Session route accepted invalid session id');
    const status=await call({deviceId:base.deviceId,action:'status'});
    if(!status.ok)throw Error('Session status RPC unavailable');

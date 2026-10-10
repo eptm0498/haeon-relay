@@ -40,7 +40,7 @@ async function request(body?:object, etag="") {
   return body ? result : {rows:result,etag:response.headers.get("etag")||""};
 }
 
-export function useSharedHistory(characters:{id:string;is_default:boolean}[], enabled:boolean) {
+export function useSharedHistory(characters:{id:string;is_default:boolean}[], enabled:boolean,refreshInterval=5000) {
   const [histories,setHistories] = useState<Record<string,Message[]>>({});
   const [ready,setReady] = useState(false);
   const [error,setError] = useState("");
@@ -131,9 +131,9 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     window.addEventListener("focus",refresh);
     window.addEventListener("online",refresh);
     document.addEventListener("visibilitychange",refresh);
-    const timer=window.setInterval(refresh,5000);
+    const timer=window.setInterval(refresh,refreshInterval);
     return ()=> {window.removeEventListener("focus",refresh);window.removeEventListener("online",refresh);document.removeEventListener("visibilitychange",refresh);window.clearInterval(timer);};
-  },[enabled,ids,synchronize]);
+  },[enabled,ids,synchronize,refreshInterval]);
 
   function append(id:string,messages:Message[]) {
     const state=states.current[id];

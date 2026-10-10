@@ -4,8 +4,10 @@ import {serverRpc} from '@/lib/dokyeong/memory';
 import {after} from 'next/server';
 import {deliverPushJobs} from '@/lib/dokyeong/push';
 import {validSubscription} from '@/lib/dokyeong/push';
-import {validMessageSessionSettings} from '@/lib/dokyeong/message-session';
+import {runMessageSessionWorker} from '@/lib/dokyeong/message-session-worker';
+import {validMessageSessionSettings,MESSAGE_SESSION_SETTINGS_ERROR} from '@/lib/dokyeong/message-session';
 export const runtime='nodejs';
+export const maxDuration=180;
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export async function POST(request:NextRequest){
  if(!authenticated(request))return unauthorized();
@@ -16,8 +18,9 @@ export async function POST(request:NextRequest){
   if(!uuid.test(body.deviceId||'')||!['status','presence','preference','subscribe','unsubscribe','test','session_start','session_stop'].includes(body.action)||body.characterId && !uuid.test(body.characterId))return new Response(null,{status:400});
   if(['session_start','session_stop'].includes(body.action)){
    if(!body.characterId||!uuid.test(body.data?.sessionId||''))return Response.json({error:'캐릭터와 예약 설정을 확인해 줘.'},{status:400,headers:noStore});
-   if(body.action==='session_start'&&!validMessageSessionSettings(body.data?.minutes,body.data?.count))return Response.json({error:'1~180분, 1~120개로 설정해 줘. 메시지는 분당 최대 2개까지야.'},{status:400,headers:noStore});
+   if(body.action==='session_start'&&!validMessageSessionSettings(body.data?.minutes,body.data?.count))return Response.json({error:MESSAGE_SESSION_SETTINGS_ERROR},{status:400,headers:noStore});
    await serverRpc('live_message_session_work',{action:body.action==='session_start'?'start':'stop',target_character:body.characterId,data:body.data});
+   if(body.action==='session_start')after(async()=>{await runMessageSessionWorker().catch(()=>{});});
    const result=await serverRpc<object>('live_companion_work',{action:'status',device_id:body.deviceId});
    return Response.json({...result,publicKey:process.env.LIVE_PUSH_PUBLIC_KEY||''},{headers:noStore});
   }

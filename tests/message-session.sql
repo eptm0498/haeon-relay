@@ -23,7 +23,7 @@ begin
   raise exception 'active session was replaced';
  exception when sqlstate 'PT409' then null;end;
  begin
-  perform public.live_message_session_work(token,'start',fixture_id,jsonb_build_object('sessionId',gen_random_uuid(),'minutes',1,'count',3));
+  perform public.live_message_session_work(token,'start',fixture_id,jsonb_build_object('sessionId',gen_random_uuid(),'minutes',1,'count',61));
   raise exception 'excessive rate accepted';
  exception when sqlstate '22023' then null;end;
  perform public.live_message_session_work(token,'stop',fixture_id,jsonb_build_object('sessionId',session_id));
@@ -79,6 +79,6 @@ begin
  if public.live_message_session_work(token,'claim',fixture_id) is not null or private.live_message_session_status(fixture_id)->>'status'<>'expired' then raise exception 'deadline not enforced';end if;
  perform private.live_message_session_tick();
  if (select status from private.live_message_sessions where character_id=fixture_id)<>'expired' then raise exception 'expired status not persisted';end if;
- if not exists(select 1 from cron.job where jobname='live-message-sessions' and active and schedule='10 seconds') then raise exception 'cron absent';end if;
+ if not exists(select 1 from cron.job where jobname='live-message-sessions' and active and schedule='1 second') then raise exception 'cron absent';end if;
 end $test$;
 rollback;

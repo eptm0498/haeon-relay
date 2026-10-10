@@ -8,6 +8,7 @@ import LiveTools from "./LiveTools";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import { useChatScroll } from "./useChatScroll";
+import { useBackSwipe } from "./useBackSwipe";
 
 import { useSharedHistory, type Message, type ChatImage } from "./useSharedHistory";
 
@@ -147,11 +148,13 @@ export default function DokyeongLive() {
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
   const [resetting, setResetting] = useState(false);
-  const sharedHistory = useSharedHistory(characters, !!status?.authenticated);
-  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},sharedHistory.histories[characterId]?.at(-1)?.ts||0);
+  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},messages.at(-1)?.ts||0);
+  const hasMessageSession=Object.values(companion.state.characters).some(c=>c.session?.status==='active');
+  const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:5000);
   const imageJobs=useImageJobs(characterId,!!status?.authenticated,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
-  const swipeStart=useRef<{x:number;y:number}|null>(null);
+  const swipeSurface=useRef<HTMLElement|null>(null);
+  useBackSwipe(swipeSurface,goBack,view==='chat');
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
   const [voiceId, setVoiceId] = useState("");
@@ -770,9 +773,10 @@ export default function DokyeongLive() {
     setView("chat");
   }
   function goBack(){
-    if(settingsOpen){setSettingsOpen(false);return;}
+    if(settingsOpen){setSettingsOpen(false);return false;}
     endCall();setSettingsOpen(false);
-    if(window.history.state?.characterLive==="chat")window.history.back();else setView("list");
+    if(window.history.state?.characterLive==="chat"){window.history.back();return true;}
+    setView("list");return false;
   }
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
@@ -913,9 +917,7 @@ export default function DokyeongLive() {
     </main>;
   }
 
-  return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}
-    onTouchStart={event=>{const touch=event.touches[0];swipeStart.current=event.touches.length===1&&touch.clientX<=36?{x:touch.clientX,y:touch.clientY}:null;}}
-    onTouchEnd={event=>{const start=swipeStart.current;swipeStart.current=null;const touch=event.changedTouches[0];if(start&&touch&&touch.clientX-start.x>95&&Math.abs(touch.clientY-start.y)<55&&window.history.state?.characterLive==="chat")goBack();}}>
+  return <main ref={swipeSurface} lang="ko" translate="no" className={`${styles.shell} notranslate`}>
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
         <button className={styles.backButton} onClick={goBack} aria-label="채팅 목록">
