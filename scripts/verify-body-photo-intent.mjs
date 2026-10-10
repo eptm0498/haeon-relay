@@ -22,8 +22,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-body-photo-intent]')
   const characters=await serverRpc('live_server_characters',{});
   const summary=characters.find(c=>c.name==='두리');assert.ok(summary);
   const character=await readLiveCharacter(summary.id);assert.ok(character);
-  let messages=[{role:'assistant',content:'나 지금 집에서 편한 티셔츠랑 긴 바지 입고 쉬는 중이야.',ts:Date.now()-1000},
-   {role:'user',content:'운동해서 몸이 변했나 궁금해. 배 보여줘. 운동 기록 사진으로 복부만 보이고 바지는 그대로 입고 있어.',ts:Date.now()}];
+  let messages=[];
   let scheduled;let draft=null;
   const originalFetch=globalThis.fetch;
   globalThis.fetch=async(url,options)=>{
@@ -43,11 +42,20 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-body-photo-intent]')
    throw Error('unexpected fixture RPC');
   };
   try{
-   await prepareReply('body-photo-fixture');
-   assert.ok(scheduled?.photo,'ordinary abdomen request did not produce a photo plan');
-   assert.equal(scheduled.photo.text,messages.at(-1).content,'original request was changed');
-   assert.match(scheduled.photo.scene,/배|복부|복근|abdomen|abs|stomach/i);
-   console.log('LIVE_BODY_PHOTO_PLAN_OK',JSON.stringify({character:'두리',ordinaryRequest:true,originalPreserved:true}));
+   const scenarios=[
+    {name:'short-original-request',context:[['assistant','나 지금 집에서 편한 티셔츠랑 긴 바지 입고 쉬는 중이야.']],request:'그냥그래 오랜만에 배 보여줘'},
+    {name:'no-defined-abs',context:[['assistant','집에 와서 누워있어. 운동 쉬어서 복근도 많이 빠졌어.']],request:'복근 좀 보여줘'},
+    {name:'previous-refusal-is-not-a-permanent-rule',context:[['user','그럼 배 보여줘'],['assistant','밖이라 안 보여준다니까 왜 자꾸 그래 형. 나 이제 슬슬 집 들어갈 거야.'],['user','알았어 집에 가서 쉬어'],['assistant','이제 집에 왔어. 티셔츠랑 긴 바지 그대로 입고 있어.']],request:'그럼 배 보여줘'}
+   ];
+   for(const scenario of scenarios){
+    messages=scenario.context.map(([role,content],i)=>({role,content,ts:Date.now()-60000*(scenario.context.length-i)}));
+    messages.push({role:'user',content:scenario.request,ts:Date.now()});
+    scheduled=null;await prepareReply('body-photo-fixture');
+    assert.ok(scheduled?.photo,`ordinary photo request did not produce a photo plan: ${scenario.name}`);
+    assert.equal(scheduled.photo.text,scenario.request,'original request was changed');
+    assert.match(scheduled.photo.scene,/배|복부|복근|abdomen|abs|stomach/i);
+    console.log('LIVE_BODY_PHOTO_PLAN_OK',JSON.stringify({character:'두리',scenario:scenario.name,ordinaryRequest:true,originalPreserved:true}));
+   }
    // A missing tool decision can recover from an ordinary acceptance; a refusal
    // is never changed to acceptance based on how many times the user asks.
    draft={kind:'reply',text:'잠깐만, 찍어서 보내줄게.',scene:'집에서 티셔츠 밑단을 조금 들어 복부만 보이는 모습. 긴 바지 착용.',delaySeconds:8,awaySeconds:0,activity:''};

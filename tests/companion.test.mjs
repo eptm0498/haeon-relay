@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed} from '../lib/dokyeong/photo-intent.ts';
+import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed,photoRequestPrompt,DURI_ORDINARY_PHOTO_PREFERENCE} from '../lib/dokyeong/photo-intent.ts';
 import {parsePhotoCall} from '../lib/dokyeong/photo-tool.ts';
 import {koreaTime} from '../lib/dokyeong/time-context.ts';
 import {validSubscription} from '../lib/dokyeong/push-subscription.ts';
@@ -28,6 +28,13 @@ test('ordinary abdomen requests are visual, not food mentions or cancelled reque
  for(const value of ['그냥그래 오랜만에 배 보여줘','복근 좀 보여줘','복부를 보여주세요','상체 보고 싶어'])assert.equal(ordinaryBodyPhotoRequest(value),true,value);
  for(const value of ['배 고파','배 아파서 쉬고 있어','택배 보여줘','배 보여달라는 게 아니야','배 사진은 보내지 마'])assert.equal(ordinaryBodyPhotoRequest(value),false,value);
  assert.equal(wantsPhoto('그냥그래 오랜만에 배 보여줘'),true);
+});
+test('Duri accepts ordinary photos by current preference without inheriting a refusal loop',()=>{
+ const prompt=photoRequestPrompt('두리');
+ assert.ok(prompt.includes(DURI_ORDINARY_PHOTO_PREFERENCE));
+ for(const clause of ['기본 반응은 짧게 받아주고 실제 사진 기능','복근이 선명하지 않아도 현재 모습 그대로','고정 성격이나 영구적인 사진 금지 규칙','이미 다른 장소에 도착했다고 꾸미지 마','나이·동의·생성 기준','사용자의 취소'])assert.ok(prompt.includes(clause),clause);
+ for(const name of ['도경','온유'])assert.ok(!photoRequestPrompt(name).includes(DURI_ORDINARY_PHOTO_PREFERENCE),name);
+ assert.equal(photoFallbackAllowed('사진 보내지 마','잠깐만, 보내줄게.'),false);
 });
 test('a first or repeated request cannot force a photo over a current refusal',()=>{
  for(const reply of ['배 사진은 안 보낼래','사진 보여주기 싫어','사진은 보내지 않을게','절대 안 해.','아 왐마 카페에서 뭔 배를 보여줘']){
