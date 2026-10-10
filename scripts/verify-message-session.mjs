@@ -8,7 +8,7 @@ execFileSync(process.execPath,['--test','tests/message-session.test.mjs'],{stdio
 if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-message-session]')){
  const dir=resolve('node_modules/.cache/message-session-verify');mkdirSync(dir,{recursive:true});
  try{
-  for(const name of ['config','gemini-json','message-session']){
+  for(const name of ['character','config','gemini-json','message-session']){
    const source=readFileSync(`lib/dokyeong/${name}.ts`,'utf8');
    const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from (["'])\.\/([^"']+)\1/g,(_,quote,file)=>`from ${quote}./${file}.mjs${quote}`);
    writeFileSync(`${dir}/${name}.mjs`,compiled);
