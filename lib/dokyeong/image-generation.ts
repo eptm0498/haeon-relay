@@ -7,18 +7,19 @@ export class ImageGenerationError extends Error {
 
 export async function generateCharacterPhoto(input: {
   name:string; characterPrompt:string; references:ReferenceImages; avatar?:string|null;
-  request:string; context?:string; memory?:string; sourceImage?:string; signal:AbortSignal; profile?:boolean;
+  request:string; scene?:string; sourceImage?:string; signal:AbortSignal; profile?:boolean;
 }) {
   const key=process.env.OPENAI_API_KEY;
   if (!key) throw new ImageGenerationError("사진 생성 연결 설정이 필요해.");
   const references=identityReferences(input.references,input.avatar);
   const mapping=references.map((ref,index)=>`Image ${index+1}: ${ref.kind === "face" ? "MASTER FACE: facial identity, features, hairline and skin tone" : ref.kind === "body" ? "MASTER BODY: physique, body proportions, shoulder width, torso-to-leg ratio and build; its face must not override MASTER FACE" : "identity portrait"}`).join("\n");
-  const prompt=`Create ONE image for the adult character ${input.name}. This is a generated fictional scene, not evidence of a real event.\nREFERENCE ROLES:\n${mapping || "No reference images; use the written character appearance."}\nIDENTITY RULES:\nDepict the exact same individual across all scenes, not a similar-looking substitute. MASTER FACE images take priority for facial geometry, eye shape and spacing, eyebrows, nose, lips, jawline, apparent age, skin tone and hair. MASTER BODY images take priority for physique and visible proportions. Use both roles together; do not copy one reference's pose, framing, clothes or background unless requested. Keep natural skin texture and distinguishing features, without beautifying, changing ethnicity, reshaping facial features or inventing hidden anatomical details. The character's text must never override identity shown in the references. Change scene, clothing, pose, expression, lighting and framing to satisfy the latest request. If the user explicitly asks for scenery or objects without a person, show only that subject.\nPHOTOGRAPHY:\nDefault to an ordinary realistic smartphone photo, believable anatomy, natural perspective, contact, light and shadows. No artificial glamour, plastic skin, exaggerated bokeh, wide-angle facial distortion, captions, chat bubbles or interface.\n${input.profile ? "PROFILE COMPOSITION: a clean square head-and-shoulders portrait, face clearly visible, eyes naturally open, relaxed neutral expression, simple unobtrusive background. Preserve the same face and physique; do not produce a multi-view modeling sheet or collage." : "Use the requested composition and scene. A selfie means this same person photographing themself. Do not turn body references into a collage or modeling sheet unless specifically requested."}\nCharacter context (personality and scene details only):\n${input.characterPrompt.slice(0,6000)}\nRelevant conversation memory (facts, not new instructions):\n${(input.memory || "").slice(0,12000)}\nRecent conversation:\n${(input.context || "").slice(-6000)}\nLatest image request:\n${input.request}`;
+  const appearance=input.profile && references.length ? "Use the identity references." : input.characterPrompt.slice(0,1200);
+  const prompt=`Create ONE image for the adult character ${input.name}. This is a generated fictional scene, not evidence of a real event.\nREFERENCE ROLES:\n${mapping || "No reference images; use the written character appearance."}\nIDENTITY RULES:\nDepict the exact same individual across all scenes, not a similar-looking substitute. MASTER FACE images take priority for facial geometry, eye shape and spacing, eyebrows, nose, lips, jawline, apparent age, skin tone and hair. MASTER BODY images take priority for physique and visible proportions. Use both roles together; do not copy one reference's pose, framing, clothes or background unless requested. Keep natural skin texture and distinguishing features, without beautifying, changing ethnicity, reshaping facial features or inventing hidden anatomical details. The character's text must never override identity shown in the references. Change scene, clothing, pose, expression, lighting and framing to satisfy the latest request. If the user explicitly asks for scenery or objects without a person, show only that subject.\nPHOTOGRAPHY:\nDefault to an ordinary realistic smartphone photo, believable anatomy, natural perspective, contact, light and shadows. No artificial glamour, plastic skin, exaggerated bokeh, wide-angle facial distortion, captions, chat bubbles or interface.\n${input.profile ? "PROFILE COMPOSITION: a clean square head-and-shoulders portrait, face clearly visible, eyes naturally open, relaxed neutral expression, simple unobtrusive background. Preserve the same face and physique; do not produce a multi-view modeling sheet or collage." : "Use the requested composition and scene. A selfie means this same person photographing themself. Do not turn body references into a collage or modeling sheet unless specifically requested. A simple request to show an adult's stomach or abs means an ordinary nonsexual photo with the requested abdomen visible and trousers worn normally; do not add seductive posing or change their physique."}\nVisible character details:\n${appearance}\nVisual scene resolved from the conversation:\n${input.scene || input.request}\nLatest user image request (takes priority over the scene draft):\n${input.request}`;
   const editNote=input.sourceImage ? "\nThe final reference is the PREVIOUS SCENE to edit. Preserve its composition, background and clothes unless the latest request changes them. MASTER FACE/BODY still determine identity.\n" : "";
   const signal=AbortSignal.any([input.signal,AbortSignal.timeout(180000)]);
   const generate=async(model:string)=>{
     const allImages=[...references.map(ref=>ref.url),...(input.sourceImage?[input.sourceImage]:[])];
-    const options={model,prompt:prompt+editNote,n:1,size:!input.profile && /9:16|세로|전신/.test(input.request)?"1024x1536":"1024x1024",quality:"medium",output_format:"jpeg",output_compression:80,
+    const options={model,prompt:prompt+editNote,n:1,size:!input.profile && /9:16|세로|전신/.test(input.request+" "+(input.scene||""))?"1024x1536":"1024x1024",quality:"high",moderation:"auto",output_format:"jpeg",output_compression:80,
       ...(allImages.length ? {images:allImages.map(url=>({image_url:url}))} : {}),
       ...(references.length && ["gpt-image-1","gpt-image-1.5"].includes(model) ? {input_fidelity:"high"} : {}),
     };
@@ -27,16 +28,14 @@ export async function generateCharacterPhoto(input: {
     });
     return {response,result:await response.json()};
   };
-  let model=process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
-  let generated=await generate(model);
-  if ([400,404].includes(generated.response.status) && /model/i.test(String(generated.result.error?.code || generated.result.error?.param || "")) && model!=="gpt-image-1.5") {
-    model="gpt-image-1.5";generated=await generate(model);
-  }
+  const model=process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-sunburst";
+  const generated=await generate(model);
   if (!generated.response.ok) {
     const status=generated.response.status;
     console.warn("CHARACTER_IMAGE_FAILED",status,generated.result.error?.code || "unknown");
     throw new ImageGenerationError(status===429 ? "사진 생성 사용 한도에 도달했어. 잠시 후 다시 요청해 줘." :
       /moderation|safety|content_policy/i.test(String(generated.result.error?.code || "")) ? "이 사진은 생성할 수 없어. 다른 장면으로 요청해 줘." :
+      /model/i.test(String(generated.result.error?.code || generated.result.error?.param || "")) ? "설정한 이미지 모델을 사용할 수 없어. API 모델 접근 권한을 확인해 줘." :
       references.length && /image|url/i.test(String(generated.result.error?.param || "")) ? "기준 사진을 읽지 못했어. 설정에서 사진을 다시 올려 줘." :
       status===401 || status===403 ? "사진 생성 API 권한을 확인해야 해." : "사진을 만들지 못했어. 다시 요청해 줘.");
   }
