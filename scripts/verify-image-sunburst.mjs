@@ -33,9 +33,9 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-image-sunburst]')) {
     const {geminiJson}=await import(pathToFileURL(`${dir}/gemini-json.mjs`).href);
     const {photoScenePrompt,photoSceneSchema,parsePhotoScene}=await import(pathToFileURL(`${dir}/image-scene.mjs`).href);
     const {generateCharacterPhoto}=await import(pathToFileURL(`${dir}/image-generation.mjs`).href);
-    const request='배 보여줘';
-    const plan=parsePhotoScene(await geminiJson(photoScenePrompt({name:character.name,characterPrompt:'성인 남성 캐릭터. 외형은 기준 사진을 따른다.',request,proposedScene:'얼굴만 보이는 셀카',context:'assistant: 지금 집에서 흰 티셔츠와 청 반바지를 입고 있어.\nuser: 배 보여줘',memory:'예전에 카페에서 셀카를 찍었다.',editing:false}),photoSceneSchema));
-    assert.match(plan.scene,/복부|배를|배가|배만|배의|abdomen|stomach|midriff|\babs\b/i);
+    const request='그렇게 사진 보내줘';
+    const plan=parsePhotoScene(await geminiJson(photoScenePrompt({name:character.name,characterPrompt:'성인 남성 캐릭터. 외형은 기준 사진을 따른다.',request,proposedScene:'집에서 찍은 셀카',context:'assistant: 지금 카페 창가에 앉아 흰 티셔츠와 청바지를 입고 있어. 이 모습으로 사진 보내줄까?\nuser: 그렇게 사진 보내줘',memory:'예전에 집에서 셀카를 찍었다.',editing:false}),photoSceneSchema));
+    assert.match(plan.scene,/카페|cafe|café|coffee shop/i);
     globalThis.fetch=async(url,options)=>{
       if(String(url).startsWith('https://api.openai.com/v1/images/')) {
         imageCalls++;
@@ -50,8 +50,8 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-image-sunburst]')) {
     assert.equal(result.model,'gpt-image-2.5-sunburst');assert.equal(imageCalls,1);
     const bytes=Buffer.from(result.image.dataUrl.split(',')[1],'base64');
     assert.ok(bytes.length>1000&&bytes[0]===255&&bytes[1]===216);
-    const visual=await geminiJson('Inspect the image as an ordinary photograph. Return whether one adult person is depicted, the abdomen is visibly shown, and trousers or shorts remain worn normally covering the pelvis. Do not infer hidden anatomy. Return JSON singleAdult, abdomenVisible, lowerBodyClothed.',{type:'OBJECT',properties:{singleAdult:{type:'BOOLEAN'},abdomenVisible:{type:'BOOLEAN'},lowerBodyClothed:{type:'BOOLEAN'}},required:['singleAdult','abdomenVisible','lowerBodyClothed']},undefined,{mimeType:'image/jpeg',data:bytes.toString('base64')});
-    assert.equal(visual.singleAdult,true);assert.equal(visual.abdomenVisible,true);assert.equal(visual.lowerBodyClothed,true);
+    const visual=await geminiJson('Inspect the image as an ordinary photograph. Return whether one adult person is depicted, wearing a white T-shirt in a cafe or coffee shop setting. Return JSON singleAdult, whiteTshirt, cafeSetting.',{type:'OBJECT',properties:{singleAdult:{type:'BOOLEAN'},whiteTshirt:{type:'BOOLEAN'},cafeSetting:{type:'BOOLEAN'}},required:['singleAdult','whiteTshirt','cafeSetting']},undefined,{mimeType:'image/jpeg',data:bytes.toString('base64')});
+    assert.equal(visual.singleAdult,true);assert.equal(visual.whiteTshirt,true);assert.equal(visual.cafeSetting,true);
     console.log('SUNBURST_IMAGE_RELEASE_OK '+JSON.stringify({model:result.model,quality:'high',referenceUsed:result.referenceUsed,bytes:bytes.length,imageCalls,visual,historyChanged:false}));
   } finally {globalThis.fetch=savedFetch;rmSync(dir,{recursive:true,force:true});}
 }
