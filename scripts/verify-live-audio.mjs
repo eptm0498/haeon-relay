@@ -11,7 +11,7 @@ if (process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-audio]')) {
   const account=await subscription.json().catch(()=>({}));
   console.log('LIVE_AUDIO_ACCOUNT '+JSON.stringify({status:subscription.status,tier:account.tier,used:account.character_count,limit:account.character_limit,nextReset:account.next_character_count_reset_unix}));
   const response=await fetch('https://api.elevenlabs.io/v1/text-to-dialogue/stream?output_format=mp3_44100_128',{
-   method:'POST',headers,body:JSON.stringify({model_id:'eleven_v4',inputs:[{text:'목소리 확인할게.',voice_id:process.env.DOKYEONG_VOICE_ID||'peTGXjUdPy5VJNYTcdea'}]}),signal:AbortSignal.timeout(20000)
+   method:'POST',headers,body:JSON.stringify({model_id:'eleven_v3',inputs:[{text:'목소리 확인할게.',voice_id:process.env.DOKYEONG_VOICE_ID||'peTGXjUdPy5VJNYTcdea'}]}),signal:AbortSignal.timeout(20000)
   });
   if(response.ok){const bytes=(await response.arrayBuffer()).byteLength;console.log('LIVE_AUDIO_PROVIDER '+JSON.stringify({status:response.status,bytes}));}
   else {const failure=await response.json().catch(()=>({}));console.log('LIVE_AUDIO_PROVIDER '+JSON.stringify({status:response.status,code:failure.detail?.status||failure.code||'unknown'}));}
@@ -47,6 +47,6 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-audio-routes]')){
   if(!reply.ok)throw Error('Voice response verification failed: '+reply.status);
   const events=(await reply.text()).split('\n').filter(Boolean).map(line=>JSON.parse(line));
   if(!events.some(e=>e.type==='text_done')||!events.some(e=>e.type==='done'))throw Error('Voice response did not finish');
-  console.log('LIVE_AUDIO_REPLY_OK '+JSON.stringify({textComplete:true,audioState:events.find(e=>e.type==='audio_done'||e.type==='audio_unavailable')?.type,failureCode:events.find(e=>e.type==='audio_unavailable')?.code}));
+  console.log('LIVE_AUDIO_REPLY_OK '+JSON.stringify({textComplete:true,audioState:events.find(e=>e.type==='audio_done'||e.type==='audio_unavailable')?.type,model:events.find(e=>e.type==='audio')?.model,failureCode:events.find(e=>e.type==='audio_unavailable')?.code}));
  }finally{server.kill('SIGTERM');}
 }

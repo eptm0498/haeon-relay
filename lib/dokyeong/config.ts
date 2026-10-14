@@ -11,9 +11,9 @@ export const liveConfig = {
   },
   elevenlabs: {
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
-    modelId: "eleven_v4",
-    dialogueModelId: "eleven_v4",
-    dialogueRealtimeModelId: "eleven_v4_turbo",
+    modelId: "eleven_v3",
+    dialogueModelId: "eleven_v3",
+    dialogueRealtimeModelId: "eleven_v3_conversational",
     dialogueOutputFormat: "pcm_24000",
     fallbackModelId: "eleven_flash_v2_5",
     outputFormat: "mp3_44100_128",
