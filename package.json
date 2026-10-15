@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/package-project-bridge.mjs",
     "build": "next build",
     "postbuild": "node scripts/verify-live-character.mjs",
     "start": "next start",

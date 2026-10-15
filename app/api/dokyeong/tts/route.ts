@@ -1,3 +1,4 @@
+import {isProjectCharacter,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
 import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
@@ -74,6 +75,8 @@ export async function POST(request: NextRequest) {
 
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
+  text=isProjectCharacter(character)?spokenDialogue(text):text.replace(/[ㅋㅎㅠㅜ]+/g," ").trim();
+  if(!text)return Response.json({error:"읽을 대사가 없어."},{status:400,headers:noStore});
   const voice = liveConfig.elevenlabs;
   const voiceId = voiceIdOverride || character.voice_id;
   let failure:VoiceFailure=voiceFailure({code:'voice_unavailable'});

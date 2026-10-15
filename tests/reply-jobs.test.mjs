@@ -3,16 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as projectDialogue from '../lib/dokyeong/project-dialogue.ts';
+import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 
 async function prepare(activity){
  const calls=[],prompts=[],warnings=[];
  const job={id:'pending',character_id:'onyeu',kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:'뭐 해?'}]},context:{messages:[{id:'pending',role:'user',content:'뭐 해?',ts:1}],memory:''},activity};
  const mocks={
+  './project-context':{projectContext:async()=>''},
+  './project-dialogue':projectDialogue,
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:()=> '대화',updateMemory:async()=>0},
   './characters':{readLiveCharacter:async()=>({id:'onyeu',name:'온유',prompt:'설정'})},
   './gemini-json':{geminiJson:async(prompt)=>{prompts.push(prompt);return {kind:'reply',text:'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:''};}},
   './time-context':{currentTimeContext:()=>''},'./samples':{relatedSampleContext:async()=>''},
-  './photo-intent':{wantsPhoto:()=>false,declinesPhoto:()=>false},
+  './photo-intent':photoIntent,
   './reply-timing':{timingPrompt:'',timingPlan:()=>({delaySeconds:8,awaySeconds:0,activity:''}),urgentMessage:()=>false},
   './push':{deliverPushJobs:async()=>0},'./image-jobs':{runImageJob:async()=>{}},
  };

@@ -44,7 +44,7 @@ export function importSampleBatch(editToken: string, characterId: string, sample
 }
 
 export async function relatedSampleContext(messages: { role: string; content: string }[], characterId: string, characterName: string, medium: DialogueMedium = "chat") {
-  if (!["온유", "도경", "두리"].includes(characterName)) return "";
+  if (!["온유", "도경", "두리", "지우"].includes(characterName)) return "";
   const query = styleQuery(messages);
   const category = categoryFor(query.context, "");
   try {

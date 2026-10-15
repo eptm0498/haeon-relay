@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
+import * as projectDialogue from '../lib/dokyeong/project-dialogue.ts';
 
 test('billing and credit failures are distinct and never expose upstream details',()=>{
  const payment=voiceFailure({detail:{status:'payment_issue',message:'private billing details'}},401);
@@ -17,7 +18,8 @@ async function speech(responses,{backup=true}={}){
  const mocks={
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{elevenlabs:{dialogueModelId:'eleven_v4',fallbackModelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128'}}},
-  '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice'})},
+  '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice',prompt:'기존 캐릭터 설정'})},
+  '@/lib/dokyeong/project-dialogue':projectDialogue,
   '@/lib/dokyeong/voice-failure':{voiceFailure},
  };
  const source=fs.readFileSync(new URL('../app/api/dokyeong/tts/route.ts',import.meta.url),'utf8');
