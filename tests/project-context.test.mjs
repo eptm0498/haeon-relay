@@ -43,6 +43,10 @@ test('no change only updates checked time and performs no summary write',async()
  await api.saveProjectSnapshot('jiwoo',{version:2,sourceUrl:'https://chatgpt.com/source',messages,partial:true});
  assert.deepEqual(calls.map(c=>c.action),['read','check']);
 });
+test('JSONB object key ordering cannot trigger duplicate summary generation',()=>{
+ const {module:m}=harness();
+ assert.equal(m.snapshotHash([{id:'a',role:'user',content:'안녕'}]),m.snapshotHash([{content:'안녕',role:'user',id:'a'}]));
+});
 test('different source and stale revision cannot change saved state',async()=>{
  const {module:api,calls}=harness({source_url:'https://chatgpt.com/source',version:2,messages:[]});
  await assert.rejects(api.saveProjectSnapshot('jiwoo',{version:2,sourceUrl:'https://other.test/',messages:[message('a')]}));

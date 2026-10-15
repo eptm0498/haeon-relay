@@ -32,7 +32,9 @@ export function mergeProjectMessages(old:ProjectMessage[],incoming:ProjectMessag
   }
   return order.map(id=>updates.get(id)!);
 }
-export const snapshotHash=(messages:ProjectMessage[])=>createHash('sha256').update(JSON.stringify(messages)).digest('hex');
+// Postgres JSONB may return object keys in a different order. Hash explicit
+// tuples so an unchanged snapshot cannot cause a paid re-summary on reread.
+export const snapshotHash=(messages:ProjectMessage[])=>createHash('sha256').update(JSON.stringify(messages.map(m=>[m.id,m.role,m.content]))).digest('hex');
 export async function saveProjectSnapshot(characterId:string,body:{version:number;messages:unknown;sourceUrl:string;partial?:boolean}) {
   const previous=await projectRpc<ProjectSnapshot>(characterId);
   if(body.sourceUrl!==previous.source_url)throw Error('연결된 한지우 대화에서만 가져올 수 있어.');
