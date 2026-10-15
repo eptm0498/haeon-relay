@@ -23,6 +23,21 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-jiwoo]')){
   assert.ok(events.some(e=>e.type==='done'));assert.ok(!events.some(e=>e.type==='error'));
   const answer=events.filter(e=>e.type==='delta').map(e=>e.text).join('');assert.ok(answer.trim());assert.ok(!/지우가|지우는|\*|태성:/.test(answer));
   console.log('JIWOO_ROUTES_OK',JSON.stringify({privateSource:true,zip:true,dialogue:true,voice:'승',messageCount:status.messageCount,partial:status.partial}));
+  // Reproduce the reported cold reply without writing synthetic turns to history.
+  const warm=await call('/api/dokyeong/respond',{characterId:character.id,voice:false,realtime:true,messages:[
+   {role:'user',content:'좀 더 다정하게 이야기해봐.'},
+   {role:'assistant',content:'이런 거 멍석 깔아주면 잘 못하는데. 됐냐, 이 정도면?'},
+   {role:'user',content:'그렇게 끝내니까 차갑게 느껴져. 난 그냥 너랑 얘기하는 게 좋아.'},
+  ]});
+  assert.equal(warm.status,200);
+  const warmEvents=(await warm.text()).trim().split('\n').map(line=>JSON.parse(line));
+  assert.ok(warmEvents.some(e=>e.type==='done')&&!warmEvents.some(e=>e.type==='error'));
+  const warmAnswer=warmEvents.filter(e=>e.type==='delta').map(e=>e.text).join('');
+  assert.ok(warmAnswer.trim());
+  assert.ok(!/됐냐|이 정도면 됐|착각하지 마|멍석|대충 넘어가|그러든가/.test(warmAnswer),'cold reply persists');
+  assert.match(warmAnswer,/나도|좋아|고마|미안|편하게|얘기하자|듣고|보고 싶/,'warm acknowledgement missing');
+  assert.ok(!/지우가|지우는|\*|태성:/.test(warmAnswer));
+  console.log('JIWOO_WARMTH_OK',JSON.stringify({coldHistory:true,affectionAcknowledged:true,dialogueOnly:true}));
   const speech=await call('/api/dokyeong/tts',{characterId:character.id,text:'ㅇㅇ 알겠음 ㅋㅋ'});
   if(speech.ok){assert.ok(speech.headers.get('Content-Type')?.startsWith('audio/'));assert.ok((await speech.arrayBuffer()).byteLength>1000);console.log('JIWOO_VOICE_OK',speech.headers.get('X-Dokyeong-TTS-Model'));}
   else{const failure=await speech.json();console.log('JIWOO_VOICE_UNAVAILABLE',JSON.stringify({status:speech.status,code:failure.code||'unknown'}));}
