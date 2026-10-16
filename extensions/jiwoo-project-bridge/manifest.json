@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "지우 · 캐릭터 라이브 프로젝트 연결",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "업데이트 버튼을 누를 때만 지정된 ChatGPT 대화의 화면 텍스트를 캐릭터 라이브로 가져옵니다.",
   "permissions": ["scripting"],
   "host_permissions": ["https://chatgpt.com/*"],

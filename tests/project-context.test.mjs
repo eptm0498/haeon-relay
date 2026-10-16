@@ -103,6 +103,6 @@ test('the browser capture ignores a cached hidden conversation',async()=>{
  const root=(visible,id,content)=>({isConnected:true,getBoundingClientRect:()=>({width:visible?100:0,height:visible?100:0}),querySelector:()=>true,querySelectorAll:selector=>selector==='[data-chatgpt-search-unit-key]'?[node(id,content)]:[],scrollTop:0,dispatchEvent:()=>{},innerText:''});
  const hidden=root(false,'wrong','다른 채팅'),visible=root(true,'right','선택한 채팅');
  const code=fs.readFileSync(new URL('../extensions/jiwoo-project-bridge/capture.js',import.meta.url),'utf8');
- const result=await vm.runInNewContext(code,{location:{href:sourceUrl},document:{querySelectorAll:()=>[hidden,visible]},Date,Event,setTimeout:fn=>fn()});
+ const result=await vm.runInNewContext(code,{location:{href:sourceUrl,pathname:new URL(sourceUrl).pathname},document:{querySelectorAll:()=>[hidden,visible]},Date,Event,setTimeout:fn=>fn()});
  assert.equal(result.messages.length,1);assert.equal(result.messages[0].id,'right');assert.equal(result.partial,false);
 });

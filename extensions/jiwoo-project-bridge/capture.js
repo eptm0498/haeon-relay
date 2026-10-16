@@ -1,17 +1,23 @@
 (async()=>{
   const sourceUrl=location.href;
+  const sourcePath=path=>path.replace(/(\/g\/g-p-[a-f0-9]{32})(?:-[^/]+)?(\/c\/)/i,'$1$2');
+  const originalPath=sourcePath(location.pathname);
+  const activeRoot=()=>[...document.querySelectorAll('[role="region"][aria-label="대화"], [data-app-action-timeline-scroll]')].find(el=>el.getBoundingClientRect().height>0&&el.getBoundingClientRect().width>0);
   const start=Date.now();
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
   let root;
   while(Date.now()-start<20000){
-    root=[...document.querySelectorAll('[role="region"][aria-label="대화"], [data-app-action-timeline-scroll]')].find(el=>el.getBoundingClientRect().height>0&&el.getBoundingClientRect().width>0);
+    root=activeRoot();
     if(root?.querySelector('[data-chatgpt-search-unit-key], [data-message-author-role]'))break;
     await pause(400);
   }
   if(!root)return {error:'대화 화면을 찾지 못했어. ChatGPT에 로그인한 뒤 다시 눌러 줘.'};
-  const ordered=[],known=new Map();
+  const ordered=[],known=new Map();let pendingBodies=false;
   function read(){
-    if(location.href!==sourceUrl||!root.isConnected||root.getBoundingClientRect().height===0)throw Error('대화 화면이 바뀌었어. 다시 업데이트해 줘.');
+    if(sourcePath(location.pathname)!==originalPath)throw Error('다른 대화로 이동했어. 다시 업데이트해 줘.');
+    root=activeRoot();
+    if(!root)throw Error('대화 화면이 바뀌었어. 다시 업데이트해 줘.');
+    pendingBodies=false;
     let nodes=[...root.querySelectorAll('[data-chatgpt-search-unit-key]')];
     if(!nodes.length)nodes=[...root.querySelectorAll('[data-message-author-role]')];
     const batch=[];
@@ -23,8 +29,8 @@
       if(!id)continue;
       const clone=node.cloneNode(true);
       clone.querySelectorAll('button,h4,img,svg,script,style,[aria-hidden="true"]').forEach(el=>el.remove());
-      const content=clone.textContent.trim();
-      if(content)batch.push({id,role,content});
+      const content=clone.textContent.trim()||(node.querySelector?.('img')?'[사진 첨부]':'');
+      if(content)batch.push({id,role,content});else pendingBodies=true;
     }
     for(let i=batch.length-1;i>=0;i--){
       const m=batch[i];
@@ -46,7 +52,7 @@
     await pause(900);
     const first=read();
     const loading=/이전 메시지 불러오는 중|Loading previous/i.test(root.innerText||root.textContent);
-    stable=first===last&&!loading&&root.scrollTop<4?stable+1:0;last=first;
+    stable=first===last&&!loading&&!pendingBodies&&root.scrollTop<4?stable+1:0;last=first;
     if(stable>=3)break;
   }
   const messages=ordered.map(id=>known.get(id));

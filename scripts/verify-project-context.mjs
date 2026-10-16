@@ -1,7 +1,7 @@
 import {execFileSync,spawn} from 'node:child_process';
 import {createHmac} from 'node:crypto';
 import assert from 'node:assert/strict';
-execFileSync(process.execPath,['--test','tests/project-context.test.mjs'],{stdio:'inherit'});
+execFileSync(process.execPath,['--test','tests/project-context.test.mjs','tests/project-bridge.test.mjs'],{stdio:'inherit'});
 if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-jiwoo]')){
  const secret=process.env.DOKYEONG_ACCESS_CODE?.trim();if(!secret)throw Error('Verification configuration unavailable');
  const origin='http://127.0.0.1:3197',expiry=String(Date.now()+180000);
