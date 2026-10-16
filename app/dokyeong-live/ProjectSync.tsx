@@ -2,7 +2,8 @@
 import {useEffect,useRef,useState} from 'react';
 import type {Message} from './useSharedHistory';
 import styles from './project-sync.module.css';
-type SourceStatus={projectUrl:string;sourceUrl:string;sourceTitle:string;version:number;updatedAt:string;checkedAt:string;messageCount:number;partial:boolean};
+type SourceItem={id:string;title:string;url:string;order:number;messageCount:number;partial:boolean;updatedAt:string|null;checkedAt:string|null};
+type SourceStatus={projectUrl:string;sourceUrl:string;sourceTitle:string;version:number;updatedAt:string;checkedAt:string;messageCount:number;partial:boolean;sources:SourceItem[]};
 type Capture={sourceUrl:string;messages:{id:string;role:'user'|'assistant';content:string}[];partial?:boolean};
 const channel='jiwoo-project-bridge-v1';
 function bridge<T>(action:string,sourceUrl?:string):Promise<T>{
@@ -33,45 +34,66 @@ async function parseImport(text:string):Promise<Capture['messages']>{
   }));
 }
 export default function ProjectSync({characterId,messages,disabled}:{characterId:string;messages:Message[];disabled:boolean}){
-  const [source,setSource]=useState<SourceStatus|null>(null),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[feedback,setFeedback]=useState(''),[text,setText]=useState('');
-  const mounted=useRef(true);
+  const [source,setSource]=useState<SourceStatus|null>(null),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[feedback,setFeedback]=useState(''),[text,setText]=useState(''),[manualSource,setManualSource]=useState('');
+  const mounted=useRef(true),epoch=useRef(0);
   useEffect(()=>{
-    mounted.current=true;
-    const refresh=()=>{if(document.hidden)return;void sourceStatus(characterId).then(s=>{if(mounted.current)setSource(s);}).catch(e=>{if(mounted.current)setFeedback(e.message);});};
+    mounted.current=true;const generation=++epoch.current;
+    setSource(null);setFeedback('');setManualSource('');setBusy(false);setText('');
+    const refresh=()=>{if(document.hidden)return;void sourceStatus(characterId).then(s=>{if(mounted.current&&epoch.current===generation)setSource(s);}).catch(e=>{if(mounted.current&&epoch.current===generation)setFeedback(e.message);});};
     refresh();window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
-    void bridge<{ready:boolean}>('ping').then(s=>{if(mounted.current)setReady(s.ready);}).catch(()=>{});
-    return()=>{mounted.current=false;window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+    void bridge<{ready:boolean;version?:string}>('ping').then(s=>{if(mounted.current&&epoch.current===generation)setReady(s.ready&&s.version==='1.1.0');}).catch(()=>{});
+    return()=>{mounted.current=false;epoch.current=generation+1;window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
   },[characterId]);
-  async function save(capture:Capture,current:SourceStatus){
-    const response=await fetch('/api/dokyeong/project-context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({characterId,version:current.version,...capture}),signal:AbortSignal.timeout(120000)});
-    const result=await response.json();if(!response.ok)throw Error(result.error);
-    if(mounted.current){setSource(result);setFeedback(result.partial?'최근 기록을 반영했어. ChatGPT의 이전 기록은 끝까지 확인하지 못했어.':`업데이트했어. 원본 대화 ${result.messageCount}개를 이어받았어.`);}
+  async function save(capture:Capture,current:SourceStatus,sourceId:string){
+    const response=await fetch('/api/dokyeong/project-context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({characterId,version:current.version,...capture,sourceId}),signal:AbortSignal.timeout(300000)});
+    const result=await response.json();if(!response.ok)throw Error(result.error);return result as SourceStatus;
   }
-  async function update(){
+  async function update(only?:string){
+    const generation=epoch.current,active=()=>mounted.current&&epoch.current===generation;
     setBusy(true);setFeedback('');
     try{
-      await bridge('ping');setReady(true);
-      const current=await sourceStatus(characterId);
-      setFeedback('ChatGPT에서 원본 대화를 불러오는 중이야. 새 탭을 닫지 말아 줘.');
-      const capture=await bridge<Capture>('capture',current.sourceUrl);
-      setFeedback('관계와 사건을 정리해서 반영하고 있어.');await save(capture,current);
-    }catch(cause){setFeedback((cause as Error).message);setExpanded(true);}finally{if(mounted.current)setBusy(false);}
+      const connection=await bridge<{ready:boolean;version?:string}>('ping');
+      if(!connection.ready||connection.version!=='1.1.0')throw Error('아래 ZIP으로 연결 프로그램을 1.1.0으로 업데이트한 뒤 앱을 새로고침해 줘.');
+      if(!active())return;setReady(true);
+      const current=await sourceStatus(characterId),targets=current.sources.filter(s=>!only||s.id===only),done:string[]=[],failed:string[]=[];
+      for(let i=0;i<targets.length;i++){
+        if(!active())return;
+        const target=targets[i],before=await sourceStatus(characterId);
+        setFeedback(`${target.title} 원본을 읽는 중… (${i+1}/${targets.length}) 새 탭을 닫지 말아 줘.`);
+        try{
+          const capture=await bridge<Capture>('capture',target.url);
+          if(!active())return;setFeedback(`${target.title}의 관계와 사건을 정리하는 중…`);
+          const next=await save(capture,before,target.id);
+          if(!active())return;setSource(next);done.push(target.title);
+        }catch(cause){failed.push(`${target.title}: ${(cause as Error).message}`);}
+      }
+      if(active())setFeedback([done.length?`${done.join(' · ')} 확인 완료.`:'',failed.length?`실패한 방은 기존 기억을 유지했어. ${failed.join(' / ')}`:'',done.length?'방별 상태를 아래에서 확인해 줘.':''].filter(Boolean).join(' '));
+    }catch(cause){if(active()){setFeedback((cause as Error).message);setExpanded(true);}}finally{if(active())setBusy(false);}
   }
-  async function manual(){setBusy(true);setFeedback('');try{const current=await sourceStatus(characterId);await save({sourceUrl:current.sourceUrl,messages:await parseImport(text),partial:true},current);setText('');}catch(cause){setFeedback((cause as Error).message);}finally{if(mounted.current)setBusy(false);}}
+  async function manual(){
+    const generation=epoch.current;setBusy(true);setFeedback('');
+    try{
+      const current=await sourceStatus(characterId),target=current.sources.find(s=>s.id===(manualSource||current.sources.at(-1)?.id));
+      if(!target)throw Error('가져올 채팅방을 선택해 줘.');
+      const next=await save({sourceUrl:target.url,messages:await parseImport(text),partial:true},current,target.id);
+      if(mounted.current&&epoch.current===generation){setSource(next);setText('');setFeedback(`${target.title}에 반영했어. 다른 채팅방과 기존 앱 대화는 유지돼.`);}
+    }catch(cause){if(mounted.current&&epoch.current===generation)setFeedback((cause as Error).message);}finally{if(mounted.current&&epoch.current===generation)setBusy(false);}
+  }
   async function handoff(){
-    try{await navigator.clipboard.writeText('한지우 프로젝트의 기존 사건과 관계를 유지해. 이후 캐릭터 라이브에서 나눈 대화 기록이야. 이 내용을 이어받고 소설 문체를 쓸지는 현재 프로젝트 지침을 따라 줘. 이미 끝난 대화에 다시 답하거나 처음 만남으로 되돌리지 마. 다음에 내가 보내는 말에 이어서 반응해.\n\n'+messages.slice(-40).map(m=>`${m.role==='user'?'도혁':'지우'}: ${m.image?'[사진] ':''}${m.content}`).join('\n\n'));setFeedback('앱 대화를 복사했어. 원본 ChatGPT 대화에 붙여 넣으면 돼.');}catch{setFeedback('복사 권한을 확인해 줘. 앱 대화 내려받기도 사용할 수 있어.');}
+    try{await navigator.clipboard.writeText('한지우 프로젝트의 기존 사건과 관계를 유지해. 이후 캐릭터 라이브에서 나눈 대화 기록이야. 이 내용을 이어받고 소설 문체를 쓸지는 현재 프로젝트 지침을 따라 줘. 이미 끝난 대화에 다시 답하거나 처음 만남으로 되돌리지 마. 다음에 내가 보내는 말에 이어서 반응해.\n\n'+messages.slice(-40).map(m=>`${m.role==='user'?'도혁':'지우'}: ${m.image?'[사진] ':''}${m.content}`).join('\n\n'));setFeedback('앱 대화를 복사했어. 프로젝트의 최신 ChatGPT 대화에 붙여 넣으면 돼.');}catch{setFeedback('복사 권한을 확인해 줘. 앱 대화 내려받기도 사용할 수 있어.');}
   }
   return <section className={styles.panel} aria-label="한지우 프로젝트 연결">
     <div className={styles.row}><button type="button" onClick={()=>void update()} disabled={busy||disabled||!source} title={disabled?'통화를 종료한 뒤 업데이트해 줘.':undefined}>{busy?'업데이트 중…':'대화내용 업데이트'}</button><button type="button" className={styles.detail} onClick={()=>setExpanded(v=>!v)} aria-expanded={expanded}>프로젝트 연결</button></div>
-    <p className={styles.status} role="status">{feedback|| (source?`한지우 · ${source.sourceTitle} · ${source.messageCount}개 · ${source.partial?'최근 기록만 확인':'전체 기록 확인'} · ${new Date(source.updatedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`:'프로젝트 연결을 불러오는 중…')}</p>
+    <p className={styles.status} role="status">{feedback||(source?`한지우 · ${source.sources.map(s=>s.title).join(' → ')} · 총 ${source.messageCount}개 · ${source.partial?'일부 기록 포함':'전체 기록 확인'}`:'프로젝트 연결을 불러오는 중…')}</p>
     {expanded&&<div className={styles.details}>
-      <p>ChatGPT → 지우 업데이트야. 기존 앱 대화는 유지돼. PC에서 반영하면 아이폰에서도 같은 맥락으로 이어져.</p>
-      <p>{ready?'크롬 연결 프로그램이 연결됐어.':'자동 가져오기는 PC 크롬에서 연결 프로그램을 한 번 설치해야 해. 아이폰에서는 아래 수동 가져오기를 쓸 수 있어.'}</p>
-      <a href="/jiwoo-project-bridge.zip" download>크롬 연결 프로그램 ZIP 받기</a>
-      <ol><li>ZIP 압축을 풀어 줘.</li><li>크롬 주소창에 <code>chrome://extensions</code>를 입력하고 개발자 모드를 켜.</li><li>‘압축해제된 확장 프로그램을 로드합니다’에서 manifest.json이 있는 폴더를 선택해.</li><li>같은 크롬에서 ChatGPT 로그인 후 이 앱을 새로고침해.</li></ol>
-      {source&&<a href={source.sourceUrl} target="_blank" rel="noreferrer">ChatGPT 원본 대화 열기</a>}
+      <p>버튼 한 번으로 연결된 채팅방을 순서대로 확인해. 뒤의 채팅방이 최신이고, 오래된 방을 다시 읽어도 최신 상황을 과거로 되돌리지 않아. 기존 앱 대화는 유지돼.</p>
+      <p>지정된 한지우 프로젝트 대화만 가져와. ChatGPT의 내부 메모리·개인 프로필·다른 프로젝트를 읽거나 원본에 글을 쓰지 않아. PC에서 반영하면 아이폰에서도 이어져.</p>
+      <div className={styles.sources}>{source?.sources.map(s=><div key={s.id} className={styles.source}><a href={s.url} target="_blank" rel="noreferrer">{s.title} 원본 열기</a><span>{s.messageCount}개 · {!s.updatedAt?'아직 안 가져옴':s.partial?'최근 기록만 확인':'전체 기록 확인'}{s.checkedAt?` · 확인 ${new Date(s.checkedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`:''}</span><button type="button" onClick={()=>void update(s.id)} disabled={busy||disabled}>이 방 업데이트</button></div>)}</div>
+      <p>{ready?'크롬 연결 프로그램 1.1.0이 연결됐어.':'PC 크롬 연결 프로그램 1.1.0이 필요해. 기존 설치가 있다면 새 ZIP을 같은 폴더에 풀고 확장 프로그램에서 새로고침해 줘. 아이폰에서는 아래 수동 가져오기를 쓸 수 있어.'}</p>
+      <a href="/jiwoo-project-bridge.zip" download>크롬 연결 프로그램 ZIP 받기 · 1.1.0</a>
+      <ol><li>ZIP 압축을 풀어 줘.</li><li>크롬 주소창에 <code>chrome://extensions</code>를 입력하고 개발자 모드를 켜.</li><li>‘압축해제된 확장 프로그램을 로드합니다’에서 manifest.json이 있는 폴더를 선택해. 이미 설치했다면 그 폴더의 파일을 교체하고 확장 프로그램의 새로고침 버튼을 눌러.</li><li>같은 크롬에서 ChatGPT 로그인 후 이 앱을 새로고침해.</li></ol>
       <button type="button" onClick={()=>void handoff()} disabled={!messages.length}>ChatGPT로 이어가기 복사</button>
-      <details><summary>대화 직접 가져오기</summary><label htmlFor="jiwoo-import">대화 JSON 또는 화자가 구분된 대화 텍스트</label><textarea id="jiwoo-import" rows={5} maxLength={800000} value={text} onChange={e=>setText(e.target.value)} placeholder={'내가 한 말:\n오늘 어땠어?\nChatGPT 답변:\n괜찮았어 ㅋㅋ'}/><input aria-label="대화 파일 선택" type="file" accept=".json,.txt,text/plain,application/json" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>2400000){setFeedback('2.4MB 이하 대화 파일을 선택해 줘.');return;}setText(await f.text());}}/><button type="button" onClick={()=>void manual()} disabled={busy||disabled||!text.trim()}>지우 기억에 반영</button></details>
+      <details><summary>대화 직접 가져오기</summary><label htmlFor="jiwoo-source">가져올 채팅방</label><select id="jiwoo-source" value={manualSource||source?.sources.at(-1)?.id||''} onChange={e=>setManualSource(e.target.value)} disabled={busy}>{source?.sources.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</select><label htmlFor="jiwoo-import">대화 JSON 또는 화자가 구분된 대화 텍스트</label><textarea id="jiwoo-import" rows={5} maxLength={800000} value={text} onChange={e=>setText(e.target.value)} placeholder={'내가 한 말:\n오늘 어땠어?\nChatGPT 답변:\n괜찮았어 ㅋㅋ'}/><input aria-label="대화 파일 선택" type="file" accept=".json,.txt,text/plain,application/json" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>2400000){setFeedback('2.4MB 이하 대화 파일을 선택해 줘.');return;}setText(await f.text());}}/><button type="button" onClick={()=>void manual()} disabled={busy||disabled||!text.trim()}>선택한 방의 기억에 반영</button></details>
     </div>}
   </section>;
 }

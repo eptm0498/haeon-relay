@@ -4,7 +4,7 @@
     if(event.source!==window||event.origin!==location.origin||event.data?.channel!==channel||event.data.direction!=='request')return;
     const {id,action,sourceUrl}=event.data;
     if(typeof id!=='string'||id.length>80)return;
-    if(action==='ping'){window.postMessage({channel,id,direction:'response',ready:true},location.origin);return;}
+    if(action==='ping'){window.postMessage({channel,id,direction:'response',ready:true,version:'1.1.0'},location.origin);return;}
     if(action!=='capture')return;
     try{
       const result=await chrome.runtime.sendMessage({action,sourceUrl});

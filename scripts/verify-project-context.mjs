@@ -13,7 +13,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-jiwoo]')){
   const listing=await call('/api/dokyeong/characters');assert.equal(listing.status,200);
   const character=(await listing.json()).characters.find(c=>c.name==='지우');assert.ok(character);assert.equal(character.voice_name,'승');
   const source=await call('/api/dokyeong/project-context?characterId='+character.id);assert.equal(source.status,200);
-  const status=await source.json();assert.equal(status.sourceTitle,'대화 시작');assert.ok(status.version>0);assert.ok(!('messages' in status));
+  const status=await source.json();assert.equal(status.sourceTitle,'01');assert.deepEqual(status.sources.map(s=>s.title),['01','02','03']);assert.ok(status.sources.every(s=>!('messages' in s)&&!('summary' in s)));assert.ok(status.version>0);assert.ok(!('messages' in status));
   const anonymous=await fetch(origin+'/api/dokyeong/project-context?characterId='+character.id);assert.equal(anonymous.status,401);
   const cross=await fetch(origin+'/api/dokyeong/project-context',{method:'POST',headers:{...headers,Origin:'https://foreign.invalid'},body:'{}'});assert.equal(cross.status,403);
   const zip=await fetch(origin+'/jiwoo-project-bridge.zip');assert.equal(zip.status,200);const bytes=new Uint8Array(await zip.arrayBuffer());assert.equal(bytes[0],80);assert.equal(bytes[1],75);
@@ -22,7 +22,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-jiwoo]')){
   assert.equal(reply.status,200);const events=(await reply.text()).trim().split('\n').map(line=>JSON.parse(line));
   assert.ok(events.some(e=>e.type==='done'));assert.ok(!events.some(e=>e.type==='error'));
   const answer=events.filter(e=>e.type==='delta').map(e=>e.text).join('');assert.ok(answer.trim());assert.ok(!/지우가|지우는|\*|태성:/.test(answer));
-  console.log('JIWOO_ROUTES_OK',JSON.stringify({privateSource:true,zip:true,dialogue:true,voice:'승',messageCount:status.messageCount,partial:status.partial}));
+  console.log('JIWOO_ROUTES_OK',JSON.stringify({privateSource:true,zip:true,dialogue:true,voice:'승',messageCount:status.messageCount,partial:status.partial,sources:status.sources.map(s=>({title:s.title,count:s.messageCount}))}));
   // Reproduce the reported cold reply without writing synthetic turns to history.
   const warm=await call('/api/dokyeong/respond',{characterId:character.id,voice:false,realtime:true,messages:[
    {role:'user',content:'좀 더 다정하게 이야기해봐.'},

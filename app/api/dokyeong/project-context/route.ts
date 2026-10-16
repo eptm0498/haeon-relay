@@ -1,10 +1,13 @@
 import {NextRequest} from 'next/server';
 import {authenticated,noStore,sameOrigin,unauthorized} from '@/lib/dokyeong/auth';
-import {projectRpc,saveProjectSnapshot,type ProjectSnapshot} from '@/lib/dokyeong/project-context';
+import {projectRpc,projectSources,saveProjectSnapshot,type ProjectSnapshot} from '@/lib/dokyeong/project-context';
 export const runtime='nodejs';
-export const maxDuration=120;
+export const maxDuration=300;
 const uuid=/^[a-f0-9-]{36}$/i;
-const publicStatus=(s:ProjectSnapshot)=>({projectUrl:s.project_url,sourceUrl:s.source_url,sourceTitle:s.source_title,version:s.version,updatedAt:s.updated_at,checkedAt:s.checked_at,messageCount:s.message_count,partial:s.partial});
+const publicStatus=(s:ProjectSnapshot)=>{
+  const sources=projectSources(s).map(({id,title,url,order,messages,partial,updated_at,checked_at})=>({id,title,url,order,messageCount:messages.length,partial,updatedAt:updated_at,checkedAt:checked_at}));
+  return {projectUrl:s.project_url,sourceUrl:s.source_url,sourceTitle:s.source_title,version:s.version,updatedAt:s.updated_at,checkedAt:s.checked_at,messageCount:sources.reduce((n,x)=>n+x.messageCount,0),partial:sources.some(x=>x.partial),sources};
+};
 export async function GET(request:NextRequest) {
   if(!authenticated(request))return unauthorized();
   const id=request.nextUrl.searchParams.get('characterId')||'';
