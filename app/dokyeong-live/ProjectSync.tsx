@@ -50,7 +50,7 @@ export default function ProjectSync({characterId,messages,disabled}:{characterId
   }
   async function update(only?:string){
     const generation=epoch.current,active=()=>mounted.current&&epoch.current===generation;
-    setBusy(true);setFeedback('');
+    setBusy(true);setExpanded(true);setFeedback('');
     try{
       const connection=await bridge<{ready:boolean;version?:string}>('ping');
       if(!connection.ready||connection.version!=='1.1.0')throw Error('아래 ZIP으로 연결 프로그램을 1.1.0으로 업데이트한 뒤 앱을 새로고침해 줘.');
@@ -58,9 +58,10 @@ export default function ProjectSync({characterId,messages,disabled}:{characterId
       const current=await sourceStatus(characterId),targets=current.sources.filter(s=>!only||s.id===only),done:string[]=[],failed:string[]=[];
       for(let i=0;i<targets.length;i++){
         if(!active())return;
-        const target=targets[i],before=await sourceStatus(characterId);
+        const target=targets[i];
         setFeedback(`${target.title} 원본을 읽는 중… (${i+1}/${targets.length}) 새 탭을 닫지 말아 줘.`);
         try{
+          const before=await sourceStatus(characterId);
           const capture=await bridge<Capture>('capture',target.url);
           if(!active())return;setFeedback(`${target.title}의 관계와 사건을 정리하는 중…`);
           const next=await save(capture,before,target.id);

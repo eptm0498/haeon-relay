@@ -16,6 +16,10 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-jiwoo]')){
   const status=await source.json();assert.equal(status.sourceTitle,'01');assert.deepEqual(status.sources.map(s=>s.title),['01','02','03']);assert.ok(status.sources.every(s=>!('messages' in s)&&!('summary' in s)));assert.ok(status.version>0);assert.ok(!('messages' in status));
   const anonymous=await fetch(origin+'/api/dokyeong/project-context?characterId='+character.id);assert.equal(anonymous.status,401);
   const cross=await fetch(origin+'/api/dokyeong/project-context',{method:'POST',headers:{...headers,Origin:'https://foreign.invalid'},body:'{}'});assert.equal(cross.status,403);
+  const stale=await call('/api/dokyeong/project-context',{characterId:character.id,version:status.version-1,sourceId:'01',sourceUrl:status.sources[0].url,messages:[{id:'fixture-only',role:'user',content:'합성 검증'}]});assert.equal(stale.status,409);
+  const wrong=await call('/api/dokyeong/project-context',{characterId:character.id,version:status.version,sourceId:'03',sourceUrl:status.sources[0].url,messages:[{id:'fixture-only',role:'user',content:'합성 검증'}]});assert.equal(wrong.status,503);
+  const preserved=await (await call('/api/dokyeong/project-context?characterId='+character.id)).json();assert.equal(preserved.version,status.version);assert.deepEqual(preserved.sources,status.sources);
+  console.log('JIWOO_MULTI_GUARDS_OK',JSON.stringify({orderedSources:true,staleRejected:true,sourceMismatchRejected:true,historyPreserved:true}));
   const zip=await fetch(origin+'/jiwoo-project-bridge.zip');assert.equal(zip.status,200);const bytes=new Uint8Array(await zip.arrayBuffer());assert.equal(bytes[0],80);assert.equal(bytes[1],75);
   // No request ID: response generation cannot queue a user-history write.
   const reply=await call('/api/dokyeong/respond',{characterId:character.id,voice:false,realtime:true,messages:[{role:'user',content:'우리 지금 어떤 사이고 커플 계정은 누가 관리하기로 했지? 소설 지문 없이 네 말만 해줘.'}]});
