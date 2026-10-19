@@ -10,6 +10,7 @@ async function prepare(activity){
  const calls=[],prompts=[],warnings=[];
  const job={id:'pending',character_id:'onyeu',kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:'뭐 해?'}]},context:{messages:[{id:'pending',role:'user',content:'뭐 해?',ts:1}],memory:''},activity};
  const mocks={
+  './project-reply':{projectReply:async text=>text},
   './project-context':{projectContext:async()=>''},
   './project-dialogue':projectDialogue,
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:()=> '대화',updateMemory:async()=>0},

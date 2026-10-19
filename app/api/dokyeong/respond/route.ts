@@ -1,5 +1,6 @@
+import {projectReply} from '@/lib/dokyeong/project-reply';
 import {projectContext} from "@/lib/dokyeong/project-context";
-import {isProjectCharacter,projectMediumPrompt,dialogueOnly,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
+import {isProjectCharacter,projectMediumPrompt,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
 import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
@@ -327,7 +328,7 @@ export async function POST(request: NextRequest) {
   const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat");
-  const [remembered,project]=await Promise.all([memoryContext(character.id),projectContext(character)]);
+  const [remembered,project]=await Promise.all([memoryContext(character.id),projectContext(character,sampleMessages,wantVoice)]);
   const linked=isProjectCharacter(character);
   const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (linked ? projectMediumPrompt(wantVoice) : "") + photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
@@ -457,7 +458,7 @@ export async function POST(request: NextRequest) {
 
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
         if(linked && !lastError) {
-          const clean=wantVoice?spokenDialogue(linkedOutput):dialogueOnly(linkedOutput);
+          const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice);
           if(!clean.trim()&&!photoPlan)throw Error("Empty character dialogue");
           emitText(clean);
         }
@@ -465,7 +466,7 @@ export async function POST(request: NextRequest) {
         if(!photoPlan && !lastError && photoFallbackAllowed(messages.at(-1)?.content||"",full,photoIntentContext(messages))) {
           photoPlan={scene:messages.slice(-6).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-1800),waitMessage:"잠깐만, 사진 찍어서 보내줄게."};
         }
-        if(photoPlan){dialogue?.close();send({type:"photo",...photoPlan});return;}
+        if(photoPlan){if(linked)photoPlan.waitMessage=await projectReply(photoPlan.waitMessage,wantVoice);dialogue?.close();send({type:"photo",...photoPlan});return;}
         if (!lastError || full.trim()) {
           segment(true);
           const completedText = full.trim();

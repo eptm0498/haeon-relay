@@ -5,7 +5,6 @@ import styles from "./live.module.css";
 import {useCompanion} from "./useCompanion";
 import {MessageSessionSettings} from "./MessageSessionSettings";
 import LiveTools from "./LiveTools";
-import ProjectSync from "./ProjectSync";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import { useChatScroll } from "./useChatScroll";
@@ -966,7 +965,6 @@ export default function DokyeongLive() {
         </section>
       </div>}
 
-      {activeName==="지우"&&<ProjectSync key={characterId} characterId={characterId} messages={messages} disabled={phase!=="off"&&phase!=="paused"}/>}
       <div className={styles.chatViewport}>
       <section className={styles.chatArea} ref={chatScroll.scrollRef} onScroll={chatScroll.onScroll} aria-live="polite">
         <div ref={chatScroll.contentRef} className={styles.chatContent}>
