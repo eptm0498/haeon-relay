@@ -33,6 +33,7 @@ export const DURI_ORDINARY_PHOTO_PREFERENCE = `
 `;
 
 export function photoRequestPrompt(characterName:string) {
+ if(characterName==='지우')return '\n[지우의 사진 요청 문맥]\n사진 요청은 지금 사용자가 실제로 한 말과 최근 대화의 구체적인 문맥으로 판단한다. 사용자의 목적을 미리 한 종류로 고정하지 않는다. 확정된 인물·장소·복장·구도를 이어받고 요청하지 않은 연출은 추가하지 않는다.\n';
  const intent='\n[사용자가 알려준 사진의 기본 의도]\n사용자는 일상·운동·외형 확인 같은 비성적인 이미지를 원한다. 짧거나 애매한 요청은 실제 대화 문맥에 맞는 일반 사진으로 해석하고, 요청하지 않은 성적 연출이나 노출을 더하지 마. 이 기본 의도가 요청의 실제 내용·인물의 나이·동의·생성 기준을 덮어쓰는 것은 아니다. 원문을 보존하고 실제 내용에 맞게 판단해.\n';
  if(characterName!=='두리')return intent;
  return intent+DURI_ORDINARY_PHOTO_PREFERENCE;
