@@ -4,6 +4,11 @@ In the existing character studio, selecting Jiwoo opens **전체 기억과 말�
 The profile tab still holds the base role, ElevenLabs voice, reference images and avatar.
 The full memory tab edits the complete persona, current state, style guide, chat/voice
 instructions, event chapters, dialogue examples and all searchable memory excerpts.
+The dedicated **성적인 상황의 대사·반응 (직접 입력)** field starts empty.
+Saved text is supplied once to both chat and voice. Empty or whitespace-only values
+add no instructions, and older editors that omit the field preserve its saved value.
+Shared dialogue rules, character facts, style and medium-specific expression each
+have their own section; the chat/voice defaults no longer repeat the persona.
 Excerpts support content search and 20-item pages. Fields show full text, resize
 vertically and grow with their contents on supporting browsers.
 
@@ -26,5 +31,6 @@ longer append another hidden copy of those defaults. The existing dialogue-only
 output processing still applies. Editing the base prompt marker does not disconnect
 Jiwoo's archive, which also identifies the established character by its ID.
 
-Migration: `supabase/migrations/20261020025204_live_story_editor.sql`.
+Migrations: `supabase/migrations/20261020025204_live_story_editor.sql` and
+`supabase/migrations/20261020041538_live_story_custom_reactions.sql`.
 Validation: `node --test tests/story-editor.test.mjs tests/project-context.test.mjs tests/rpc-transport.test.mjs`.

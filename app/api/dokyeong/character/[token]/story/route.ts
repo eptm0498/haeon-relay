@@ -19,7 +19,7 @@ export async function GET(request:NextRequest,{params}:Context) {
       return Response.json(await rpc<StorySource>("live_editor_story_source",{edit_token:token,target_character:id,page_offset:offset},15000),{headers:noStore});
     }
     const story=await rpc<EditorStory|null>("live_editor_story",{edit_token:token,target_character:id},20000);
-    return Response.json(story ? {...story,chat_prompt:story.chat_prompt??projectMediumPrompt(),voice_prompt:story.voice_prompt??projectMediumPrompt(true)} : null,{headers:noStore});
+    return Response.json(story ? {...story,intimacy_prompt:story.intimacy_prompt??"",chat_prompt:story.chat_prompt??projectMediumPrompt(),voice_prompt:story.voice_prompt??projectMediumPrompt(true)} : null,{headers:noStore});
   } catch {
     return Response.json({error:"전체 기억을 불러오지 못했어. 잠시 후 다시 시도해 줘."},{status:503,headers:noStore});
   }

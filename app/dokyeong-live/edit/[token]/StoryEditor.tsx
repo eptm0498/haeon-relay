@@ -9,8 +9,9 @@ const fields=[
   ["instructions","성격·관계·세계관","지우가 누구인지, 도혁과 어떤 관계인지 적어 줘."],
   ["current_state","현재 상황과 가장 최근 기억","과거 기록과 다를 때 이 내용이 우선 적용돼."],
   ["style_guide","말투와 대화 리듬","기존 대화방에서 느꼈던 어감과 반응 방식을 조정해."],
-  ["chat_prompt","채팅할 때의 지침","채팅 표현과 다정함을 포함해 채팅 답변에 적용되는 지침 전체야."],
-  ["voice_prompt","음성으로 대화할 때의 지침","실제로 발음할 대사와 자연스러운 입말에 적용되는 지침 전체야."],
+  ["intimacy_prompt","성적인 상황의 대사·반응 (직접 입력)","직접 작성하는 전용 칸이야. 비워 두면 이 항목의 추가 지침을 넣지 않아. 입력한 내용은 채팅과 음성에 공통으로 적용돼."],
+  ["chat_prompt","채팅 표현","채팅에서 쓰는 어미·줄바꿈·반응 표현을 정해."],
+  ["voice_prompt","음성 표현","음성에서 발음할 입말과 채팅 표현의 변환 방식을 정해."],
 ] as const;
 
 export default function StoryEditor({value,onChange,api,characterId,disabled}:{value:EditorStory;onChange:(value:EditorStory)=>void;api:string;characterId:string;disabled:boolean}) {
@@ -41,7 +42,7 @@ export default function StoryEditor({value,onChange,api,characterId,disabled}:{v
     <p className={styles.storyHelp}>실제 대화에서 참고하는 설정 전체야. 내용을 고친 뒤 <strong>변경사항 저장</strong>을 누르면 다음 대화부터 적용돼. 원래 ChatGPT 대화방에는 영향을 주지 않아.</p>
     <div className={styles.storyMeta}>{value.source_title} · 원문 {value.message_count.toLocaleString()}개 메시지 · 사건 {value.chapters.length}개 · 대사 {value.examples.length}개 · 발췌 {value.memory_excerpts.length}개</div>
     <fieldset disabled={disabled} className={styles.storyFields}>
-      {fields.map(([key,label,help])=><details key={key} open={expanded||key==="instructions"} className={styles.storySection}>
+      {fields.map(([key,label,help])=><details key={key} open={expanded||key==="instructions"||key==="intimacy_prompt"} className={styles.storySection}>
         <summary>{label}<span>{value[key].length.toLocaleString()}자</span></summary>
         <div className={styles.storyBody}><p>{help}</p><label className={styles.srOnly} htmlFor={`story-${key}`}>{label}</label><textarea id={`story-${key}`} className={`${styles.textarea} ${styles.storyText}`} value={value[key]} maxLength={60000} spellCheck={false} onChange={e=>onChange({...value,[key]:e.target.value})}/></div>
       </details>)}

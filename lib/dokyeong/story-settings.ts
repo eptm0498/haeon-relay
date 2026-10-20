@@ -7,11 +7,13 @@ export type StorySettings = {
   style_guide:string;
   chat_prompt:string;
   voice_prompt:string;
+  intimacy_prompt?:string;
   chapters:StoryChapter[];
   examples:StoryExample[];
   memory_excerpts:StoryExcerpt[];
 };
 export type EditorStory = StorySettings & {
+  intimacy_prompt:string;
   source_title:string;source_url:string;captured_at:string;message_count:number;
 };
 export type StorySource = {instructions:string;total:number;offset:number;messages:{id:string;role:string;content:string;seq:number}[]};
@@ -24,6 +26,7 @@ export function parseStorySettings(value:unknown):StorySettings|null {
   const str=(s:unknown,max:number):s is string=>typeof s==="string"&&s.length<=max;
   const strings=(s:unknown,max:number):s is string[]=>Array.isArray(s)&&s.length<=100&&s.every(x=>str(x,max));
   if (!["instructions","current_state","style_guide","chat_prompt","voice_prompt"].every(k=>str(v[k],60000)) ||
+      (v.intimacy_prompt!==undefined&&!str(v.intimacy_prompt,60000)) ||
       !Array.isArray(v.chapters)||v.chapters.length>100 || !Array.isArray(v.examples)||v.examples.length>1000 ||
       !Array.isArray(v.memory_excerpts)||v.memory_excerpts.length>1500) return null;
   if (!v.chapters.every(c=>c&&str(c.id,100)&&str(c.title,200)&&str(c.facts,20000)&&strings(c.terms,100)&&strings(c.sourceIds,200)) ||
@@ -33,6 +36,7 @@ export function parseStorySettings(value:unknown):StorySettings|null {
   const result:StorySettings={
     instructions:v.instructions as string,current_state:v.current_state as string,style_guide:v.style_guide as string,
     chat_prompt:v.chat_prompt as string,voice_prompt:v.voice_prompt as string,
+    ...(v.intimacy_prompt!==undefined?{intimacy_prompt:v.intimacy_prompt as string}:{}),
     chapters:v.chapters.map(c=>({id:c.id,title:c.title,facts:c.facts,terms:c.terms,sourceIds:c.sourceIds})),
     examples:v.examples.map(e=>({cue:e.cue,reply:e.reply,spoken:e.spoken,sourceId:e.sourceId})),
     memory_excerpts:v.memory_excerpts.map(e=>({seq:e.seq,sourceId:e.sourceId,text:e.text})),
