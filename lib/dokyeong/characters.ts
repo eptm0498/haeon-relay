@@ -1,5 +1,6 @@
 import { rpc } from "./settings";
 import { emptyReferences, type ReferenceImages } from "./reference-images";
+import type { EditorStory, StorySettings } from "./story-settings";
 
 export type LiveCharacter = {
   id: string;
@@ -40,7 +41,10 @@ export async function readLiveCharacter(characterId?: string | null) {
   return rpc<LiveCharacter|null>("live_server_character", {server_token:token,character_id:characterId||null},8000);
 }
 
-export function saveLiveCharacter(editToken: string, character: Partial<LiveCharacter>) {
+export function saveLiveCharacter(editToken: string, character: Partial<LiveCharacter>, story?:StorySettings) {
+  if (story) return rpc<LiveCharacter & {story:EditorStory}>("live_save_character_with_story",{
+    edit_token:editToken,character_data:{...character,reference_images:character.reference_images||emptyReferences()},story,
+  },20000);
   return rpc<LiveCharacter>("live_save_character_with_references", {
     edit_token: editToken,
     character_id: character.id || null,

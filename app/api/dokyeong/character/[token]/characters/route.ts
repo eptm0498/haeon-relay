@@ -3,6 +3,7 @@ import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
 import { deleteLiveCharacter, listCharacterSummaries, listCharacters, readEditorReferences, saveLiveCharacter } from "@/lib/dokyeong/characters";
 import { verifyEditor } from "@/lib/dokyeong/settings";
 import { emptyReferences, parseReferences } from "@/lib/dokyeong/reference-images";
+import { parseStorySettings } from "@/lib/dokyeong/story-settings";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ token: string }> };
@@ -29,8 +30,10 @@ export async function POST(request: NextRequest, { params }: Context) {
   try {
     if (!await verifyEditor(token)) return deny();
     const raw = await request.text();
-    if (raw.length > 2800000) return Response.json({ error: "설정이 너무 길어." }, { status: 413, headers: noStore });
+    if (new TextEncoder().encode(raw).length > 4200000) return Response.json({ error: "설정과 사진의 용량이 너무 커. 사진 크기나 기억 내용을 줄여 줘." }, { status: 413, headers: noStore });
     const body = JSON.parse(raw);
+    const story=body.story===undefined ? undefined : parseStorySettings(body.story);
+    if (story===null) return Response.json({error:"기억과 말투의 입력 내용이나 길이를 확인해 줘."},{status:400,headers:noStore});
     if (typeof body.name !== "string" || body.name.trim().length < 1 || body.name.length > 40 ||
         typeof body.prompt !== "string" || body.prompt.length < 100 || body.prompt.length > 30000 ||
         typeof body.voice_id !== "string" || body.voice_id.length < 8 || body.voice_id.length > 100)
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest, { params }: Context) {
     else {
       body.reference_images=body.id ? await readEditorReferences(token,body.id) : emptyReferences();
     }
-    return Response.json(await saveLiveCharacter(token, body), { headers: noStore });
+    return Response.json(await saveLiveCharacter(token, body, story), { headers: noStore });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     return Response.json({ error: message === "VERSION_CONFLICT" ? "다른 곳에서 수정됐어. 새로고침 후 다시 저장해 줘." : "캐릭터를 저장하지 못했어." }, { status: message === "VERSION_CONFLICT" ? 409 : 503, headers: noStore });

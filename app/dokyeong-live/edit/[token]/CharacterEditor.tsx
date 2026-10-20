@@ -5,6 +5,9 @@ import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus,
 import SampleManager from "./SampleManager";
 import ProfilePhoto from "./ProfilePhoto";
 import ReferenceModel from "./ReferenceModel";
+import StoryEditor from "./StoryEditor";
+import { isProjectCharacter } from "@/lib/dokyeong/project-dialogue";
+import type { EditorStory } from "@/lib/dokyeong/story-settings";
 import { emptyReferences, type ReferenceImages } from "@/lib/dokyeong/reference-images";
 import styles from "./editor.module.css";
 
@@ -22,6 +25,7 @@ type Character = {
   sort_order: number;
   version: number | null;
   updated_at?: string | null;
+  story?:EditorStory|null;
 };
 type Voice = {
   voice_id: string;
@@ -77,7 +81,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const [rawMode, setRawMode] = useState(false);
   const [raw, setRaw] = useState("");
   const [active, setActive] = useState("intro");
-  const [tab, setTab] = useState<"profile"|"samples">("profile");
+  const [tab, setTab] = useState<"profile"|"samples"|"story">("profile");
   const [loading, setLoading] = useState(true);
   const [voiceLoading, setVoiceLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,6 +95,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const serialized = working ? JSON.stringify({
     name: working.name, prompt: currentPrompt, voice_id: working.voice_id, voice_name: working.voice_name,
     avatar_url: working.avatar_url || "", reference_images:working.reference_images || emptyReferences(), is_default: working.is_default, sort_order: working.sort_order,
+    story:working.story||null,
   }) : "";
   const dirty = !!working && serialized !== baseline;
 
@@ -100,20 +105,29 @@ export default function CharacterEditor({ token }: { token: string }) {
     setRaw(character.prompt);
     setRawMode(false);
     setActive("intro");
-    setTab("profile");
+    setTab(character.story ? "story" : "profile");
     setBaseline(JSON.stringify({
-      name: character.name, prompt: character.prompt, voice_id: character.voice_id, voice_name: character.voice_name,
+      name: character.name, prompt: composePrompt(parsePrompt(character.prompt)), voice_id: character.voice_id, voice_name: character.voice_name,
       avatar_url: character.avatar_url || "", reference_images:character.reference_images || emptyReferences(), is_default: character.is_default, sort_order: character.sort_order,
+      story:character.story||null,
     }));
     setNotice(""); setError("");
   }, []);
 
   const fetchReferences = useCallback(async (character:Character):Promise<Character> => {
-    if (!character.id || character.reference_images) return character;
-    const response=await fetch(`${api}/characters?referencesFor=${character.id}`,{cache:"no-store"});
-    const result=await response.json();
-    if (!response.ok)throw new Error(result.error || "기준 사진을 불러오지 못했어.");
-    return {...character,reference_images:result};
+    if (!character.id) return character;
+    const read=async(path:string)=>{
+      const response=await fetch(path,{cache:"no-store"});
+      const result=await response.json();
+      if (!response.ok)throw new Error(result.error || "전체 설정을 불러오지 못했어.");
+      return result;
+    };
+    const [references,story]=await Promise.all([
+      character.reference_images ? Promise.resolve(character.reference_images) : read(`${api}/characters?referencesFor=${character.id}`),
+      isProjectCharacter(character) ? read(`${api}/story?characterId=${character.id}`) : Promise.resolve(null),
+    ]);
+    if (isProjectCharacter(character)&&!story) throw Error("지우의 전체 기억을 불러오지 못했어. 새로고침 후 다시 시도해 줘.");
+    return {...character,reference_images:references,story};
   },[api]);
 
   const loadCharacters = useCallback(async () => {
@@ -157,7 +171,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   }, [dirty]);
 
   async function chooseCharacter(character: Character) {
-    if (saving || loading) return;
+    if (saving || loading || imageBusy) return;
     if (dirty && !window.confirm("저장하지 않은 변경사항을 버리고 다른 캐릭터로 이동할까?")) return;
     setLoading(true);setError("");
     try {
@@ -169,6 +183,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   }
 
   function newCharacter() {
+    if (saving || loading || imageBusy) return;
     if (dirty && !window.confirm("저장하지 않은 변경사항을 버리고 새 캐릭터를 만들까?")) return;
     const firstVoice = voices.find(v => v.category === "cloned") || voices[0];
     const character: Character = {
@@ -186,7 +201,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   function toggleMode() { if (rawMode) { setDraft(parsePrompt(raw)); setActive("intro"); } else setRaw(composed); setRawMode(!rawMode); }
 
   async function save() {
-    if (!working || saving || imageBusy) return;
+    if (!working || saving || loading || imageBusy) return;
     if (!working.name.trim() || currentPrompt.length < 100 || currentPrompt.length > 30000 || !working.voice_id) {
       setError("이름, 캐릭터 설정, ElevenLabs 목소리를 확인해 줘."); return;
     }
@@ -194,15 +209,18 @@ export default function CharacterEditor({ token }: { token: string }) {
     try {
       const selectedVoice = voices.find(v => v.voice_id === working.voice_id);
       const payload = {...working, prompt:currentPrompt, voice_name:selectedVoice?.name || working.voice_name || ""};
+      const body=JSON.stringify({...payload,story:payload.story||undefined});
+      if (new TextEncoder().encode(body).length>4200000) throw Error("설정과 사진의 용량이 너무 커. 사진 크기나 기억 내용을 줄여 줘.");
       const response = await fetch(`${api}/characters`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+        method:"POST", headers:{"Content-Type":"application/json"}, body,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "저장하지 못했어.");
-      setNotice("저장했어. 라이브의 다음 대화부터 이 설정과 목소리를 사용해.");
-      await loadCharacters();
-      const refreshed = {...data, prompt:currentPrompt};
+      const refreshed = {...data, story:data.story||working.story||null};
+      setCharacters(previous=>[...previous.filter(c=>c.id!==refreshed.id).map(c=>refreshed.is_default?{...c,is_default:false}:c),refreshed].sort((a,b)=>a.sort_order-b.sort_order));
       applyCharacter(refreshed);
+      setTab(tab);
+      setNotice("저장했어. 라이브의 다음 대화부터 이 설정과 기억, 목소리를 사용해.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "저장하지 못했어."); }
     finally { setSaving(false); }
   }
@@ -227,7 +245,7 @@ export default function CharacterEditor({ token }: { token: string }) {
       <div className={styles.brand}><span className={styles.mark}>C.</span><span>CHARACTER<span className={styles.brandLight}>LIVE</span><small>MULTI CHARACTER STUDIO</small></span></div>
       <div className={styles.topActions}>
         <a className={styles.liveLink} href="/dokyeong-live" target="_blank" rel="noreferrer">라이브 열기 <ChevronRight size={16}/></a>
-        <button className={styles.saveTop} disabled={!dirty || saving || imageBusy} onClick={() => void save()}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>
+        <button className={styles.saveTop} disabled={!dirty || saving || loading || imageBusy} onClick={() => void save()}><Save size={17}/>{saving ? "저장 중…" : "변경사항 저장"}</button>
       </div>
     </header>
 
@@ -247,7 +265,7 @@ export default function CharacterEditor({ token }: { token: string }) {
         <div className={styles.eyebrow}>CHARACTER LIVE <ChevronRight size={13}/> STUDIO</div>
         <div className={styles.titleRow}><div><h1>{working?.name || "캐릭터 설정실"}<span className={styles.titleStar}>✳</span></h1><p>성격, 대화 샘플, 프로필과 ElevenLabs 목소리를 캐릭터마다 따로 관리해.</p></div><div className={styles.badge}>● LIVE SETTINGS</div></div>
 
-        {loading ? <div className={styles.centerState}>캐릭터를 불러오는 중…</div> : !working ? <div className={styles.centerState}><CircleAlert size={26}/>캐릭터가 없어.</div> : <>
+        {loading ? <div className={styles.centerState}>전체 설정을 불러오는 중…</div> : !working ? <div className={styles.centerState}><CircleAlert size={26}/>{error||"캐릭터가 없어."}<button onClick={()=>void loadCharacters()}>다시 불러오기</button></div> : <>
           <div className={styles.mobileNav}>
             <label htmlFor="mobile-character">편집할 캐릭터</label>
             <select id="mobile-character" value={working.id || "new"} disabled={saving || imageBusy} onChange={e=>{
@@ -260,10 +278,11 @@ export default function CharacterEditor({ token }: { token: string }) {
           </div>
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
+            {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
           </div>
 
-          {tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : <>
+          {tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : tab==="story"&&working.story&&working.id ? <StoryEditor key={working.id} value={working.story} onChange={story=>{setWorking(previous=>previous?{...previous,story}:previous);setNotice("");}} api={api} characterId={working.id} disabled={saving}/> : <>
             <div className={styles.editorCard}>
               <div className={styles.cardHeader}><div className={styles.cardIcon}><Volume2 size={23}/></div><div className={styles.cardTitles}><span className={styles.overline}>IDENTITY / VOICE</span><h2>이름과 목소리</h2><p>ElevenLabs에 만들어 둔 목소리 중 이 캐릭터가 사용할 목소리를 지정해.</p></div></div>
               <div className={styles.fieldArea}>
@@ -306,7 +325,8 @@ export default function CharacterEditor({ token }: { token: string }) {
             <div className={styles.editorCard}>
               <div className={styles.cardHeader}><div className={styles.cardIcon}>{rawMode?<FileText size={23}/>:<Sparkles size={23}/>}</div><div className={styles.cardTitles}><span className={styles.overline}>CHARACTER PROFILE</span><h2>{rawMode?"전체 원문 편집":active==="intro"?"기본 설정":selected?.title}</h2><p>말투, 관계, 성격과 반응 방식을 이 캐릭터만의 설정으로 작성해.</p></div><button className={styles.modeButton} onClick={toggleMode}>{rawMode?"항목별 편집":"전체 원문"}</button></div>
               <div className={styles.fieldArea}>
-                {rawMode ? <><label htmlFor="raw-prompt">전체 지침</label><textarea id="raw-prompt" className={`${styles.textarea} ${styles.rawArea}`} value={raw} onChange={e=>{setRaw(e.target.value);setNotice("");}} spellCheck={false}/></>
+                {working.story&&<p className={styles.storyHelp}>이곳은 기본 역할 지침이야. 사건 기억·현재 상황·말투·채팅과 음성 지침 전문은 <button type="button" className={styles.modeButton} onClick={()=>setTab("story")}>전체 기억과 말투</button>에서 편집해.</p>}
+                {rawMode ? <><label htmlFor="raw-prompt">기본 지침 전체</label><textarea id="raw-prompt" className={`${styles.textarea} ${styles.rawArea}`} value={raw} onChange={e=>{setRaw(e.target.value);setNotice("");}} spellCheck={false}/></>
                 : active==="intro" && draft ? <><label htmlFor="intro">기본 역할과 관계</label><textarea id="intro" className={styles.textarea} value={draft.intro} onChange={e=>setPromptDraft({...draft,intro:e.target.value})} spellCheck={false}/></>
                 : selected && draft ? <><label htmlFor="section-body">{selected.title}</label><textarea id="section-body" className={styles.textarea} value={selected.body} onChange={e=>setPromptDraft({...draft,sections:draft.sections.map(s=>s.id===selected.id?{...s,body:e.target.value}:s)})} spellCheck={false}/></> : null}
                 <div className={styles.fieldFooter}><span>저장하면 이 캐릭터의 다음 대화부터 적용돼.</span><span>{currentPrompt.length.toLocaleString()} / 30,000자</span></div>
@@ -319,6 +339,8 @@ export default function CharacterEditor({ token }: { token: string }) {
               <button className={styles.primaryButton} onClick={()=>void save()} disabled={!dirty||saving||imageBusy}><Save size={16}/>{saving?"저장 중…":"변경사항 저장"}</button>
             </div></div>
           </>}
+
+          {tab==="story"&&<div className={styles.bottomRow}><div className={styles.tip}><span>✦</span> 아직 저장하지 않은 수정도 다른 설정 탭으로 이동하면 그대로 남아 있어.</div><div className={styles.bottomButtons}><button onClick={()=>{const original=characters.find(c=>c.id===working.id);if(original)applyCharacter(original);}} disabled={!dirty||saving||imageBusy}><RotateCcw size={16}/> 되돌리기</button><button className={styles.primaryButton} onClick={()=>void save()} disabled={!dirty||saving||imageBusy}><Save size={16}/>{saving?"저장 중…":"변경사항 저장"}</button></div></div>}
 
           {(notice||error) && <div role="status" className={`${styles.message} ${error?styles.error:""}`}>{error||notice}</div>}
           <div className={styles.shareRow}><div><Link2 size={17}/><span>이 링크 하나에서 모든 캐릭터를 관리해. 링크는 필요한 사람에게만 공유해 줘.</span></div><button onClick={async()=>{try{await navigator.clipboard.writeText(window.location.href);setCopied(true);setTimeout(()=>setCopied(false),2500);}catch{setError("주소창에서 링크를 복사해 줘.");}}}>{copied?<Check size={15}/>:<Link2 size={15}/>} {copied?"복사됨":"링크 복사"}</button></div>

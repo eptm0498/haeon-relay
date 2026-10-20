@@ -1,6 +1,6 @@
 export const PROJECT_CHARACTER_MARKER = '[한지 01 고정 기억]';
-export function isProjectCharacter(character: {prompt:string}) {
-  return character.prompt.includes(PROJECT_CHARACTER_MARKER);
+export function isProjectCharacter(character: {id?:string;prompt:string}) {
+  return character.id==='c30b2085-d28a-4272-a9fb-c7ebcb8e7d90'||character.prompt.includes(PROJECT_CHARACTER_MARKER);
 }
 
 export function projectMediumPrompt(voice=false) {

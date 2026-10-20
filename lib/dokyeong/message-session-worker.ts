@@ -1,6 +1,6 @@
 import {projectReply} from './project-reply';
 import {projectContext} from './project-context';
-import {isProjectCharacter,projectMediumPrompt} from './project-dialogue';
+import {isProjectCharacter} from './project-dialogue';
 import {serverRpc,transcript,type StoredMessage} from './memory';
 import {geminiJson} from './gemini-json';
 import {currentTimeContext} from './time-context';
@@ -24,7 +24,7 @@ export async function runMessageSessionWorker() {
    const fictional=linked||character.prompt.includes('기존 재경 세계관');
    const project=await projectContext(character,claim.messages);
    const samples=await relatedSampleContext(claim.messages.slice(-16),character.id,character.name);
-   const prompt=shortMessageBatchPrompt({characterPrompt:character.prompt+samples+project+(linked?projectMediumPrompt():""),context:transcript(claim.messages),memory:claim.memory,time:linked?"":currentTimeContext(new Date(),claim.character.id),routine:fictional?'현실 사용자 일정 대신 현재 세계관 대화를 참고':preferences?.routine||'',situation:fictional?'':preferences?.situation||'',sent:claim.sent,total:claim.total},claim.batchCount,claim.pending);
+   const prompt=shortMessageBatchPrompt({characterPrompt:character.prompt+samples+project,context:transcript(claim.messages),memory:claim.memory,time:linked?"":currentTimeContext(new Date(),claim.character.id),routine:fictional?'현실 사용자 일정 대신 현재 세계관 대화를 참고':preferences?.routine||'',situation:fictional?'':preferences?.situation||'',sent:claim.sent,total:claim.total},claim.batchCount,claim.pending);
    const result=await geminiJson(prompt,shortMessageBatchSchema,undefined,undefined,samples?{temperature:0.85}:undefined);
    const texts=await Promise.all(parseShortMessageBatch(result,claim.batchCount).map(text=>linked?projectReply(text):text));
    if(texts.some(text=>!text))throw Error("Empty linked message");

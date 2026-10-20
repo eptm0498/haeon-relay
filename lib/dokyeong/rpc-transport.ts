@@ -1,7 +1,7 @@
 // Only retry reads and writes with explicit, stable idempotency keys.
 export function retryAllowed(name: string, body: object) {
   const action = (body as {action?: string}).action;
-  if (name.startsWith('live_server_') || ['live_character_summaries','live_list_characters','live_read_character_references','live_editor_character_references'].includes(name)) return true;
+  if (name.startsWith('live_server_') || ['live_character_summaries','live_list_characters','live_read_character_references','live_editor_character_references','live_editor_story','live_editor_story_source'].includes(name)) return true;
   if (name === 'live_sync_history') return ['read','append','import'].includes(action || 'read');
   if (name === 'live_data_work') return ['versions','settings','archive','search','memory'].includes(action || '');
   if (name === 'live_companion_work') return ['status','presence'].includes(action || '');
