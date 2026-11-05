@@ -4,6 +4,7 @@ await import("./verify-dialogue-style.mjs");
 await import("./verify-message-session.mjs");
 await import("./verify-image-sunburst.mjs");
 await import("./verify-live-audio.mjs");
+await import("./verify-voice-latency.mjs");
 await import("./verify-chat-images.mjs");
 await import("./verify-reference-model.mjs");
 await import("./verify-companion.mjs");

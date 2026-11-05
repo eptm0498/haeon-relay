@@ -77,8 +77,42 @@ function bridgeHarness(){
  });
  const events=[];const controller=new AbortController();
  const bridge=exports.testBridge(event=>events.push(event),controller.signal,'saved-voice');
- return {bridge,socket:sockets[0],timers,events};
+ return {bridge,socket:sockets[0],timers,events,controller};
 }
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+test('the first complete sentence flushes immediately and keeps later text on the same socket',async()=>{
+ const {bridge,socket}=bridgeHarness();socket.open();
+ bridge.push('안녕');await tick();assert.ok(!socket.sent.some(m=>m.flush));
+ bridge.push('. 더 할 말');bridge.push('이 있어.');await tick();
+ const inputs=socket.sent.filter(m=>m.inputs);
+ assert.equal(inputs.map(m=>m.inputs[0].text).join(''),'안녕. 더 할 말이 있어.');
+ assert.equal(inputs.filter(m=>m.flush).length,1);assert.equal(inputs.find(m=>m.flush).inputs[0].text,'.');
+ assert.equal(socket.readyState,1);bridge.close();
+});
+test('a decimal split across model chunks is not treated as the first sentence end',async()=>{
+ const {bridge,socket}=bridgeHarness();socket.open();
+ for(const part of ['2','.','5도야'])bridge.push(part);
+ await tick();assert.ok(!socket.sent.some(m=>m.flush));
+ bridge.push('.');await tick();assert.equal(socket.sent.filter(m=>m.flush).length,1);bridge.close();
+});
+test('an intermediate flush marker cannot truncate the remaining audio',async()=>{
+ const {bridge,socket}=bridgeHarness();socket.open();bridge.push('안녕.');await tick();
+ socket.message({audio:'AAABAA=='});socket.message({is_final_audio_for_turn:true});await tick();
+ bridge.push('뒤의 말도 끝까지 들려줄게.');await tick();
+ let settled=false;const result=bridge.finish().then(value=>{settled=true;return value;});await tick();
+ socket.message({is_final_audio_for_turn:true});await tick();
+ assert.equal(settled,false);assert.equal(socket.readyState,1);
+ socket.message({audio:'AAABAA==',is_final:true});
+ assert.equal((await result).completed,true);assert.equal(socket.readyState,3);
+});
+test('a prewarmed socket stays alive without synthesizing text and is released on interruption',async()=>{
+ const {bridge,socket,timers,controller}=bridgeHarness();socket.open();
+ const heartbeat=timers.find(t=>t.ms===10000);assert.ok(heartbeat);heartbeat.fn();
+ assert.ok(socket.sent.some(m=>m.keep_alive));assert.ok(!socket.sent.some(m=>m.inputs));
+ controller.abort();assert.equal(socket.readyState,3);
+ assert.ok(timers.filter(t=>t.ms===10000).at(-1).cleared);
+ assert.equal((await bridge.finish()).completed,false);
+});
 test('realtime payment failure finishes cleanly and preserves fallback reason',async()=>{
  const {bridge,socket}=bridgeHarness();socket.open();bridge.push('목소리 확인할게.');
  socket.message({error:'payment_issue'});await Promise.resolve();

@@ -131,6 +131,11 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
   let failed = false;
   let hadAudio = false;
   let finalAudio = false;
+  let closing = false;
+  let firstFlush = false;
+  let speechCharacters = 0;
+  let lastSpeechCharacter = "";
+  let keepAliveTimer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
   let sendChain = Promise.resolve();
   let failure:VoiceFailure|undefined;
@@ -153,6 +158,12 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
     failed=true;rejectReady(new Error('Voice connection timed out'));
     try{ws.close();}catch{}settleFinished();
   },5000);
+  const keepAlive = () => {
+    if (failed || closing || signal.aborted || ws.readyState !== 1) return;
+    try { ws.send(JSON.stringify({ keep_alive: true })); }
+    catch { failed = true; settleFinished(); return; }
+    keepAliveTimer = setTimeout(keepAlive, 10000);
+  };
 
   ws.addEventListener("open", () => {
     clearTimeout(openTimer);
@@ -163,6 +174,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
         xi_api_key: apiKey,
       }));
       resolveReady();
+      keepAliveTimer = setTimeout(keepAlive, 10000);
     } catch {
       failed = true;
       rejectReady(new Error("ElevenLabs init failed"));
@@ -179,11 +191,14 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
           hadAudio = true;
           send({ type: "audio", data: message.audio, model: voice.dialogueRealtimeModelId, format: voice.dialogueOutputFormat });
         }
-        if (message.is_final_audio_for_turn === true || message.is_final === true) {
+        // A flush can finish one prosody segment while more text is coming.
+        // Only the final socket frame can complete the whole response.
+        if (closing && message.is_final === true) {
           finalAudio = true;
           settleFinished();
         }
         if (message.error || message.type === "error") {
+          clearTimeout(keepAliveTimer);
           failed = true;
           failure=voiceFailure(message);
           console.warn('[dokyeong/respond] voice unavailable',{code:failure.code,model:voice.dialogueRealtimeModelId});
@@ -195,19 +210,25 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
 
   ws.addEventListener("error", () => {
     clearTimeout(openTimer);
+    clearTimeout(keepAliveTimer);
     failed = true;
     if (!opened) rejectReady(new Error("ElevenLabs websocket failed"));
     settleFinished();
   });
 
-  ws.addEventListener("close", () => {
+  ws.addEventListener("close", (event) => {
     clearTimeout(openTimer);
+    clearTimeout(keepAliveTimer);
     if (!opened) rejectReady(new Error("ElevenLabs websocket closed"));
+    if (closing && event.code === 1000 && hadAudio && !failed) finalAudio = true;
+    if (!finalAudio) failed = true;
     settleFinished();
   });
 
   signal.addEventListener("abort", () => {
     clearTimeout(openTimer);
+    clearTimeout(keepAliveTimer);
+    failed = true;
     rejectReady(new Error('interrupted'));
     try { ws.close(); } catch {}
     settleFinished();
@@ -215,19 +236,35 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
 
   const push = (text: string) => {
     const spoken = linked?spokenDialogue(text):text.replace(/[ㅋㅎㅠㅜ]+/g," ").replace(/\s+/g," ");
-    if (!/[\p{L}\p{N}]/u.test(spoken)) return;
-
-    sendChain = sendChain.then(async () => {
-      try {
-        await ready;
-        if (failed || ws.readyState !== 1 || signal.aborted) return;
-        ws.send(JSON.stringify({
-          inputs: [{ text: spoken, voice_id: voiceId }],
-        }));
-      } catch {
-        failed = true;
+    if (!spoken || (!/[\p{L}\p{N}]/u.test(spoken) && !speechCharacters)) return;
+    const queue = (part: string, flush = false) => {
+      if (!part) return;
+      speechCharacters += part.trim().length;
+      lastSpeechCharacter = part.at(-1) || lastSpeechCharacter;
+      sendChain = sendChain.then(async () => {
+        try {
+          await ready;
+          if (failed || closing || ws.readyState !== 1 || signal.aborted) return;
+          ws.send(JSON.stringify({ inputs: [{ text: part, voice_id: voiceId }], ...(flush ? { flush: true } : {}) }));
+        } catch { failed = true; }
+      });
+    };
+    if (!firstFlush && !hadAudio) {
+      const prefix = lastSpeechCharacter;
+      const boundary = [...(prefix + spoken).matchAll(/(?:[!?。！？]+|(?<!\d)\.+)(?=\s|$)/gu)]
+        .find(match => match.index >= prefix.length);
+      if (boundary) {
+        const end = boundary.index - prefix.length + boundary[0].length;
+        const head = spoken.slice(0, end);
+        if (speechCharacters || /[\p{L}\p{N}]/u.test(head)) {
+          firstFlush = true;
+          queue(head, true);
+          queue(spoken.slice(end));
+          return;
+        }
       }
-    });
+    }
+    queue(spoken);
   };
 
   const finish = async () => {
@@ -235,6 +272,8 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
       await sendChain;
       await ready;
       if (!failed && ws.readyState === 1 && !signal.aborted) {
+        closing = true;
+        clearTimeout(keepAliveTimer);
         ws.send(JSON.stringify({ close_socket: true }));
         let finishTimer:ReturnType<typeof setTimeout>|undefined;
         try{await Promise.race([finished,new Promise<void>((resolve)=>{finishTimer=setTimeout(()=>{failed=true;resolve();},12000);})]);}
@@ -243,9 +282,10 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
     } catch {
       failed = true;
     } finally {
+      clearTimeout(keepAliveTimer);
       try { if (ws.readyState === 0 || ws.readyState === 1) ws.close(); } catch {}
     }
-    return { hadAudio, completed: hadAudio && finalAudio && !failed, failure };
+    return { hadAudio, completed: hadAudio && finalAudio && !failed && !signal.aborted, failure };
   };
 
   return {
@@ -253,6 +293,8 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
     finish,
     close: () => {
       clearTimeout(openTimer);
+      clearTimeout(keepAliveTimer);
+      failed = true;
       rejectReady(new Error('interrupted'));
       try { ws.close(); } catch {}
       settleFinished();
@@ -261,6 +303,9 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = performance.now();
+  const elapsed = () => Math.round(performance.now() - startedAt);
+  const timings: Record<string, number> = {};
   if (!authenticated(request)) return unauthorized();
   if (!sameOrigin(request)) return Response.json({ error: "요청을 확인해 줘." }, { status: 403 });
 
@@ -305,6 +350,7 @@ export async function POST(request: NextRequest) {
 
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
+  timings.characterReadyMs = elapsed();
 
   const now = Date.now();
   const isDokyeong = character.name.trim() === "도경";
@@ -325,21 +371,31 @@ export async function POST(request: NextRequest) {
       return new Response(JSON.stringify({type:"queued",requestId})+"\n",{status:202,headers:{...noStore,"Content-Type":"application/x-ndjson; charset=utf-8","X-Dokyeong-Sleep-Until":String(sleepModeUntil)}});
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
-  const activity=await serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id});
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const sampleContext = await relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat");
-  const [remembered,project]=await Promise.all([memoryContext(character.id),projectContext(character,sampleMessages,wantVoice)]);
+  const [activity, sampleContext, remembered, project] = await Promise.all([
+    serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
+    relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat"),
+    memoryContext(character.id),
+    projectContext(character,sampleMessages,wantVoice),
+  ]);
+  timings.contextReadyMs = elapsed();
   const linked=isProjectCharacter(character);
   const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`;
   const activeVoiceId = voiceIdOverride || character.voice_id;
+  // Open the voice connection while Gemini prepares its first response, without
+  // sending any text or generating paid audio before it is actually needed.
+  let sendAudio: ((event: object) => void) | undefined;
+  const dialogue = wantVoice ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked) : null;
   const result = await requestGemini(messages, prompt, request.signal);
-  if (result.error) return result.error;
+  timings.modelReadyMs = elapsed();
+  if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
   const activeModel = result.model || liveConfig.gemini.responseModel;
 
   if (!upstream.ok || !upstream.body) {
+    dialogue?.close();
     if (upstream.status === 401 || upstream.status === 403)
       return Response.json({ error: "Gemini API 키나 결제 설정을 확인해 줘." }, { status: 502 });
     if (upstream.status === 404)
@@ -350,15 +406,18 @@ export async function POST(request: NextRequest) {
   }
 
   const encoder = new TextEncoder();
+  let cancelUpstream: (() => void) | undefined;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let streamOpen = true;
       const send = (event: object) => {
         if (!streamOpen) return;
+        if ((event as {type?:string}).type === "audio" && timings.firstAudioMs === undefined) timings.firstAudioMs = elapsed();
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
-      const dialogue = wantVoice ? createDialogueBridge(send, request.signal, activeVoiceId,linked) : null;
+      sendAudio = send;
       const reader = upstream.body!.getReader();
+      cancelUpstream = () => { streamOpen = false; void reader.cancel().catch(() => {}); };
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
       let linkedOutput = "";
@@ -411,6 +470,7 @@ export async function POST(request: NextRequest) {
         if (!allowed) return;
         full += allowed;
         spoken += allowed;
+        if (timings.firstTextMs === undefined) timings.firstTextMs = elapsed();
         send({ type: "delta", text: allowed });
         dialogue?.push(allowed);
         segment();
@@ -456,6 +516,7 @@ export async function POST(request: NextRequest) {
           if (limitReached) break;
         }
 
+        if (!streamOpen || request.signal.aborted) return;
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
         if(linked && !lastError) {
           const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice);
@@ -478,6 +539,7 @@ export async function POST(request: NextRequest) {
               if(activityPlan.awaySeconds)await serverRpc("live_reply_work",{action:"voice_activity",target_character:character.id,target_job:requestId,data:activityPlan}).catch(()=>console.warn("LIVE_VOICE_ACTIVITY_RETRY"));
             }
             // Commit text immediately. Audio must never hold the visible answer hostage.
+            timings.textDoneMs = elapsed();
             send({
               type: "text_done",
               text: completedText,
@@ -487,6 +549,7 @@ export async function POST(request: NextRequest) {
 
             let audioStatus:{hadAudio:boolean;completed:boolean;failure?:VoiceFailure} = { hadAudio: false, completed: false };
             if (dialogue) audioStatus = await dialogue.finish();
+            timings.audioDoneMs = elapsed();
             send({ type: audioStatus.completed ? "audio_done" : "audio_unavailable", hadAudio: audioStatus.hadAudio,code:audioStatus.failure?.code });
 
             send({
@@ -495,19 +558,22 @@ export async function POST(request: NextRequest) {
               provider: "gemini",
               model: activeModel,
               audioModel: audioStatus.completed ? liveConfig.elevenlabs.dialogueRealtimeModelId : null,
+              timings: wantVoice ? timings : undefined,
             });
+            if (wantVoice) console.info("LIVE_VOICE_TIMING", { ...timings, streamed: audioStatus.completed });
           }
         }
       } catch {
         dialogue?.close();
         try { send({ type: "error", message: "연결이 끊겼어." }); } catch {}
       } finally {
+        dialogue?.close();
         reader.releaseLock();
         streamOpen = false;
         try { controller.close(); } catch {}
       }
     },
-    cancel() { upstream.body?.cancel().catch(() => {}); },
+    cancel() { dialogue?.close(); cancelUpstream?.(); },
   });
 
   return new Response(stream, {
