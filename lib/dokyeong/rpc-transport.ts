@@ -9,16 +9,17 @@ export function retryAllowed(name: string, body: object) {
   return false; // Never blindly retry leases, resets, paid generations or unknown mutations.
 }
 
-export async function rpcTransport<T>(endpoint: string, key: string, name: string, body: object, timeout: number): Promise<T> {
+export async function rpcTransport<T>(endpoint: string, key: string, name: string, body: object, timeout: number, signal?: AbortSignal): Promise<T> {
   const started = Date.now();
   const attempts = retryAllowed(name, body) ? 2 : 1;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
+      const timeoutSignal = AbortSignal.timeout(Math.max(10000, timeout));
       const response = await fetch(endpoint + name, {
         method: 'POST',
         headers: {apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json'},
         body: JSON.stringify(body), cache:'no-store',
-        signal: AbortSignal.timeout(Math.max(10000, timeout)),
+        signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -27,6 +28,7 @@ export async function rpcTransport<T>(endpoint: string, key: string, name: strin
       }
       return await response.json() as T;
     } catch (cause) {
+      if (signal?.aborted) throw cause;
       const error = cause as {name?:string;status?:number;code?:string};
       const transient = error.name === 'TimeoutError' || error.name === 'TypeError' || [429,502,503,504].includes(error.status || 0);
       if (transient && attempt + 1 < attempts) {

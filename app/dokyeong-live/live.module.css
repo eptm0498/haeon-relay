@@ -120,3 +120,28 @@
 .settingsPanel{max-height:calc(100dvh - 115px - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain}
 .sessionInputs{display:grid;grid-template-columns:1fr 1fr;gap:12px}.sessionInputs input{width:100%;min-width:0}
 .tools{font-size:13px;color:#ddd}.tools details{border-top:1px solid #333;padding:12px 0}.tools summary{cursor:pointer;font-weight:650;list-style-position:inside}.tools button,.jobCard button{background:#ffe600;color:#111;border:0;border-radius:10px;padding:10px 12px;cursor:pointer}.tools button:disabled{opacity:.45}.toolFields{display:flex;flex-direction:column;gap:10px;padding-top:12px}.toolFields p,.tools>p{color:#aaa;font-size:12px;line-height:1.6}.toolFields label{display:flex;flex-direction:column;gap:6px}.toolFields input,.toolFields select,.toolFields textarea{font:inherit;font-size:16px;border:1px solid #444;border-radius:9px;padding:9px;background:#252525;color:#fff;max-width:100%;box-sizing:border-box}.toolFields textarea{resize:vertical;min-height:75px}.toolFields ol{padding-left:21px;line-height:1.8}.keepMemory{display:flex;gap:9px;margin:14px 0;align-items:center}.searchResults{max-height:240px;overflow:auto;display:grid;gap:8px}.searchResults button{background:#292929;color:#eee;display:flex;flex-direction:column;text-align:left;gap:5px}.searchResults small{color:#999}.jobCard{margin:10px 20px;padding:13px;border:1px solid #343434;border-radius:14px;color:#bbb;font-size:13px;display:flex;flex-direction:column;gap:10px}.imageEdit{display:block;width:100%;background:#222;color:#ddd;border:0;padding:8px;font-size:12px}.loadOlder{margin:8px auto;background:#242424;color:#aaa;border:0;border-radius:20px;padding:8px 15px}.messageDate{font-size:11px;color:#888;text-align:center;padding:12px}.liveBrand{display:flex;align-items:center;gap:9px}.liveBrand img{width:28px;height:28px;border-radius:7px}
+
+.callStage{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:0;overflow:hidden;background:#141820;color:#fff;overscroll-behavior:none}
+.callStage::backdrop{background:#141820}
+.callStagePhoto,.callStagePhoto>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 43%}
+.callStagePhoto>img[data-visible]{opacity:0;transition:opacity .25s ease-out}
+.callStagePhoto>img[data-visible="true"]{opacity:1}
+.callStageContent{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;align-items:center;gap:12px;overflow:auto;padding:max(25px,calc(env(safe-area-inset-top) + 16px)) max(16px,env(safe-area-inset-right)) max(22px,calc(env(safe-area-inset-bottom) + 12px)) max(16px,env(safe-area-inset-left));background:linear-gradient(180deg,#000a 0%,transparent 27%,transparent 51%,#000c 100%)}
+.callStageHeader{text-align:center;text-shadow:0 1px 8px #000}
+.callStageHeader h1{font-size:clamp(23px,4vw,36px);margin:0 0 3px;line-height:1.2}
+.callStageHeader span{font-size:13px;color:#fff}
+.callStageBottom{width:min(100%,560px);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.callStageCaption,.callStageNotice{margin:0;max-width:100%;max-height:27dvh;overflow:auto;overflow-wrap:anywhere;background:#151515cb;border-radius:14px;padding:9px 13px;font-size:15px;line-height:1.45}
+.callStageNotice{font-size:13px}
+.callStageActions{display:flex;justify-content:center;gap:clamp(8px,4vw,24px);align-items:flex-end}
+.callStageControl,.callStageInterrupt{border:0;color:#fff;background:none;cursor:pointer}
+.callStageControl{display:grid;justify-items:center;gap:4px;min-width:52px;padding:0}
+.callStageControl span{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:#171717cf}
+.callStageControl svg{width:21px;height:21px}
+.callStageControl small{font-size:12px;text-shadow:0 1px 4px #000}
+.callStageControl[aria-pressed="false"] span{color:#a6a6a6}
+.callStageControl:disabled{opacity:.65;cursor:default}
+.callStageHangup span{background:#ce303f;width:60px;height:60px}
+.callStageInterrupt{border-radius:999px;background:#171717cf;padding:7px 12px;font-size:13px}
+.callStage button:focus-visible{outline:2px solid white;outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.callStagePhoto>img[data-visible]{transition:none}}

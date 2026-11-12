@@ -5,6 +5,8 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
+import { readCallPhotos } from "@/lib/dokyeong/call-photos";
+import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
@@ -315,6 +317,7 @@ export async function POST(request: NextRequest) {
   let messages: Message[];
   let wantVoice = true;
   let realtime=false;
+  let callPhoto: string | null | undefined;
   let requestId:string|undefined;
   let sourceMessageId:string|undefined;
   let characterId: string | null = null;
@@ -325,6 +328,7 @@ export async function POST(request: NextRequest) {
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
     realtime=parsed.realtime===true;
+    if (realtime && (parsed.callPhoto === null || isCallPhotoId(parsed.callPhoto))) callPhoto = parsed.callPhoto;
     requestId=typeof parsed.requestId==="string"&&/^[a-f0-9-]{36}$/i.test(parsed.requestId)?parsed.requestId:undefined;
     sourceMessageId=typeof parsed.sourceMessageId==="string"&&/^[A-Za-z0-9:_-]{1,120}$/.test(parsed.sourceMessageId)?parsed.sourceMessageId:undefined;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
@@ -372,13 +376,15 @@ export async function POST(request: NextRequest) {
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const [activity, sampleContext, remembered, project] = await Promise.all([
+  const [activity, sampleContext, remembered, project, callPhotos] = await Promise.all([
     serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
     relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat"),
     memoryContext(character.id),
     projectContext(character,sampleMessages,wantVoice),
+    callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
   ]);
   timings.contextReadyMs = elapsed();
+  const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
   const linked=isProjectCharacter(character);
   const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + timingPrompt + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
@@ -388,7 +394,7 @@ export async function POST(request: NextRequest) {
   // sending any text or generating paid audio before it is actually needed.
   let sendAudio: ((event: object) => void) | undefined;
   const dialogue = wantVoice ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked) : null;
-  const result = await requestGemini(messages, prompt, request.signal);
+  const result = await requestGemini(messages, prompt + callScenePrompt(callPhotos ?? [], currentPhoto ?? null), request.signal);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -416,6 +422,7 @@ export async function POST(request: NextRequest) {
         try { controller.enqueue(encoder.encode(JSON.stringify(event) + "\n")); } catch {}
       };
       sendAudio = send;
+      if (callPhotos && callPhoto && !currentPhoto) send({ type: "call_photo", id: null });
       const reader = upstream.body!.getReader();
       cancelUpstream = () => { streamOpen = false; void reader.cancel().catch(() => {}); };
       const decoder = new TextDecoder();
@@ -476,6 +483,10 @@ export async function POST(request: NextRequest) {
         segment();
       };
 
+      const sceneReader = callSceneReader(callPhotos ?? [],
+        id => { if (id !== currentPhoto) send({ type: "call_photo", id }); },
+        text => { if (linked) linkedOutput += text; else emitText(text); },
+      );
       const processGeminiFrame = (frame: string) => {
         const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
         if (!data) return;
@@ -487,7 +498,7 @@ export async function POST(request: NextRequest) {
               if (part?.thought === true) continue;
               const photo=parsePhotoCall(part);
               if(photo)photoPlan=photo;
-              if (typeof part?.text === "string") { if(linked) linkedOutput+=part.text; else emitText(part.text); }
+              if (typeof part?.text === "string") sceneReader.push(part.text);
             }
           }
           const finishReason = event?.candidates?.[0]?.finishReason;
@@ -518,6 +529,7 @@ export async function POST(request: NextRequest) {
 
         if (!streamOpen || request.signal.aborted) return;
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
+        sceneReader.finish();
         if(linked && !lastError) {
           const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice);
           if(!clean.trim()&&!photoPlan)throw Error("Empty character dialogue");

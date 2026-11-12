@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles, Trash2, Volume2 } from "lucide-react";
 import SampleManager from "./SampleManager";
 import ProfilePhoto from "./ProfilePhoto";
+import CallPhotoEditor from "./CallPhotoEditor";
 import ReferenceModel from "./ReferenceModel";
 import StoryEditor from "./StoryEditor";
 import { isProjectCharacter } from "@/lib/dokyeong/project-dialogue";
@@ -81,7 +82,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const [rawMode, setRawMode] = useState(false);
   const [raw, setRaw] = useState("");
   const [active, setActive] = useState("intro");
-  const [tab, setTab] = useState<"profile"|"samples"|"story">("profile");
+  const [tab, setTab] = useState<"profile"|"samples"|"story"|"callPhotos">("profile");
   const [loading, setLoading] = useState(true);
   const [voiceLoading, setVoiceLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -279,10 +280,11 @@ export default function CharacterEditor({ token }: { token: string }) {
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
             {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
+            <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
           </div>
 
-          {tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : tab==="story"&&working.story&&working.id ? <StoryEditor key={working.id} value={working.story} onChange={story=>{setWorking(previous=>previous?{...previous,story}:previous);setNotice("");}} api={api} characterId={working.id} disabled={saving}/> : <>
+          {tab==="callPhotos" && working.id ? <CallPhotoEditor key={working.id} api={api} characterId={working.id}/> : tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : tab==="story"&&working.story&&working.id ? <StoryEditor key={working.id} value={working.story} onChange={story=>{setWorking(previous=>previous?{...previous,story}:previous);setNotice("");}} api={api} characterId={working.id} disabled={saving}/> : <>
             <div className={styles.editorCard}>
               <div className={styles.cardHeader}><div className={styles.cardIcon}><Volume2 size={23}/></div><div className={styles.cardTitles}><span className={styles.overline}>IDENTITY / VOICE</span><h2>이름과 목소리</h2><p>ElevenLabs에 만들어 둔 목소리 중 이 캐릭터가 사용할 목소리를 지정해.</p></div></div>
               <div className={styles.fieldArea}>

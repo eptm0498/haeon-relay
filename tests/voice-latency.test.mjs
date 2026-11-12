@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as dialogue from '../lib/dokyeong/project-dialogue.ts';
+import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false}={}){
+function fixture({linked=false,photos}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[];let input,clock=0,fetchCalled=false;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -25,6 +26,8 @@ function fixture({linked=false}={}){
   'next/server':{after:()=>assert.fail('no background mutations for a diagnostic turn')},
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v4_turbo',dialogueOutputFormat:'pcm_24000'}}},
+  '@/lib/dokyeong/call-scenes':callScenes,
+  '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:'fixture-character',name:'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
   '@/lib/dokyeong/memory':{memoryContext:()=>read('memory'),serverRpc:(_,body)=>{assert.equal(body.action,'activity');return read('activity');}},
   '@/lib/dokyeong/project-context':{projectContext:()=>read('project')},
@@ -46,7 +49,7 @@ function fixture({linked=false}={}){
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async()=>{fetchCalled=true;return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:true,realtime:true,messages:[{role:'user',content:'안녕'}]})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:true,realtime:true,callPhoto:photos?null:undefined,messages:[{role:'user',content:'안녕'}]})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -88,4 +91,18 @@ test('Jiwoo narration remains buffered until dialogue validation completes',{tim
  f.input.close();const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.equal(f.repairs.length,1);assert.equal(events.find(e=>e.type==='done').text,'알겠어.');
  assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('끄덕였다'))));
+});
+
+test('the call photo choice reaches the screen separately and never enters speech or history',{timeout:3000},async()=>{
+ const id='aabbccdd-1234-4321-aaaa-abcdef123456';
+ const f=fixture({photos:[{id,situation:'장난칠 때'}]});
+ await tick();f.contextReady();await tick();f.sockets[0].open();
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('[CALL_');f.frame('SCENE:1]');f.frame('\n안녕.');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(events[0],{type:'call_photo',id});
+ assert.equal(events.find(e=>e.type==='done').text,'안녕.');
+ assert.ok(f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('안녕.'))));
+ assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
 });

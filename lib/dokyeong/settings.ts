@@ -7,8 +7,8 @@ const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 
 type CharacterRow = { prompt: string; version: number; updated_at: string };
 
-export async function rpc<T>(name: string, body: object, timeout = 5000): Promise<T> {
-  return rpcTransport<T>(endpoint, anonKey, name, body, timeout);
+export async function rpc<T>(name: string, body: object, timeout = 5000, signal?: AbortSignal): Promise<T> {
+  return rpcTransport<T>(endpoint, anonKey, name, body, timeout, signal);
 }
 
 export async function readCharacter() {
