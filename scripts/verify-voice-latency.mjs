@@ -1,7 +1,7 @@
 import {execFileSync,spawn} from 'node:child_process';
 import {createHmac} from 'node:crypto';
 
-execFileSync(process.execPath,['--test','tests/voice-recovery.test.mjs','tests/voice-latency.test.mjs'],{stdio:'inherit'});
+execFileSync(process.execPath,['--test','tests/voice-recovery.test.mjs','tests/voice-latency.test.mjs','tests/speech-capture.test.mjs'],{stdio:'inherit'});
 
 // One explicit comparison per opt-in deployment. No synthetic conversation,
 // generated audio, credentials or private prompts are written to logs/history.

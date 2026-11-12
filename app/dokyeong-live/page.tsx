@@ -8,6 +8,7 @@ import LiveTools from "./LiveTools";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
+import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
 import { useChatScroll } from "./useChatScroll";
@@ -182,15 +183,15 @@ export default function DokyeongLive() {
   const activeSoundRef = useRef<AudioBufferSourceNode | null>(null);
   const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const queuedRef = useRef<Promise<void>>(Promise.resolve());
-  const speechRef = useRef<Blob[]>([]);
-  const prerollRef = useRef<Blob[]>([]);
-  const headerRef = useRef<Blob | null>(null);
+  const micWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const transcriptionRef = useRef<AbortController | null>(null);
+  const speechQueueRef = useRef<Blob[]>([]);
+  const recognizedRef = useRef<string[]>([]);
   const recordingRef = useRef(false);
   const pendingEndRef = useRef(false);
   const voicedAtRef = useRef(0);
   const startedAtRef = useRef(0);
   const loudRef = useRef(0);
-  const listenBoostUntilRef = useRef(0);
   const lastInputAtRef = useRef(0);
   const wakeLockRef = useRef<WakeLockHandle | null>(null);
   const chatScroll = useChatScroll(view === "chat", characterId, historyReady, messages, partial);
@@ -306,11 +307,15 @@ export default function DokyeongLive() {
 
   const closeMic = useCallback(() => {
     if (timerRef.current) cancelAnimationFrame(timerRef.current); timerRef.current = null;
+    const worklet = micWorkletRef.current; micWorkletRef.current = null;
+    if (worklet) { worklet.port.onmessage = null; worklet.port.close(); worklet.disconnect(); }
+    transcriptionRef.current?.abort(); transcriptionRef.current = null;
+    speechQueueRef.current = []; recognizedRef.current = [];
     const recorder = recorderRef.current; recorderRef.current = null;
     if (recorder?.state !== "inactive") recorder?.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null;
     contextRef.current?.close().catch(() => {}); contextRef.current = null;
-    recordingRef.current = false; pendingEndRef.current = false; prerollRef.current = []; speechRef.current = []; headerRef.current = null;
+    recordingRef.current = false; pendingEndRef.current = false;
   }, []);
   const endCall = useCallback(() => {
     callAttempt.current++;
@@ -617,9 +622,7 @@ export default function DokyeongLive() {
         setGeneratingPhoto(false);
         requestRef.current = null;
         if (running.current) {
-          prerollRef.current = [];
           loudRef.current = 0;
-          listenBoostUntilRef.current = performance.now() + 2600;
           lastInputAtRef.current = performance.now();
           setMode("listening");
         } else setMode("off");
@@ -629,26 +632,51 @@ export default function DokyeongLive() {
 
   async function onSpeech(blob: Blob) {
     if (!running.current || blob.size < 1000) return;
-    interrupt(); const turn = generation.current; setMode("thinking"); setError("");
-    const form = new FormData(); form.append("audio", blob, blob.type.includes("mp4") ? "speech.mp4" : "speech.webm");
-    const controller = new AbortController(); requestRef.current = controller;
+    speechQueueRef.current.push(blob);
+    if (transcriptionRef.current) return;
+    interrupt();
+    setMode("thinking"); setError("");
+    const controller = new AbortController();
+    transcriptionRef.current = controller;
+    const characterName = characters.find(item => item.id === characterIdRef.current)?.name;
     try {
-      const response = await fetch(`${API}/transcribe`, { method: "POST", body: form, signal: controller.signal });
-      const result = await response.json(); if (!response.ok) throw Error(result.error || "못 들었어.");
-      if (turn !== generation.current) return;
-      if (hasMeaningfulTranscript(result.text)) {
-        lastInputAtRef.current = performance.now();
-        await reply(String(result.text));
-      } else {
-        setMode("listening");
+      while (speechQueueRef.current.length && !controller.signal.aborted) {
+        const audio = speechQueueRef.current.shift()!;
+        const extension = audio.type.includes("wav") ? "wav" : audio.type.includes("mp4") ? "mp4" : "webm";
+        const form = new FormData();
+        form.append("audio", audio, `speech.${extension}`);
+        if (characterName) form.append("characterName", characterName);
+        try {
+          const response = await fetch(`${API}/transcribe`, { method: "POST", body: form, signal: controller.signal });
+          const result = await response.json();
+          if (controller.signal.aborted || !running.current) return;
+          if (!response.ok) { setError(result.error || "못 들었어."); continue; }
+          if (hasMeaningfulTranscript(result.text)) {
+            lastInputAtRef.current = performance.now();
+            recognizedRef.current.push(String(result.text));
+          }
+        } catch {
+          if (controller.signal.aborted || !running.current) return;
+          setError("음성을 받아쓰는 중에 연결이 끊겼어.");
+        }
       }
-    } catch (err) { if (!controller.signal.aborted && turn === generation.current) { setError(err instanceof Error ? err.message : "못 들었어."); setMode("listening"); } }
+    } finally {
+      if (transcriptionRef.current === controller) transcriptionRef.current = null;
+    }
+    if (controller.signal.aborted || !running.current || recordingRef.current || pendingEndRef.current) return;
+    const text = recognizedRef.current.join(" ");
+    recognizedRef.current = [];
+    if (text) await reply(text);
+    else {
+      setError(previous => previous || "말을 잘 못 들었어. 한 번만 다시 말해줘.");
+      setMode("listening");
+    }
   }
 
   async function startCall() {
     if (startingCall || running.current) return;
     setError(""); setNeedsTap(false);
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") { setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return; }
     const attempt = ++callAttempt.current;
     setStartingCall(true);
     try {
@@ -662,9 +690,68 @@ export default function DokyeongLive() {
       contextRef.current = context;
       await context.resume();
       if (attempt !== callAttempt.current) return;
-      const source = context.createMediaStreamSource(stream); const analyser = context.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
-      const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) => MediaRecorder.isTypeSupported(type));
-      recorderRef.current = null; running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
+      const source = context.createMediaStreamSource(stream);
+      const micInput = context.createBiquadFilter();
+      micInput.type = "highpass"; micInput.frequency.value = 70;
+      source.connect(micInput);
+      const onSpeechStart = () => {
+        if (phaseRef.current === "speaking" || (phaseRef.current === "thinking" && !transcriptionRef.current)) interrupt();
+        lastInputAtRef.current = performance.now();
+        setMode("listening");
+      };
+      const idle = () => {
+        if (phaseRef.current !== "listening" || recordingRef.current || pendingEndRef.current || transcriptionRef.current ||
+            performance.now() - lastInputAtRef.current < 60_000) return false;
+        endCall();
+        setError("1분 동안 말이 없어서 마이크를 껐어.");
+        return true;
+      };
+      stream.getAudioTracks()[0].onended = () => {
+        if (attempt === callAttempt.current && running.current) { endCall(); setError("마이크가 끊겼어. 다시 연결해 줘."); }
+      };
+
+      let worklet: AudioWorkletNode | null = null;
+      if (context.audioWorklet && typeof AudioWorkletNode !== "undefined") {
+        try {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              context.audioWorklet.addModule("/live-mic-capture-v1.js"),
+              new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Mic worklet timeout")), 2500); }),
+            ]);
+          } finally { clearTimeout(timer); }
+          if (attempt !== callAttempt.current) return;
+          worklet = new AudioWorkletNode(context, "live-mic-capture", {
+            channelCount: 1, channelCountMode: "explicit", outputChannelCount: [1],
+          });
+        } catch { /* Older browsers fall back to MediaRecorder below. */ }
+      }
+      if (attempt !== callAttempt.current) return;
+      if (!worklet && typeof MediaRecorder === "undefined") {
+        endCall(); setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return;
+      }
+      running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
+
+      if (worklet) {
+        micWorkletRef.current = worklet;
+        const capture = new SpeechTurnBuffer(context.sampleRate);
+        worklet.port.onmessage = ({data}: MessageEvent<Float32Array>) => {
+          if (!running.current || attempt !== callAttempt.current || idle()) return;
+          const event = capture.push(data, phaseRef.current === "speaking");
+          recordingRef.current = capture.recording;
+          if (event.started) onSpeechStart();
+          if (event.completed) void onSpeech(encodeSpeechWav(event.completed, context.sampleRate));
+        };
+        worklet.onprocessorerror = () => {
+          if (attempt === callAttempt.current && running.current) { endCall(); setError("마이크 녹음이 멈췄어. 다시 연결해 줘."); }
+        };
+        // The processor emits silence; the destination keeps the capture graph running.
+        micInput.connect(worklet).connect(context.destination);
+        return;
+      }
+
+      const analyser = context.createAnalyser(); analyser.fftSize = 2048; micInput.connect(analyser);
+      const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(type => MediaRecorder.isTypeSupported(type));
 
       const beginUtterance = (time: number) => {
         if (!running.current || recordingRef.current || pendingEndRef.current) return;
@@ -679,7 +766,8 @@ export default function DokyeongLive() {
 
         recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
         recorder.onstop = () => {
-          if (recorderRef.current === recorder) recorderRef.current = null;
+          if (recorderRef.current !== recorder || attempt !== callAttempt.current) return;
+          recorderRef.current = null;
           recordingRef.current = false;
           pendingEndRef.current = false;
           if (!running.current || !chunks.length) return;
@@ -698,42 +786,26 @@ export default function DokyeongLive() {
         else pendingEndRef.current = false;
       };
 
-      stream.getAudioTracks()[0].onended = () => { if (running.current) { endCall(); setError("마이크가 끊겼어. 다시 연결해 줘."); } };
-      const data = new Float32Array(analyser.fftSize); let lastFrame = 0; let noise = 0.010;
+      const data = new Float32Array(analyser.fftSize); let lastFrame = 0; let noise = 0.0025;
       const loop = (time: number) => {
-        if (!running.current) return;
+        if (!running.current || attempt !== callAttempt.current || idle()) return;
         timerRef.current = requestAnimationFrame(loop);
-        if (time - lastFrame < 45) return; lastFrame = time;
+        if (time - lastFrame < 40) return; lastFrame = time;
         analyser.getFloatTimeDomainData(data);
-        let energy = 0; for (let i = 0; i < data.length; i++) energy += data[i] * data[i];
-        const rms = Math.sqrt(energy / data.length);
+        const rms = speechRms(data);
         const speaking = phaseRef.current === "speaking";
-        const justFinishedSpeaking = !speaking && time < listenBoostUntilRef.current;
-        const threshold = speaking
-          ? Math.max(0.045, noise * 3.2)
-          : justFinishedSpeaking
-            ? Math.max(0.0055, noise * 1.10)
-            : Math.max(0.0070, noise * 1.25);
+        const threshold = speechThresholds(noise, speaking);
+        if (!recordingRef.current && !speaking && rms < threshold.start) noise = noise * 0.985 + rms * 0.015;
+        loudRef.current = rms >= threshold.start ? loudRef.current + 1 : 0;
 
-        if (!recordingRef.current && !speaking && !justFinishedSpeaking && rms < threshold) noise = noise * 0.99 + rms * 0.01;
-        loudRef.current = rms > threshold ? loudRef.current + 1 : 0;
-
-        if (phaseRef.current === "listening" && !recordingRef.current && !pendingEndRef.current && time - lastInputAtRef.current >= 60_000) {
-          endCall();
-          setError("1분 동안 제대로 인식된 말이 없어서 마이크를 껐어.");
-          return;
-        }
-
-        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 2 : 1)) {
-          if (phaseRef.current === "speaking" || phaseRef.current === "thinking") interrupt();
+        if (!recordingRef.current && !pendingEndRef.current && loudRef.current >= (speaking ? 3 : 1)) {
           beginUtterance(time);
-          setMode("listening");
+          onSpeechStart();
         }
 
         if (recordingRef.current) {
-          if (rms > threshold * 0.45) voicedAtRef.current = time;
-          if (time - voicedAtRef.current > 900 && time - startedAtRef.current > 350) finishUtterance();
-          if (time - startedAtRef.current > 18_000) finishUtterance();
+          if (rms >= threshold.hold) voicedAtRef.current = time;
+          if (time - voicedAtRef.current >= 1100 || time - startedAtRef.current >= 25_000) finishUtterance();
         }
       };
       timerRef.current = requestAnimationFrame(loop);
