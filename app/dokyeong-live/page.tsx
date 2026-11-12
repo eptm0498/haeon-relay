@@ -11,7 +11,7 @@ import CallStage from "./CallStage";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { JIWOO_BEDTIME_OPENING, jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
+import { JIWOO_AFFECTION_PHOTOS, JIWOO_BEDTIME_OPENING, jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
 import { useBackSwipe } from "./useBackSwipe";
 
@@ -330,7 +330,7 @@ export default function DokyeongLive() {
   const changeJiwooPhoto = useCallback((candidates: readonly number[] | null = null) => {
     if (!running.current || !isVoiceOnlyCharacter(characterIdRef.current)) return;
     const now = performance.now();
-    if (jiwooRecentPhotos.current.length > 1 && now - jiwooLastPhotoAt.current < 6000) return;
+    if (candidates !== JIWOO_AFFECTION_PHOTOS && jiwooRecentPhotos.current.length > 1 && now - jiwooLastPhotoAt.current < 6000) return;
     const next = pickJiwooBedtimePhoto(candidates, jiwooRecentPhotos.current);
     if (!next) return;
     jiwooRecentPhotos.current = [next, ...jiwooRecentPhotos.current].slice(0, 4);

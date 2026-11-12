@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { JIWOO_BEDTIME_SCENES, jiwooBedtimeCue, jiwooBedtimePhotoId, pickJiwooBedtimePhoto } from '../lib/dokyeong/jiwoo-bedtime.ts';
+import { JIWOO_AFFECTION_PHOTOS, JIWOO_BEDTIME_SCENES, jiwooBedtimeCue, jiwooBedtimePhotoId, pickJiwooBedtimePhoto } from '../lib/dokyeong/jiwoo-bedtime.ts';
 import { isCallPhotoId } from '../lib/dokyeong/call-scenes.ts';
 
 test('bedtime dialogue selects related photos and ordinary chat leaves the scene alone', () => {
@@ -21,6 +21,17 @@ test('all new embraces can be selected for hugs and eye contact', () => {
   }
 });
 
+test('requests for affection take priority over hug, chest, and sleep cues', () => {
+  for (const line of ['오구오구 해줘', '오구, 오구', '나 좀 예뻐해 줘', '귀엽다고 해줘', '가슴에 안아주고 사랑한다고 말해 줘', '이불 덮고 같이 자면서 토닥토닥해 줘']) {
+    assert.equal(jiwooBedtimeCue(line), JIWOO_AFFECTION_PHOTOS);
+  }
+  assert.equal(jiwooBedtimeCue('오늘 하늘이 너무 예뻐.'), null);
+  const ids = JIWOO_AFFECTION_PHOTOS.map(jiwooBedtimePhotoId);
+  assert.equal(ids.length, 10);
+  assert.deepEqual(ids.map((_, i) => pickJiwooBedtimePhoto(JIWOO_AFFECTION_PHOTOS, [], () => (i + 0.5) / ids.length)), ids);
+  assert.equal(pickJiwooBedtimePhoto(JIWOO_AFFECTION_PHOTOS, ids.slice(0, 4), () => 0), ids[4]);
+});
+
 test('chest and abdomen close-ups take priority over a generic sleep cue', () => {
   const options = jiwooBedtimeCue('지우 가슴에 기대서 같이 자자');
   assert.deepEqual(options, [11, 12, 13, 15, 17, 18, 20, 21, 22]);
@@ -36,7 +47,7 @@ test('chest and abdomen close-ups take priority over a generic sleep cue', () =>
 
 test('random rotation can reach every private photo and skips the recent shots', () => {
   const ids = JIWOO_BEDTIME_SCENES.map((_, i) => jiwooBedtimePhotoId(i + 1));
-  assert.equal(ids.length, 32);
+  assert.equal(ids.length, 42);
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(ids.every(isCallPhotoId));
   assert.deepEqual(ids.map((_, i) => pickJiwooBedtimePhoto(null, [], () => (i + 0.5) / ids.length)), ids);
