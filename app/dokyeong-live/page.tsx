@@ -11,7 +11,7 @@ import CallStage from "./CallStage";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
+import { JIWOO_BEDTIME_OPENING, jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
 import { useBackSwipe } from "./useBackSwipe";
 
@@ -750,7 +750,7 @@ export default function DokyeongLive() {
         endCall(); setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return;
       }
       running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
-      if (!callPhotoRef.current) changeJiwooPhoto([1, 2, 3, 9]);
+      if (!callPhotoRef.current) changeJiwooPhoto(JIWOO_BEDTIME_OPENING);
 
       if (worklet) {
         micWorkletRef.current = worklet;

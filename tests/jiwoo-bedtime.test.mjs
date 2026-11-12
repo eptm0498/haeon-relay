@@ -12,11 +12,18 @@ test('bedtime dialogue selects related photos and ordinary chat leaves the scene
   assert.equal(jiwooBedtimeCue('오늘 학원에서 수업이 길었어.'), null);
 });
 
-test('random rotation can reach all ten private photos and skips the recent shots', () => {
+test('the new close-up takes priority over a generic sleep cue, and stays put if already shown', () => {
+  const options = jiwooBedtimeCue('지우 가슴에 기대서 같이 자자');
+  assert.deepEqual(options, [11]);
+  assert.equal(pickJiwooBedtimePhoto(options, [], () => 0), jiwooBedtimePhotoId(11));
+  assert.equal(pickJiwooBedtimePhoto(options, [jiwooBedtimePhotoId(11)], () => 0), null);
+});
+
+test('random rotation can reach all eleven private photos and skips the recent shots', () => {
   const ids = JIWOO_BEDTIME_SCENES.map((_, i) => jiwooBedtimePhotoId(i + 1));
-  assert.equal(new Set(ids).size, 10);
+  assert.equal(new Set(ids).size, 11);
   assert.ok(ids.every(isCallPhotoId));
-  assert.equal(pickJiwooBedtimePhoto(null, [], () => 0.99), ids[9]);
+  assert.deepEqual(ids.map((_, i) => pickJiwooBedtimePhoto(null, [], () => (i + 0.5) / ids.length)), ids);
   assert.equal(pickJiwooBedtimePhoto(null, ids.slice(0, 4), () => 0), ids[4]);
   assert.equal(pickJiwooBedtimePhoto([1, 2], ids.slice(0, 4), () => 0), ids[1]);
 });
