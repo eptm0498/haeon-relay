@@ -11,6 +11,7 @@ import CallStage from "./CallStage";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
+import { jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
 import { useBackSwipe } from "./useBackSwipe";
 
@@ -151,6 +152,8 @@ export default function DokyeongLive() {
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const callPhotoRef = useRef<string | null>(null);
+  const jiwooRecentPhotos = useRef<string[]>([]);
+  const jiwooLastPhotoAt = useRef(0);
   const callAttempt = useRef(0);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
@@ -321,8 +324,20 @@ export default function DokyeongLive() {
     callAttempt.current++;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
+    jiwooRecentPhotos.current = []; jiwooLastPhotoAt.current = 0;
     setMode("off"); setNeedsTap(false);
   }, [interrupt, closeMic, releaseWakeLock]);
+  const changeJiwooPhoto = useCallback((candidates: readonly number[] | null = null) => {
+    if (!running.current || !isVoiceOnlyCharacter(characterIdRef.current)) return;
+    const now = performance.now();
+    if (jiwooRecentPhotos.current.length > 1 && now - jiwooLastPhotoAt.current < 6000) return;
+    const next = pickJiwooBedtimePhoto(candidates, jiwooRecentPhotos.current);
+    if (!next) return;
+    jiwooRecentPhotos.current = [next, ...jiwooRecentPhotos.current].slice(0, 4);
+    jiwooLastPhotoAt.current = now;
+    callPhotoRef.current = next;
+    setCallPhoto(next);
+  }, []);
   useEffect(() => () => {
     callAttempt.current++;
     running.current = false;
@@ -664,7 +679,13 @@ export default function DokyeongLive() {
     if (controller.signal.aborted || !running.current || recordingRef.current || pendingEndRef.current) return;
     const text = recognizedRef.current.join(" ");
     recognizedRef.current = [];
-    if (text) await reply(text);
+    if (text) {
+      if (isVoiceOnlyCharacter(characterIdRef.current)) {
+        const cue = jiwooBedtimeCue(text);
+        if (cue) changeJiwooPhoto(cue);
+      }
+      await reply(text);
+    }
     else {
       setError(previous => previous || "말을 잘 못 들었어. 한 번만 다시 말해줘.");
       setMode("listening");
@@ -729,6 +750,7 @@ export default function DokyeongLive() {
         endCall(); setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return;
       }
       running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
+      if (!callPhotoRef.current) changeJiwooPhoto([1, 2, 3, 9]);
 
       if (worklet) {
         micWorkletRef.current = worklet;
@@ -958,6 +980,19 @@ export default function DokyeongLive() {
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const callOpen = chatMode === "voice" && (running.current || phase === "paused");
+  const rotateJiwooPhoto = callOpen && voiceOnly && phase !== "paused" && !!status?.authenticated;
+  useEffect(() => {
+    if (!rotateJiwooPhoto) return;
+    let timer: number;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (!document.hidden) changeJiwooPhoto();
+        schedule();
+      }, 26_000 + Math.random() * 12_000);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [rotateJiwooPhoto, callPhoto, changeJiwooPhoto]);
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
 
@@ -1187,7 +1222,7 @@ export default function DokyeongLive() {
         </button>
       </div>}
 
-      {status?.authenticated && callOpen && <CallStage
+      {status?.authenticated && callOpen && <CallStage key={characterId}
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         speaking={phase === "speaking"} voice={voice}

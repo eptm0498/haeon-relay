@@ -23,13 +23,18 @@ type Props = {
 
 export default function CallStage(props: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [loaded, setLoaded] = useState<string | null>(null);
+  const [{ loaded, previous }, setLayers] = useState<{ loaded: string | null; previous: string | null }>({ loaded: null, previous: null });
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
     return () => element?.close();
   }, []);
-  const layers = props.scene ? [...new Set([loaded, props.scene].filter((src): src is string => !!src))] : [];
+  useEffect(() => {
+    if (!previous) return;
+    const timer = window.setTimeout(() => setLayers(state => ({ ...state, previous: null })), 260);
+    return () => window.clearTimeout(timer);
+  }, [loaded, previous]);
+  const layers = props.scene ? [...new Set([previous, loaded, props.scene].filter((src): src is string => !!src))] : [];
   return <dialog ref={dialog} className={styles.callStage} aria-label={`${props.name} 음성 통화`}
     onCancel={event => { event.preventDefault(); props.onEnd(); }}>
     <div className={styles.callStagePhoto} aria-hidden="true">
@@ -37,8 +42,9 @@ export default function CallStage(props: Props) {
       {layers.map(src => (
         // eslint-disable-next-line @next/next/no-img-element
         <img key={src} src={src} alt="" draggable={false} data-visible={src === loaded}
-          onLoad={() => { if (src === props.scene) setLoaded(src); }}
-          onError={() => { if (src === props.scene) setLoaded(null); }} />
+          onLoad={() => {
+            if (src === props.scene) setLayers(state => state.loaded === src ? state : { loaded: src, previous: state.loaded });
+          }} />
       ))}
     </div>
     <div className={styles.callStageContent}>
