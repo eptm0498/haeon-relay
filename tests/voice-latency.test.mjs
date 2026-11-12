@@ -25,7 +25,7 @@ function fixture({linked=false,photos}={}){
  const mocks={
   'next/server':{after:()=>assert.fail('no background mutations for a diagnostic turn')},
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
-  '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v4_turbo',dialogueOutputFormat:'pcm_24000'}}},
+  '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v3_conversational',dialogueOutputFormat:'pcm_24000'}}},
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:'fixture-character',name:'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
@@ -59,6 +59,10 @@ function fixture({linked=false,photos}={}){
 test('independent context reads start together and the voice socket opens before model headers',{timeout:3000},async()=>{
  const f=fixture();await tick();assert.deepEqual(f.started.sort(),['activity','memory','project','samples']);
  f.contextReady();await tick();assert.equal(f.sockets.length,1);assert.equal(f.fetchCalled,true);
+ const socketUrl=new URL(f.sockets[0].url);
+ assert.equal(socketUrl.pathname,'/v1/text-to-dialogue/stream-input');
+ assert.equal(socketUrl.searchParams.get('model_id'),'eleven_v3_conversational');
+ assert.equal(socketUrl.searchParams.get('output_format'),'pcm_24000');
  f.gates.headers.resolve(Response.json({},{status:500}));
  assert.equal((await f.pending).status,502);assert.equal(f.sockets[0].readyState,3);
 });
@@ -73,7 +77,7 @@ test('the first sentence can play before later model text and all final audio is
  assert.ok(!events.some(e=>e.type==='text_done'));assert.equal(f.sockets[0].readyState,1);
  f.frame(' 계속 이야기할게.');f.input.close();
  while(true){const {value,done}=await reader.read();if(done)break;events.push(...new TextDecoder().decode(value).trim().split('\n').map(JSON.parse));}
- const complete=events.find(e=>e.type==='done');assert.equal(complete.text,'안녕. 계속 이야기할게.');assert.equal(complete.audioModel,'eleven_v4_turbo');
+ const complete=events.find(e=>e.type==='done');assert.equal(complete.text,'안녕. 계속 이야기할게.');assert.equal(complete.audioModel,'eleven_v3_conversational');
  assert.ok(complete.timings.firstAudioMs<complete.timings.textDoneMs);assert.ok(events.some(e=>e.type==='audio_done'));
  assert.equal(f.sockets.length,1);assert.equal(f.sockets[0].readyState,3);
 });

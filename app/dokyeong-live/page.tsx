@@ -143,7 +143,6 @@ export default function DokyeongLive() {
   const [partial, setPartial] = useState("");
   const [generatingPhoto, setGeneratingPhoto] = useState(false);
   const [voice, setVoice] = useState(true);
-  const [captions, setCaptions] = useState(true);
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
@@ -151,7 +150,6 @@ export default function DokyeongLive() {
   const [startingCall, setStartingCall] = useState(false);
   const callPhotoRef = useRef<string | null>(null);
   const callAttempt = useRef(0);
-  const callStartedAt = useRef(0);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -315,7 +313,7 @@ export default function DokyeongLive() {
   const endCall = useCallback(() => {
     callAttempt.current++;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
-    callStartedAt.current = 0; callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
+    callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     setMode("off"); setNeedsTap(false);
   }, [interrupt, closeMic, releaseWakeLock]);
   useEffect(() => () => {
@@ -391,7 +389,7 @@ export default function DokyeongLive() {
 
   function queueSpeech(text: string, turn: number) {
     if (chatModeRef.current !== "voice" || !voice || turn !== generation.current) return;
-    // Keep chat reactions in captions, but do not ask TTS to pronounce them.
+    // Keep chat reactions in the history, but do not ask TTS to pronounce them.
     const spokenText = text.replace(/[ㅋㅎㅠㅜ]+/g, "").replace(/^[\s,;:.!?]+/, "").replace(/\s{2,}/g, " ").trim();
     if (!/[\p{L}\p{N}]/u.test(spokenText)) return;
     const controller = new AbortController(); audioAbortRef.current.add(controller);
@@ -663,7 +661,6 @@ export default function DokyeongLive() {
       if (attempt !== callAttempt.current) return;
       const source = context.createMediaStreamSource(stream); const analyser = context.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) => MediaRecorder.isTypeSupported(type));
-      if (!callStartedAt.current) callStartedAt.current = Date.now();
       recorderRef.current = null; running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
 
       const beginUtterance = (time: number) => {
@@ -887,10 +884,8 @@ export default function DokyeongLive() {
   },[sharedHistory.histories,companion.state.characters,view,characterId]);
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
-  const showMessages = chatMode === "text" || captions;
   const callOpen = chatMode === "voice" && (running.current || phase === "paused");
-  const latestMessage = messages.at(-1);
-  const callCaption = partial || (latestMessage?.role === "assistant" && (latestMessage.ts ?? 0) >= callStartedAt.current ? latestMessage.content : "");
+  const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
 
   if ((view === "list" || !activeCharacter) && status?.authenticated !== false) {
@@ -1070,7 +1065,6 @@ export default function DokyeongLive() {
           <span>{chatMode === "text" ? "메시지를 보내서 대화를 시작해." : "아래 통화 버튼을 누르면 바로 이야기할 수 있어."}</span>
         </div>}
 
-        {status?.authenticated && chatMode === "voice" && !captions && <div className={styles.systemBubble}>음성 채팅 중 · 자막 꺼짐</div>}
         {status?.authenticated && !historyReady && <div className={styles.systemBubble}>대화 기록을 동기화하고 있어.</div>}
         <ImageJobTray state={imageJobs}/>
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
@@ -1113,11 +1107,10 @@ export default function DokyeongLive() {
 
       {status?.authenticated && callOpen && <CallStage
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
-        status={phase === "thinking" ? "생각 중" : labels[phase]} caption={callCaption} error={error} paused={phase === "paused"} reconnecting={startingCall}
-        speaking={phase === "speaking"} voice={voice} captions={captions}
+        status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
+        speaking={phase === "speaking"} voice={voice}
         onEnd={closeVoicePanel} onResume={() => { if (startingCall) return; closeMic(); running.current = false; void startCall(); }}
         onInterrupt={interrupt} onToggleVoice={() => { setVoice(!voice); if (voice) stopAudio(); }}
-        onToggleCaptions={() => setCaptions(!captions)}
       />}
 
       {status?.authenticated && chatMode === "voice" && !callOpen && <>
@@ -1133,7 +1126,6 @@ export default function DokyeongLive() {
         <div className={styles.voiceActions}>
           <button className={styles.voiceSideButton} onClick={() => { setVoice(!voice); if (voice) stopAudio(); }} aria-pressed={voice}><span>{voice ? "🔊" : "🔇"}</span><small>음성</small></button>
           <button className={[styles.callButton, running.current && phase !== "paused" ? styles.endButton : ""].filter(Boolean).join(" ")} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready || !historyReady || resetting || startingCall} aria-label={running.current && phase !== "paused" ? "통화 종료" : "통화 시작"}>{running.current && phase !== "paused" ? "■" : "●"}</button>
-          <button className={styles.voiceSideButton} onClick={() => setCaptions(!captions)} aria-pressed={captions}><span>▤</span><small>자막</small></button>
         </div>
         {phase === "speaking" && <button className={styles.interruptButton} onClick={interrupt}>말 끊기</button>}
       </section>

@@ -131,8 +131,7 @@
 .callStageHeader h1{font-size:clamp(23px,4vw,36px);margin:0 0 3px;line-height:1.2}
 .callStageHeader span{font-size:13px;color:#fff}
 .callStageBottom{width:min(100%,560px);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
-.callStageCaption,.callStageNotice{margin:0;max-width:100%;max-height:27dvh;overflow:auto;overflow-wrap:anywhere;background:#151515cb;border-radius:14px;padding:9px 13px;font-size:15px;line-height:1.45}
-.callStageNotice{font-size:13px}
+.callStageNotice{margin:0;max-width:100%;max-height:27dvh;overflow:auto;overflow-wrap:anywhere;background:#151515cb;border-radius:14px;padding:9px 13px;font-size:13px;line-height:1.45}
 .callStageActions{display:flex;justify-content:center;gap:clamp(8px,4vw,24px);align-items:flex-end}
 .callStageControl,.callStageInterrupt{border:0;color:#fff;background:none;cursor:pointer}
 .callStageControl{display:grid;justify-items:center;gap:4px;min-width:52px;padding:0}

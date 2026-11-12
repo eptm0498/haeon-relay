@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Captions, Mic, PhoneOff, Volume2, VolumeX } from "lucide-react";
+import { Mic, PhoneOff, Volume2, VolumeX } from "lucide-react";
 import CharacterAvatar from "./CharacterAvatar";
 import styles from "./live.module.css";
 
@@ -10,18 +10,15 @@ type Props = {
   avatar?: string | null;
   scene?: string | null;
   status: string;
-  caption: string;
   error: string;
   paused: boolean;
   reconnecting: boolean;
   speaking: boolean;
   voice: boolean;
-  captions: boolean;
   onEnd: () => void;
   onResume: () => void;
   onInterrupt: () => void;
   onToggleVoice: () => void;
-  onToggleCaptions: () => void;
 };
 
 export default function CallStage(props: Props) {
@@ -52,7 +49,6 @@ export default function CallStage(props: Props) {
       <div className={styles.callStageBottom}>
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
         {props.paused && <p className={styles.callStageNotice}>이어서 통화하려면 마이크 버튼을 눌러 줘.</p>}
-        {props.captions && !props.paused && props.caption && <p className={styles.callStageCaption}>{props.caption}</p>}
         {props.speaking && <button type="button" className={styles.callStageInterrupt} onClick={props.onInterrupt}>말 끊기</button>}
         <div className={styles.callStageActions}>
           <button type="button" className={styles.callStageControl} onClick={props.onToggleVoice} aria-pressed={props.voice} aria-label="상대 음성">
@@ -63,9 +59,6 @@ export default function CallStage(props: Props) {
           </button>}
           <button type="button" className={`${styles.callStageControl} ${styles.callStageHangup}`} onClick={props.onEnd} aria-label="통화 종료">
             <span><PhoneOff /></span><small>종료</small>
-          </button>
-          <button type="button" className={styles.callStageControl} onClick={props.onToggleCaptions} aria-pressed={props.captions} aria-label="자막">
-            <span><Captions /></span><small>자막</small>
           </button>
         </div>
       </div>

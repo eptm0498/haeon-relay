@@ -14,6 +14,9 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-latency]')){
  const call=(origin,path,body)=>fetch(origin+path,{headers:headers(origin),...(body?{method:'POST',body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(75000)});
  const server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-p','3196','-H','127.0.0.1'],{stdio:'ignore'});
  async function measure(origin,label,characterId){
+  const status=await call(origin,'/api/dokyeong/status');
+  const expectedModel=(await status.json()).audio?.realtimeModel;
+  if(!expectedModel)throw Error('Missing realtime speech configuration');
   const start=performance.now();let firstTextMs,firstAudioMs,model,serverTimings,completed=false,code,audioChunks=0,bytes=0;
   const response=await call(origin,'/api/dokyeong/respond',{characterId,voice:true,realtime:true,messages:[{role:'user',content:'사진 보내지 말고, 음성 속도 확인용으로 인사 한 문장만 해줘.'}]});
   if(!response.ok||!response.body){
@@ -39,7 +42,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-latency]')){
    }
   }
   console.log('VOICE_LATENCY_PROBE',JSON.stringify({label,state:completed?'streamed':'unavailable',firstTextMs,firstAudioMs,totalMs:Math.round(performance.now()-start),model,audioChunks,bytes,code,serverTimings}));
-  if(completed&&(model!=='eleven_v4_turbo'||!bytes))throw Error('Unexpected realtime speech configuration');
+  if(completed&&(model!==expectedModel||!bytes))throw Error('Unexpected realtime speech configuration');
   if(label==='updated'&&audioChunks&&!completed)throw Error('Updated audio was truncated');
  }
  try{

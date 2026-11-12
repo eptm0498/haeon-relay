@@ -4,7 +4,7 @@ The voice response route reads activity, dialogue samples, accumulated memory an
 project context concurrently after the character is authorized and loaded. No
 memory or dialogue examples are removed, cached across characters or shortened.
 
-The Eleven v4 Turbo socket opens while Gemini prepares response headers. A
+The Eleven v3 Conversational socket opens while Gemini prepares response headers. A
 10-second keep-alive prevents an idle prewarmed socket from expiring, and every
 error, HTTP failure, stream cancellation and normal completion releases it.
 

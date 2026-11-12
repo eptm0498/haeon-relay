@@ -17,7 +17,7 @@ async function speech(responses,{backup=true}={}){
  const calls=[];const exports={};
  const mocks={
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
-  '@/lib/dokyeong/config':{liveConfig:{elevenlabs:{dialogueModelId:'eleven_v4',fallbackModelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128'}}},
+  '@/lib/dokyeong/config':{liveConfig:{elevenlabs:{dialogueModelId:'eleven_v3',fallbackModelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128'}}},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice',prompt:'기존 캐릭터 설정'})},
   '@/lib/dokyeong/project-dialogue':projectDialogue,
   '@/lib/dokyeong/voice-failure':{voiceFailure},
@@ -43,7 +43,8 @@ test('payment blocks never call OpenAI even when its key is configured',async()=
 test('healthy preferred voice returns without invoking backup',async()=>{
  const {result,calls}=await speech([audio()]);
  assert.equal(calls.length,1);assert.equal(calls[0].body.inputs[0].voice_id,'saved-character-voice');
- assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),'eleven_v4');
+ assert.equal(calls[0].body.model_id,'eleven_v3');
+ assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),'eleven_v3');
  assert.equal(result.headers.get('X-Dokyeong-TTS-Provider'),null);
 });
 test('transient model failure retains the character voice through Flash',async()=>{
@@ -71,7 +72,7 @@ function bridgeHarness(){
  }
  const source=fs.readFileSync(new URL('../app/api/dokyeong/respond/route.ts',import.meta.url),'utf8')+'\nexports.testBridge=createDialogueBridge;';
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-  exports,require:name=>name.endsWith('/config')?{liveConfig:{elevenlabs:{dialogueRealtimeModelId:'eleven_v4_turbo',dialogueOutputFormat:'pcm_24000'}}}:name.endsWith('/voice-failure')?{voiceFailure}:{},
+  exports,require:name=>name.endsWith('/config')?{liveConfig:{elevenlabs:{dialogueRealtimeModelId:'eleven_v3_conversational',dialogueOutputFormat:'pcm_24000'}}}:name.endsWith('/voice-failure')?{voiceFailure}:{},
   process:{env:{ELEVENLABS_API_KEY:'test-only'}},console:{warn:()=>{}},WebSocket:Socket,ArrayBuffer,TextDecoder,Blob,
   setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;}
  });
