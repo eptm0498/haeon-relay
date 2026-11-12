@@ -11,7 +11,7 @@ import CallStage from "./CallStage";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { JIWOO_AFFECTION_PHOTOS, JIWOO_BEDTIME_OPENING, jiwooBedtimeCue, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
+import { jiwooBedtimeCue, jiwooScenePhotos, pickJiwooBedtimePhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
 import { useBackSwipe } from "./useBackSwipe";
 
@@ -49,6 +49,20 @@ function storeSleepModeUntil(characterId: string, until: number) {
     const saved = Number(localStorage.getItem(sleepModeKey(characterId)) || 0);
     if (saved && saved <= Date.now()) localStorage.removeItem(sleepModeKey(characterId));
   }, Math.max(0, until - Date.now()) + 250);
+}
+
+const jiwooPhotoCountsKey = "character-live-jiwoo-photo-counts-v1";
+
+function loadJiwooPhotoCounts(): Record<string, number> {
+  try {
+    const value = JSON.parse(localStorage.getItem(jiwooPhotoCountsKey) ?? "{}");
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] => {
+      const [id, count] = entry;
+      return isCallPhotoId(id) && typeof count === "number" && Number.isSafeInteger(count) && count >= 0;
+    }));
+  } catch {
+    return {};
+  }
 }
 
 const API = "/api/dokyeong";
@@ -153,6 +167,7 @@ export default function DokyeongLive() {
   const [startingCall, setStartingCall] = useState(false);
   const callPhotoRef = useRef<string | null>(null);
   const jiwooRecentPhotos = useRef<string[]>([]);
+  const jiwooPhotoCounts = useRef<Record<string, number> | null>(null);
   const jiwooLastPhotoAt = useRef(0);
   const callAttempt = useRef(0);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
@@ -324,15 +339,18 @@ export default function DokyeongLive() {
     callAttempt.current++;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
-    jiwooRecentPhotos.current = []; jiwooLastPhotoAt.current = 0;
+    jiwooLastPhotoAt.current = 0;
     setMode("off"); setNeedsTap(false);
   }, [interrupt, closeMic, releaseWakeLock]);
   const changeJiwooPhoto = useCallback((candidates: readonly number[] | null = null) => {
     if (!running.current || !isVoiceOnlyCharacter(characterIdRef.current)) return;
     const now = performance.now();
-    if (candidates !== JIWOO_AFFECTION_PHOTOS && jiwooRecentPhotos.current.length > 1 && now - jiwooLastPhotoAt.current < 6000) return;
-    const next = pickJiwooBedtimePhoto(candidates, jiwooRecentPhotos.current);
+    if (!candidates && jiwooLastPhotoAt.current > 0 && now - jiwooLastPhotoAt.current < 6000) return;
+    const counts = jiwooPhotoCounts.current ??= loadJiwooPhotoCounts();
+    const next = pickJiwooBedtimePhoto(candidates, jiwooRecentPhotos.current, counts);
     if (!next) return;
+    counts[next] = (counts[next] ?? 0) + 1;
+    try { localStorage.setItem(jiwooPhotoCountsKey, JSON.stringify(counts)); } catch {}
     jiwooRecentPhotos.current = [next, ...jiwooRecentPhotos.current].slice(0, 4);
     jiwooLastPhotoAt.current = now;
     callPhotoRef.current = next;
@@ -442,6 +460,8 @@ export default function DokyeongLive() {
     let full = "";
     let complete = false;
     let textCommitted = false;
+    const jiwooCue = voiceOnly ? jiwooBedtimeCue(text) : null;
+    let jiwooSceneHandled = false;
     let gotStreamingAudio = false;
     let streamingAudioComplete = false;
     let firstAudio = true;
@@ -559,6 +579,11 @@ export default function DokyeongLive() {
             callPhotoRef.current = event.id;
             setCallPhoto(event.id);
           }
+          if (event.type === "jiwoo_scene" && voiceOnly && !jiwooSceneHandled && running.current && requestCharacterId === characterIdRef.current) {
+            const photos = jiwooScenePhotos(event.id);
+            jiwooSceneHandled = event.id === null || photos !== null;
+            if (photos) changeJiwooPhoto(photos);
+          }
           if(event.type==="queued"){setPartial("");return;}
           if(event.type==="photo" && typeof event.scene==="string") {photoPlan={scene:event.scene,waitMessage:event.waitMessage||"잠깐만, 사진 찍어서 보내줄게."};setPartial("");}
           if (event.type === "delta" && typeof event.text === "string") {
@@ -567,6 +592,10 @@ export default function DokyeongLive() {
           }
 
           if (event.type === "text_done") {
+            if (!jiwooSceneHandled && jiwooCue) {
+              jiwooSceneHandled = true;
+              changeJiwooPhoto(jiwooCue);
+            }
             if (typeof event.text === "string" && event.text.trim()) full = event.text;
             commitText(full);
           }
@@ -680,10 +709,6 @@ export default function DokyeongLive() {
     const text = recognizedRef.current.join(" ");
     recognizedRef.current = [];
     if (text) {
-      if (isVoiceOnlyCharacter(characterIdRef.current)) {
-        const cue = jiwooBedtimeCue(text);
-        if (cue) changeJiwooPhoto(cue);
-      }
       await reply(text);
     }
     else {
@@ -750,7 +775,7 @@ export default function DokyeongLive() {
         endCall(); setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return;
       }
       running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
-      if (!callPhotoRef.current) changeJiwooPhoto(JIWOO_BEDTIME_OPENING);
+      if (!callPhotoRef.current) changeJiwooPhoto();
 
       if (worklet) {
         micWorkletRef.current = worklet;
@@ -992,7 +1017,7 @@ export default function DokyeongLive() {
     };
     schedule();
     return () => window.clearTimeout(timer);
-  }, [rotateJiwooPhoto, callPhoto, changeJiwooPhoto]);
+  }, [rotateJiwooPhoto, changeJiwooPhoto]);
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
 

@@ -5,12 +5,13 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as dialogue from '../lib/dokyeong/project-dialogue.ts';
 import * as characterModes from '../lib/dokyeong/character-modes.ts';
+import * as jiwooBedtime from '../lib/dokyeong/jiwoo-bedtime.ts';
 import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,voiceOnly=false,realtime=true}={}){
+function fixture({linked=false,photos,voiceOnly=false,realtime=true,messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[];let input,clock=0,fetchCalled=false,modelBody;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -29,6 +30,7 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true}={}){
   '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v3_conversational',dialogueOutputFormat:'pcm_24000'}}},
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
+  '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
   '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>{assert.ok(!voiceOnly,'no call photo lookup');return photos||[];}},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:voiceOnly?characterModes.VOICE_ONLY_JIWOO_ID:'fixture-character',name:voiceOnly?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
   '@/lib/dokyeong/memory':{memoryContext:()=>read('memory'),serverRpc:(_,body)=>{assert.equal(body.action,'activity');return read('activity');}},
@@ -51,7 +53,7 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true}={}){
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(_url,init)=>{fetchCalled=true;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:realtime,realtime,callPhoto:photos?null:undefined,messages:[{role:'user',content:'안녕'}]})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:realtime,realtime,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -131,4 +133,19 @@ test('standalone Jiwoo uses only voice and never requests project or image gener
  assert.ok(events.some(e=>e.type==='audio_done'));
  assert.ok(!events.some(e=>e.type==='call_photo'||e.type==='photo'));
  assert.deepEqual(call.repairs,[]);
+});
+
+test('Jiwoo gets conversational context and keeps its scene marker out of spoken dialogue',{timeout:3000},async()=>{
+ const messages=[{role:'assistant',content:'더 꼭 안아줄까?'},{role:'user',content:'응, 그렇게 해줘.'}];
+ const f=fixture({voiceOnly:true,messages});
+ await tick();f.contextReady();await tick();f.sockets[0].open();
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/직전 대화/);
+ assert.deepEqual(f.modelBody.contents.map(turn=>turn.parts[0].text),messages.map(turn=>turn.content));
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('[CALL_');f.frame('SCENE:4]');f.frame('\n이리 와.');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(events[0],{type:'jiwoo_scene',id:'closeHug'});
+ assert.equal(events.find(e=>e.type==='done').text,'이리 와.');
+ assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
 });

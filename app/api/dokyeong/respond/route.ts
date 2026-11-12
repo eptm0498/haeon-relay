@@ -8,6 +8,7 @@ import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
+import { JIWOO_CALL_SCENES, JIWOO_CALL_SCENE_PROMPT } from "@/lib/dokyeong/jiwoo-bedtime";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
@@ -401,7 +402,9 @@ export async function POST(request: NextRequest) {
   // sending any text or generating paid audio before it is actually needed.
   let sendAudio: ((event: object) => void) | undefined;
   const dialogue = wantVoice ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || voiceOnly) : null;
-  const result = await requestGemini(messages, prompt + callScenePrompt(callPhotos ?? [], currentPhoto ?? null), request.signal, !voiceOnly);
+  const sceneOptions = voiceOnly ? JIWOO_CALL_SCENES : callPhotos ?? [];
+  const scenePrompt = voiceOnly ? JIWOO_CALL_SCENE_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null);
+  const result = await requestGemini(messages, prompt + scenePrompt, request.signal, !voiceOnly);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -490,8 +493,11 @@ export async function POST(request: NextRequest) {
         segment();
       };
 
-      const sceneReader = callSceneReader(callPhotos ?? [],
-        id => { if (id !== currentPhoto) send({ type: "call_photo", id }); },
+      const sceneReader = callSceneReader(sceneOptions,
+        id => {
+          if (voiceOnly) send({ type: "jiwoo_scene", id });
+          else if (id !== currentPhoto) send({ type: "call_photo", id });
+        },
         text => { if (linked || voiceOnly) linkedOutput += text; else emitText(text); },
       );
       const processGeminiFrame = (frame: string) => {

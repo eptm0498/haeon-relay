@@ -43,32 +43,72 @@ export const JIWOO_BEDTIME_SCENES = [
   "따뜻한 조명 아래 이불을 볼 가까이 덮어 주며 보조개가 보이도록 웃는 지우",
 ] as const;
 
-export const JIWOO_BEDTIME_OPENING = [1, 2, 3, 9, 11, 12, 13, 15] as const;
 export const JIWOO_AFFECTION_PHOTOS = [33, 34, 35, 36, 37, 38, 39, 40, 41, 42] as const;
 export const jiwooBedtimePhotoId = (slot: number) => `2b63befd-0ab8-4b7e-9e83-3fe03c7d${String(slot).padStart(4, "0")}`;
 
 const embraceSlots = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32] as const;
 
-const cues: [RegExp, readonly number[]][] = [
-  [/(?:오구|어구)[\s,.!?]*(?:오구|어구)|우쭈[\s,.!?]*쭈|(?:예뻐|이뻐|귀여워|사랑|아껴|토닥(?:토닥|여)?|쓰다듬어|애정\s*표현)\s*(?:좀\s*)?(?:해\s*)?(?:줘|주라|줄래)|(?:사랑한다고|귀엽다고)\s*(?:말\s*)?(?:해\s*)?(?:줘|주라|줄래)/, JIWOO_AFFECTION_PHOTOS],
-  [/배꼽|복부|(?:배|허리)\s*(?:를\s*)?(?:끌어\s*)?안(?:고|아|길|을|은|았)|배에\s*(?:얼굴|볼|귀|기대|고개)|허리\s*(?:를\s*)?감싸/, [14, 16, 19]],
-  [/쇄골|가슴\s*(?:팍|께|쪽|가까이|보여|을\s*(?:안|끌어안)|에\s*(?:기대|얼굴|볼|귀|고개|파묻))|품에\s*얼굴/, [11, 12, 13, 15, 17, 18, 20, 21, 22]],
-  [/불\s*(?:좀\s*)?(?:꺼|끄고|껐|끈)|소등|불빛\s*(?:줄|낮)/, [6, 5, 10]],
-  [/이불|담요|덮어\s*줘/, [8, 4]],
-  [/꽉\s*(?:안|껴안)|더\s*가까이|끌어\s*안|껴안/, [2, 10, 11, 12, 13, ...embraceSlots]],
-  [/잘\s*자|굿\s*나잇|같이\s*자|잠들|눈\s*(?:감|붙)|졸려|졸리/, [7, 10, 5, 18, 21]],
-  [/베개|마주\s*(?:봐|보고|보자)|눈\s*(?:마주|맞추|맞춰)/, [3, 9, ...embraceSlots]],
-  [/위로해|달래|다독|힘들었|기운\s*없/, [4, 9]],
-  [/안아\s*줘|안아\s*줄|안고\s*있|안길|포옹|(?:네|지우|너)\s*품|어깨에\s*기대|누워|눕자/, [1, 2, 3, ...embraceSlots]],
+const scenePhotos = {
+  affection: JIWOO_AFFECTION_PHOTOS,
+  abdomen: [14, 16, 19],
+  chest: [11, 12, 13, 15, 17, 18, 20, 21, 22],
+  closeHug: [2, 10, 11, 12, 13, ...embraceSlots],
+  sleep: [7, 10, 5, 18, 21],
+  comfort: [4, 9],
+  hug: [1, 2, 3, ...embraceSlots],
+} as const;
+
+export const JIWOO_CALL_SCENES = [
+  { id: "affection", situation: "지금 애정 표현, 귀여워해 주기, 칭찬, 오구오구, 다정한 말이나 쓰다듬기를 원함" },
+  { id: "abdomen", situation: "지우의 배나 허리에 기대거나 안고 싶어 함. 배꼽이나 복부를 보려는 말 포함" },
+  { id: "chest", situation: "지우의 가슴팍에 머리를 묻거나 쇄골 가까이 기대고 싶어 함" },
+  { id: "closeHug", situation: "더 가까이 오거나 더 꼭 끌어안아 주기를 바람" },
+  { id: "sleep", situation: "지금 함께 잠들거나 재워 주길 원함, 졸려 하거나 잠자리 인사를 함" },
+  { id: "comfort", situation: "지금 지쳤거나 속상해서 위로나 다독임이 필요한 흐름" },
+  { id: "hug", situation: "지우의 품이나 어깨에 기대거나 일반적으로 포옹하고 싶어 함" },
+];
+
+export const JIWOO_CALL_SCENE_PROMPT = `
+[지우 통화 화면]
+답변 맨 앞에 [CALL_SCENE:번호]를 한 번만 쓰고 줄을 바꾼 다음, 평소대로 말할 대사를 써. 이 표시는 대사에서 언급하지 마.
+번호와 장면은 다음과 같아.
+${JIWOO_CALL_SCENES.map(({ situation }, index) => `${index + 1}. ${situation}`).join("\n")}
+마지막 사용자 말의 의미와 직전 대화를 함께 봐. 말투나 표현이 달라도 뜻이 같으면 고르고, "좀 더", "응, 그렇게 해줘" 같은 후속 말은 직전 주제와 이어질 때만 해석해.
+애정 표현을 바라는 말은 포옹이나 잠자리 이야기가 섞여도 1을 골라. 그 외에는 현재 요청에서 구체적인 동작이나 상황에 가장 가까운 번호를 골라.
+평소 잡담, 과거의 이야기, 거절, 불이나 이불만 조절하는 말, 베개나 눈맞춤만 요청하는 말에는 0을 골라. 0일 때 사진은 자동으로 돌아가므로 대사에서 사진을 언급할 필요 없어.
+`;
+
+export function jiwooScenePhotos(id: unknown): readonly number[] | null {
+  return typeof id === "string" && Object.hasOwn(scenePhotos, id)
+    ? scenePhotos[id as keyof typeof scenePhotos]
+    : null;
+}
+
+const fallbackCues: [RegExp, keyof typeof scenePhotos][] = [
+  [/(?:오구|어구)[\s,.!?]*(?:오구|어구)|우쭈[\s,.!?]*쭈|(?:예뻐|이뻐|귀여워|사랑|아껴|토닥(?:토닥|여)?|쓰다듬어|애정\s*표현)\s*(?:좀\s*)?(?:해\s*)?(?:줘|주라|줄래)|(?:사랑한다고|귀엽다고)\s*(?:말\s*)?(?:해\s*)?(?:줘|주라|줄래)/, "affection"],
+  [/배꼽|복부|(?:배|허리)\s*(?:를\s*)?(?:끌어\s*)?안(?:고|아|길|을|은|았)|배에\s*(?:얼굴|볼|귀|기대|고개)|허리\s*(?:를\s*)?감싸/, "abdomen"],
+  [/쇄골|가슴\s*(?:팍|께|쪽|가까이|보여|을\s*(?:안|끌어안)|에\s*(?:기대|얼굴|볼|귀|고개|파묻))|품에\s*얼굴/, "chest"],
+  [/꽉\s*(?:안|껴안)|더\s*가까이|끌어\s*안|껴안/, "closeHug"],
+  [/잘\s*자|굿\s*나잇|같이\s*자|잠들|눈\s*(?:감|붙)|졸려|졸리/, "sleep"],
+  [/위로해|달래|다독|힘들었|기운\s*없/, "comfort"],
+  [/안아\s*줘|안아\s*줄|안고\s*있|안길|포옹|(?:네|지우|너)\s*품|어깨에\s*기대|누워|눕자/, "hug"],
 ];
 
 export function jiwooBedtimeCue(text: string) {
-  return cues.find(([pattern]) => pattern.test(text.normalize("NFC")))?.[1] ?? null;
+  const cue = fallbackCues.find(([pattern]) => pattern.test(text.normalize("NFC")));
+  return cue ? scenePhotos[cue[1]] : null;
 }
 
-export function pickJiwooBedtimePhoto(candidates: readonly number[] | null, recent: readonly string[], random = Math.random) {
+export function pickJiwooBedtimePhoto(
+  candidates: readonly number[] | null,
+  recent: readonly string[],
+  counts: Readonly<Record<string, number>>,
+  random = Math.random,
+) {
   const ids = (candidates ?? JIWOO_BEDTIME_SCENES.map((_, i) => i + 1)).map(jiwooBedtimePhotoId);
   const fresh = ids.filter(id => !recent.includes(id));
-  const choices = fresh.length ? fresh : ids.filter(id => id !== recent[0]);
+  const eligible = fresh.length ? fresh : ids.filter(id => id !== recent[0]);
+  const fewest = Math.min(...eligible.map(id => counts[id] ?? 0));
+  const choices = eligible.filter(id => (counts[id] ?? 0) === fewest);
   return choices[Math.floor(random() * choices.length)] ?? null;
 }
