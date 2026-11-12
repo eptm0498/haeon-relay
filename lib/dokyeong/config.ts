@@ -1,15 +1,12 @@
 /** Server-only settings. Never import this module into a client component. */
 export const liveConfig = {
-  openai: {
-    provider: "openai",
-    transcriptionModel: process.env.DOKYEONG_STT_MODEL || "gpt-transcribe",
-  },
   gemini: {
     provider: "gemini",
     responseModel: process.env.DOKYEONG_GEMINI_MODEL || "gemini-3.8-flash",
     fallbackModel: process.env.DOKYEONG_GEMINI_FALLBACK_MODEL || "gemini-3.5-flash",
   },
   elevenlabs: {
+    transcriptionModelId: "scribe_v3",
     voiceId: process.env.DOKYEONG_VOICE_ID || "peTGXjUdPy5VJNYTcdea",
     modelId: "eleven_v3",
     dialogueModelId: "eleven_v3",

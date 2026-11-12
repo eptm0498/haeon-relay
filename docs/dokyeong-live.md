@@ -9,15 +9,14 @@ Required in Vercel for Production and Preview:
 | Name | Purpose |
 | --- | --- |
 | `DOKYEONG_ACCESS_CODE` | Private access code; choose at least 12 unpredictable characters |
-| `OPENAI_API_KEY` | Speech transcription and streamed text response |
-| `ELEVENLABS_API_KEY` | Speech synthesis for the cloned voice |
+| `OPENAI_API_KEY` | Image generation |
+| `ELEVENLABS_API_KEY` | Speech synthesis and Scribe v3 speech transcription; enable Speech to Text access |
 
 Optional:
 
 | Name | Default |
 | --- | --- |
 | `DOKYEONG_OPENAI_MODEL` | `gpt-4o-mini` (temporary, replace when selected) |
-| `DOKYEONG_STT_MODEL` | `gpt-4o-mini-transcribe` |
 | `DOKYEONG_VOICE_ID` | `peTGXjUdPy5VJNYTcdea` |
 | `DOKYEONG_TTS_MODEL` | `eleven_flash_v2_5` |
 | `DOKYEONG_VOICE_STABILITY` | `0.45` |
@@ -25,7 +24,7 @@ Optional:
 | `DOKYEONG_VOICE_STYLE` | `0.15` |
 | `DOKYEONG_VOICE_SPEED` | `1` |
 
-The character instructions are in `lib/dokyeong/config.ts`. The browser keeps the last 40 messages locally; only the most recent 24 go to OpenAI on each turn. Voice requests begin as soon as a phrase arrives from the text stream. The microphone uses local energy detection to avoid uploading silence. API routes require a signed, HttpOnly, SameSite cookie, and reject cross-origin POSTs. No API keys are sent to the browser.
+The character instructions are in `lib/dokyeong/config.ts`. The browser keeps the last 40 messages locally. Voice requests begin as soon as a phrase arrives from the text stream. The microphone uses local energy detection to avoid uploading silence. Each character uses ElevenLabs Scribe v3 with Korean selected for speech recognition. If recognition fails, the app shows an error and the next utterance can still be processed. API routes require a signed, HttpOnly, SameSite cookie, and reject cross-origin POSTs. No API keys are sent to the browser.
 
 ## Character editor
 

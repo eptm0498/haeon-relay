@@ -638,14 +638,12 @@ export default function DokyeongLive() {
     setMode("thinking"); setError("");
     const controller = new AbortController();
     transcriptionRef.current = controller;
-    const characterName = characters.find(item => item.id === characterIdRef.current)?.name;
     try {
       while (speechQueueRef.current.length && !controller.signal.aborted) {
         const audio = speechQueueRef.current.shift()!;
         const extension = audio.type.includes("wav") ? "wav" : audio.type.includes("mp4") ? "mp4" : "webm";
         const form = new FormData();
         form.append("audio", audio, `speech.${extension}`);
-        if (characterName) form.append("characterName", characterName);
         try {
           const response = await fetch(`${API}/transcribe`, { method: "POST", body: form, signal: controller.signal });
           const result = await response.json();

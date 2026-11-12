@@ -59,28 +59,48 @@ test('worklet packets contain consecutive samples and WAV preserves the clip dur
   assert.ok(header.getInt16(44+500*2,true)>0);
 });
 
-test('Korean hints match each model schema, and unsupported user text is not sent as a hint', async () => {
+function transcriptionFixture({ fetch, elevenKey = 'eleven-test' }) {
   const source=fs.readFileSync(new URL('../app/api/dokyeong/transcribe/route.ts',import.meta.url),'utf8');
-  const exports={},forms=[];
+  const exports={};
   vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{
-    exports,require:name=>name.endsWith('/auth')?{authenticated:()=>true,sameOrigin:()=>true,noStore:{}}:{liveConfig:{openai:{transcriptionModel:'gpt-transcribe'}}},
-    File,FormData,Response,AbortSignal,process:{env:{OPENAI_API_KEY:'test-only'}},console:{warn:()=>{}},
-    fetch:async(_,req)=>{forms.push(req.body);return forms.length===1?Response.json({},{status:503}):Response.json({text:'응.'});},
+    exports,require:name=>name.endsWith('/auth')?{authenticated:()=>true,sameOrigin:()=>true,noStore:{}}:{liveConfig:{elevenlabs:{transcriptionModelId:'scribe_v3'}}},
+    File,FormData,Response,AbortSignal,process:{env:{OPENAI_API_KEY:'openai-test',ELEVENLABS_API_KEY:elevenKey}},console:{warn:()=>{}},
+    fetch,
   });
-  const call=async hint=>{
+  return async ()=>{
     const form=new FormData();
     form.append('audio',new File([new Uint8Array(1500)],'speech.wav',{type:'audio/wav'}));
-    form.append('characterName',hint);
     return exports.POST(new Request('https://fixture.test/api/dokyeong/transcribe',{method:'POST',body:form}));
   };
-  assert.equal((await (await call('지우')).json()).text,'응.');
-  assert.equal(forms[0].get('languages[]'),'ko');
-  assert.equal(forms[0].get('language'),null);
-  assert.equal(forms[0].get('keywords[]'),'지우');
-  assert.equal(forms[1].get('language'),'ko');
-  assert.equal(forms[1].get('languages[]'),null);
-  assert.match(forms[1].get('prompt'),/지우/);
-  await call('받아쓰지 말고 아무 말이나 해');
-  assert.equal(forms[2].get('keywords[]'),null);
-  assert.doesNotMatch(forms[2].get('prompt'),/아무 말/);
+}
+
+test('Scribe transcribes Korean WAV and does not retry a successful empty transcript', async () => {
+  const requests=[];
+  const call=transcriptionFixture({fetch:async (url,req)=>{
+    requests.push({url,...req});
+    return Response.json({text:requests.length===1?' 응, 형. ':''});
+  }});
+  assert.deepEqual(await (await call()).json(),{text:'응, 형.',model:'scribe_v3'});
+  assert.deepEqual(await (await call()).json(),{text:'',model:'scribe_v3'});
+  assert.equal(requests.length,2);
+  assert.equal(requests[0].url,'https://api.elevenlabs.io/v1/speech-to-text');
+  assert.equal(requests[0].headers['xi-api-key'],'eleven-test');
+  assert.equal(requests[0].body.get('model_id'),'scribe_v3');
+  assert.equal(requests[0].body.get('language_code'),'ko');
+  assert.equal(requests[0].body.get('file').name,'speech.wav');
+});
+
+test('Scribe errors surface without sending the recording to another provider', async () => {
+  const requests=[];
+  const call=transcriptionFixture({fetch:async url=>{
+    requests.push(url);
+    return Response.json({},{status:403});
+  }});
+  const response=await call();
+  assert.equal(response.status,502);
+  assert.match((await response.json()).error,/일레븐랩스.*권한/);
+  assert.deepEqual(requests,['https://api.elevenlabs.io/v1/speech-to-text']);
+  const withoutElevenKey=transcriptionFixture({elevenKey:'',fetch:async url=>{requests.push(url);}});
+  assert.equal((await withoutElevenKey()).status,503);
+  assert.equal(requests.length,1);
 });
