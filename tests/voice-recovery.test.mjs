@@ -18,6 +18,7 @@ async function speech(responses,{backup=true}={}){
  const mocks={
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{elevenlabs:{dialogueModelId:'eleven_v3',fallbackModelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128'}}},
+  '@/lib/dokyeong/character-modes':{isVoiceOnlyCharacter:()=>false},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice',prompt:'기존 캐릭터 설정'})},
   '@/lib/dokyeong/project-dialogue':projectDialogue,
   '@/lib/dokyeong/voice-failure':{voiceFailure},

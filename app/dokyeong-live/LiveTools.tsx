@@ -9,14 +9,14 @@ export async function dataCall<T>(action:string,characterId?:string,data?:object
  const response=await fetch('/api/dokyeong/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,characterId,data})});
  const result=await response.json();if(!response.ok)throw Error(result.error||'다시 시도해 줘.');return result;
 }
-export default function LiveTools({characterId,name,onOlder,onReset,onTestNotification}:{characterId:string;name:string;onOlder:(messages:Message[])=>void;onReset:(keep:boolean)=>void;onTestNotification:()=>Promise<void>}){
+export default function LiveTools({characterId,name,onOlder,onReset,onTestNotification,voiceOnly=false}:{voiceOnly?:boolean;characterId:string;name:string;onOlder:(messages:Message[])=>void;onReset:(keep:boolean)=>void;onTestNotification:()=>Promise<void>}){
  const [preferences,setPreferences]=useState<Preferences|null>(null),[memory,setMemory]=useState<Memory|null>(null),[summary,setSummary]=useState('');
  const [query,setQuery]=useState(''),[date,setDate]=useState(''),[results,setResults]=useState<Message[]|null>(null),[before,setBefore]=useState<number|undefined>();
  const [feedback,setFeedback]=useState(''),[busy,setBusy]=useState(false),[keep,setKeep]=useState(true);
  useEffect(()=>{
   let alive=true;setBefore(undefined);setResults(null);setFeedback('');
-  Promise.all([dataCall<Preferences>('settings'),dataCall<Memory>('memory',characterId)]).then(([p,m])=>{if(alive){setPreferences(p);setMemory(m);setSummary(m.summary||'');setBefore(m.message_count>100?m.message_count-99:1);}}).catch(e=>{if(alive)setFeedback(e.message);});return()=>{alive=false;};
- },[characterId]);
+  Promise.all([voiceOnly?Promise.resolve(null):dataCall<Preferences>('settings'),dataCall<Memory>('memory',characterId)]).then(([p,m])=>{if(alive){setPreferences(p);setMemory(m);setSummary(m.summary||'');setBefore(m.message_count>100?m.message_count-99:1);}}).catch(e=>{if(alive)setFeedback(e.message);});return()=>{alive=false;};
+ },[characterId,voiceOnly]);
  async function work(fn:()=>Promise<void>){setBusy(true);setFeedback('');try{await fn();}catch(e){setFeedback((e as Error).message);}finally{setBusy(false);}}
  async function older(){const page=await dataCall<Archive>('archive',characterId,{before});onOlder(page.messages);setBefore(page.before||1);setFeedback(page.messages.length?'이전 대화를 불러왔어.':'더 오래된 기록이 없어.');}
  async function search(){const page=await dataCall<Archive>('search',characterId,{query,date});setResults(page.messages.filter(m=>!date||new Date(m.ts||0).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===date));}
@@ -27,7 +27,7 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
   const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`LIVE-${name}-${new Date().toISOString().slice(0,10)}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);setFeedback('대화 TXT 파일을 내려받았어. 사진은 표시만 포함돼.');
  }
  return <div className={styles.tools}>
-  <details><summary>선톡 시간·상황·사진 한도</summary>{preferences&&<div className={styles.toolFields}>
+  {!voiceOnly && <details><summary>선톡 시간·상황·사진 한도</summary>{preferences&&<div className={styles.toolFields}>
    <p>모든 캐릭터에 적용돼. 방해 금지 시작과 끝이 같으면 시간 제한 없이 문맥으로 판단해. 최소 간격 0은 문맥에 따라 연락하며, 반복 선톡은 최소 15분 간격을 둬.</p>
    <label>방해 금지 시작<select value={preferences.quiet_start} onChange={e=>setPreferences({...preferences,quiet_start:Number(e.target.value)})}>{Array.from({length:24},(_,i)=><option key={i} value={i}>{i}시</option>)}</select></label>
    <label>방해 금지 끝<select value={preferences.quiet_end} onChange={e=>setPreferences({...preferences,quiet_end:Number(e.target.value)})}>{Array.from({length:24},(_,i)=><option key={i} value={i}>{i}시</option>)}</select></label>
@@ -39,7 +39,7 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
    <label>생활·근무 일정<textarea aria-label="생활·근무 일정" maxLength={2000} value={preferences.routine} onChange={e=>setPreferences({...preferences,routine:e.target.value})}/></label>
    <label>현재 상황<textarea aria-label="현재 상황" maxLength={1000} placeholder="예: 오늘은 쉬는 날. 지금은 게임 중." value={preferences.situation} onChange={e=>setPreferences({...preferences,situation:e.target.value})}/></label>
    <button disabled={busy} onClick={()=>void work(async()=>{await dataCall('settings_save',undefined,preferences);setPreferences(await dataCall<Preferences>('settings'));setFeedback('시간과 상황을 저장했어.');})}>선톡·사진 설정 저장</button>
-  </div>}</details>
+  </div>}</details>}
   <details><summary>{name}의 기억 확인·수정</summary><div className={styles.toolFields}>
    <p>100개 메시지마다 누적 요약해. 현재 {memory?.message_count||0}개 중 {memory?.covered_count||0}개 반영. 수정한 기억은 이후 요약의 기준으로 사용돼.</p>
    <label>기억<textarea aria-label="기억" rows={8} maxLength={12000} value={summary} onChange={e=>setSummary(e.target.value)} placeholder="아직 요약된 기억이 없어. 기억할 내용을 직접 적을 수도 있어."/></label>
@@ -54,11 +54,11 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
    <button disabled={busy||before===1} onClick={()=>void work(older)}>이전 대화 100개 더 보기</button>
    <button disabled={busy} onClick={()=>void work(download)}>전체 대화 TXT 내려받기</button>
   </div></details>
-  <details><summary>아이폰 알림 설정 방법</summary><div className={styles.toolFields}>
+  {!voiceOnly && <details><summary>아이폰 알림 설정 방법</summary><div className={styles.toolFields}>
    <ol><li>Safari에서 kakao를 열고 공유 → 홈 화면에 추가.</li><li>홈 화면의 kakao 아이콘으로 앱을 열어.</li><li>위의 ‘앱을 닫아도 선톡 알림 받기’를 누르고 허용.</li><li>아이폰 설정 → 알림 → kakao에서 잠금 화면·알림 센터·배너·사운드·배지를 켜.</li><li>아래 테스트 알림을 누르고 앱을 홈 화면으로 내려서 도착하는지 확인해.</li></ol>
    <p>알림이 안 오면 집중 모드와 알림 요약, 네트워크 연결을 확인해. 선톡은 5분마다 상황을 판단하므로 정각에 꼭 오는 방식은 아니야.</p>
    <button disabled={busy} onClick={()=>void work(async()=>{await onTestNotification();setFeedback('테스트 알림을 전송했어. 앱을 내려서 확인해 줘.');})}>테스트 알림 보내기</button>
-  </div></details>
+  </div></details>}
   <label className={styles.keepMemory}><input type="checkbox" checked={keep} onChange={e=>setKeep(e.target.checked)}/>새 대화에서도 요약 기억 유지</label>
   <button disabled={busy} onClick={()=>onReset(keep)}>이 캐릭터와 새 대화</button>
   {feedback&&<p role="status">{feedback}</p>}

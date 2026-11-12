@@ -50,3 +50,17 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-audio-routes]')){
   console.log('LIVE_AUDIO_REPLY_OK '+JSON.stringify({textComplete:true,audioState:events.find(e=>e.type==='audio_done'||e.type==='audio_unavailable')?.type,model:events.find(e=>e.type==='audio')?.model,failureCode:events.find(e=>e.type==='audio_unavailable')?.code}));
  }finally{server.kill('SIGTERM');}
 }
+
+// Optional account access check; reads voice metadata without synthesizing audio.
+const voiceToCheck=process.env.VERCEL_GIT_COMMIT_MESSAGE?.match(/\[verify-eleven-voice:([A-Za-z0-9]{20})\]/)?.[1];
+if(voiceToCheck){
+ const key=process.env.ELEVENLABS_API_KEY;
+ if(!key)throw Error('ElevenLabs voice verification configuration unavailable');
+ const response=await fetch('https://api.elevenlabs.io/v1/voices/'+voiceToCheck,{
+  headers:{'xi-api-key':key},signal:AbortSignal.timeout(15000)
+ });
+ if(!response.ok)throw Error('Configured ElevenLabs account could not access requested voice: '+response.status);
+ const result=await response.json();
+ if(result.voice_id!==voiceToCheck)throw Error('Unexpected ElevenLabs voice');
+ console.log('ELEVEN_VOICE_ACCESS_OK');
+}

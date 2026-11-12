@@ -144,3 +144,6 @@
 .callStageInterrupt{border-radius:999px;background:#171717cf;padding:7px 12px;font-size:13px}
 .callStage button:focus-visible{outline:2px solid white;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.callStagePhoto>img[data-visible]{transition:none}}
+
+.voiceOnlyStart{width:100%;min-height:46px;border:0;border-radius:23px;background:#fee500;color:#222;font-size:15px;font-weight:700;cursor:pointer}
+.voiceOnlyStart:disabled{opacity:.5;cursor:default}
