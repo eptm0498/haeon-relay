@@ -5,6 +5,7 @@ export function retryAllowed(name: string, body: object) {
   if (name === 'live_sync_history') return ['read','append','import'].includes(action || 'read');
   if (name === 'live_data_work') return ['versions','settings','archive','search','memory'].includes(action || '');
   if (name === 'live_companion_work') return ['status','presence'].includes(action || '');
+  if (name === 'live_model_settings_work') return action === 'read';
   if (name === 'live_reply_work') return action === 'enqueue';
   return false; // Never blindly retry leases, resets, paid generations or unknown mutations.
 }

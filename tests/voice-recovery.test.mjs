@@ -13,11 +13,16 @@ test('billing and credit failures are distinct and never expose upstream details
  assert.equal(voiceFailure({detail:{status:'quota_exceeded'}},401).code,'quota_exceeded');
 });
 
-async function speech(responses,{backup=true}={}){
+async function speech(responses,{backup=true,model=null}={}){
  const calls=[];const exports={};
  const mocks={
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{elevenlabs:{dialogueModelId:'eleven_v3',fallbackModelId:'eleven_flash_v2_5',outputFormat:'mp3_44100_128'}}},
+  '@/lib/dokyeong/model-settings':{
+   liveModelOverrides:async()=>({speechModel:model}),
+   httpSpeechModel:selection=>selection==='eleven_v4_turbo'?'eleven_v4':selection??'eleven_v3',
+   realtimeSpeechModel:selection=>selection===null||selection==='eleven_v4_turbo',
+  },
   '@/lib/dokyeong/character-modes':{isVoiceOnlyCharacter:()=>false},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice',prompt:'기존 캐릭터 설정'})},
   '@/lib/dokyeong/project-dialogue':projectDialogue,
@@ -126,4 +131,14 @@ test('a websocket that never opens has a bounded finish',async()=>{
  const {bridge,timers}=bridgeHarness();bridge.push('확인할게.');
  const openTimeout=timers.find(t=>t.ms===5000);assert.ok(openTimeout);openTimeout.fn();
  const result=await bridge.finish();assert.equal(result.completed,false);
+});
+
+
+test('selected HTTP speech models use their supported endpoint and retry the same model',async()=>{
+ for(const [model,path] of [['eleven_turbo_v2_5','/text-to-speech/'],['eleven_v4','/text-to-dialogue/']]){
+  const {result,calls}=await speech([Response.json({},{status:500}),audio()],{model});
+  assert.deepEqual(calls.map(call=>call.body.model_id),[model,model]);
+  assert.ok(calls.every(call=>call.url.includes(path)));
+  assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),model);
+ }
 });

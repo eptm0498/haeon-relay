@@ -59,11 +59,11 @@ test('worklet packets contain consecutive samples and WAV preserves the clip dur
   assert.ok(header.getInt16(44+500*2,true)>0);
 });
 
-function transcriptionFixture({ fetch, elevenKey = 'eleven-test' }) {
+function transcriptionFixture({ fetch, elevenKey = 'eleven-test', model = null }) {
   const source=fs.readFileSync(new URL('../app/api/dokyeong/transcribe/route.ts',import.meta.url),'utf8');
   const exports={};
   vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{
-    exports,require:name=>name.endsWith('/auth')?{authenticated:()=>true,sameOrigin:()=>true,noStore:{}}:{liveConfig:{elevenlabs:{transcriptionModelId:'scribe_v3'}}},
+    exports,require:name=>name.endsWith('/auth')?{authenticated:()=>true,sameOrigin:()=>true,noStore:{}}:name.endsWith('/model-settings')?{liveModelOverrides:async()=>({transcriptionModel:model})}:{liveConfig:{elevenlabs:{transcriptionModelId:'scribe_v3'}}},
     File,FormData,Response,AbortSignal,process:{env:{OPENAI_API_KEY:'openai-test',ELEVENLABS_API_KEY:elevenKey}},console:{warn:()=>{}},
     fetch,
   });
@@ -103,4 +103,14 @@ test('Scribe errors surface without sending the recording to another provider', 
   const withoutElevenKey=transcriptionFixture({elevenKey:'',fetch:async url=>{requests.push(url);}});
   assert.equal((await withoutElevenKey()).status,503);
   assert.equal(requests.length,1);
+});
+
+
+test('Scribe v2 selection is sent to the same Korean transcription endpoint',async()=>{
+ const call=transcriptionFixture({model:'scribe_v2',fetch:async(_url,req)=>{
+  assert.equal(req.body.get('model_id'),'scribe_v2');
+  assert.equal(req.body.get('language_code'),'ko');
+  return Response.json({text:'안녕'});
+ }});
+ assert.deepEqual(await (await call()).json(),{text:'안녕',model:'scribe_v2'});
 });

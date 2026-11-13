@@ -11,9 +11,9 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,voiceOnly=false,realtime=true,messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=realtime,models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
- const started=[],sockets=[],timers=[],repairs=[];let input,clock=0,fetchCalled=false,modelBody;
+ const started=[],sockets=[],timers=[],repairs=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
  class Socket extends EventTarget{
   readyState=0;sent=[];
@@ -28,6 +28,10 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,messages=[{r
   'next/server':{after:()=>assert.fail('no background mutations for a diagnostic turn')},
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v3_conversational',dialogueOutputFormat:'pcm_24000'}}},
+  '@/lib/dokyeong/model-settings':{
+   liveModelOverrides:async()=>({textModel:null,voiceModel:null,speechModel:null,...models}),
+   realtimeSpeechModel:model=>model===null?'eleven_v3_conversational':model==='eleven_v4_turbo'?model:null,
+  },
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
@@ -51,13 +55,13 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,messages=[{r
   exports,require:name=>{assert.ok(mocks[name],name);return mocks[name];},Response,ReadableStream,TextEncoder,TextDecoder,AbortSignal,ArrayBuffer,Blob,
   WebSocket:Socket,performance:{now:()=>++clock},process:{env:{GEMINI_API_KEY:'test-only',ELEVENLABS_API_KEY:'test-only'}},
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
-  fetch:async(_url,init)=>{fetchCalled=true;modelBody=JSON.parse(init.body);return gates.headers.promise;},
+  fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:realtime,realtime,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
- return {gates,started,sockets,timers,pending,contextReady,frame,input,upstream,repairs,get fetchCalled(){return fetchCalled;},get modelBody(){return modelBody;}};
+ return {gates,started,sockets,timers,pending,contextReady,frame,input,upstream,repairs,get fetchCalled(){return fetchCalled;},get modelBody(){return modelBody;},get modelUrl(){return modelUrl;}};
 }
 
 test('independent context reads start together and the voice socket opens before model headers',{timeout:3000},async()=>{
@@ -148,4 +152,31 @@ test('Jiwoo gets conversational context and keeps its scene marker out of spoken
  assert.deepEqual(events[0],{type:'jiwoo_scene',id:'closeHug'});
  assert.equal(events.find(e=>e.type==='done').text,'이리 와.');
  assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
+});
+
+
+test('text, muted calls and spoken calls use their saved Gemini and ElevenLabs selections',{timeout:3000},async()=>{
+ const models={textModel:'gemini-3.7-flash',voiceModel:'gemini-3.5-flash-lite',speechModel:'eleven_v4_turbo'};
+ for(const {realtime,wantVoice,expected} of [
+  {realtime:false,wantVoice:false,expected:models.textModel},
+  {realtime:true,wantVoice:false,expected:models.voiceModel},
+  {realtime:true,wantVoice:true,expected:models.voiceModel},
+ ]){
+  const f=fixture({realtime,wantVoice,models});
+  f.contextReady();await tick();
+  assert.match(f.modelUrl,new RegExp('/'+expected+':streamGenerateContent'));
+  assert.equal(f.sockets.length,wantVoice?1:0);
+  if(wantVoice)assert.equal(new URL(f.sockets[0].url).searchParams.get('model_id'),models.speechModel);
+  f.gates.headers.resolve(Response.json({},{status:404}));
+  assert.equal((await f.pending).status,502);
+ }
+});
+test('a selected HTTP speech model sends completed text for playback without opening a socket',{timeout:3000},async()=>{
+ const f=fixture({models:{speechModel:'eleven_flash_v2_5'}});
+ f.contextReady();await tick();assert.equal(f.sockets.length,0);
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;f.frame('안녕.');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(e=>e.type==='text_done').text,'안녕.');
+ assert.equal(events.find(e=>e.type==='audio_unavailable').hadAudio,false);
 });

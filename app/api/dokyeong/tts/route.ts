@@ -3,13 +3,14 @@ import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
+import { httpSpeechModel, liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { voiceFailure, type VoiceFailure } from "@/lib/dokyeong/voice-failure";
 
 export const runtime = "nodejs";
 export const maxDuration = 40;
 
-async function callDialogue(text: string, voiceId: string, signal: AbortSignal, timeoutMs: number) {
+async function callDialogue(text: string, voiceId: string, model: string, signal: AbortSignal, timeoutMs: number) {
   const voice = liveConfig.elevenlabs;
   return fetch(
     `https://api.elevenlabs.io/v1/text-to-dialogue/stream?output_format=${encodeURIComponent(voice.outputFormat)}`,
@@ -17,7 +18,7 @@ async function callDialogue(text: string, voiceId: string, signal: AbortSignal, 
       method: "POST",
       headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY!, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model_id: voice.dialogueModelId,
+        model_id: model,
         inputs: [{ text, voice_id: voiceId }],
       }),
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
@@ -26,7 +27,7 @@ async function callDialogue(text: string, voiceId: string, signal: AbortSignal, 
   );
 }
 
-async function callFlash(text: string, voiceId: string, signal: AbortSignal, timeoutMs: number) {
+async function callSpeech(text: string, voiceId: string, model: string, signal: AbortSignal, timeoutMs: number) {
   const voice = liveConfig.elevenlabs;
   return fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=${encodeURIComponent(voice.outputFormat)}`,
@@ -35,7 +36,7 @@ async function callFlash(text: string, voiceId: string, signal: AbortSignal, tim
       headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY!, "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        model_id: voice.fallbackModelId,
+        model_id: model,
         language_code: "ko",
         voice_settings: {
           stability: voice.stability,
@@ -78,56 +79,41 @@ export async function POST(request: NextRequest) {
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   text=(isProjectCharacter(character)||isVoiceOnlyCharacter(character.id))?spokenDialogue(text):text.replace(/[ㅋㅎㅠㅜ]+/g," ").trim();
   if(!text)return Response.json({error:"읽을 대사가 없어."},{status:400,headers:noStore});
-  const voice = liveConfig.elevenlabs;
   const voiceId = voiceIdOverride || character.voice_id;
-  let failure:VoiceFailure=voiceFailure({code:'voice_unavailable'});
+  const { speechModel } = await liveModelOverrides(request.signal);
+  const primary = httpSpeechModel(speechModel);
+  const flash = liveConfig.elevenlabs.fallbackModelId;
+  const dialogue = primary === "eleven_v3" || primary === "eleven_v4";
+  const attempts = dialogue
+    ? [{ model: primary, timeout: 18000 }, ...(realtimeSpeechModel(speechModel)
+      ? [{ model: flash, timeout: 10000 }, { model: flash, timeout: 7000 }]
+      : [{ model: primary, timeout: 14000 }])]
+    : [{ model: primary, timeout: 18000 }, { model: primary, timeout: 12000 }];
+  let failure: VoiceFailure = voiceFailure({ code: "voice_unavailable" });
 
-  try {
-    if(process.env.ELEVENLABS_API_KEY){
+  for (const { model, timeout } of attempts) {
+    if (request.signal.aborted) return new Response(null, { status: 499, headers: noStore });
     try {
-      const dialogue = await callDialogue(text, voiceId, request.signal, 18000);
-      if (dialogue.ok && dialogue.body) {
-        return new Response(dialogue.body, {
+      const generate = model === "eleven_v3" || model === "eleven_v4" ? callDialogue : callSpeech;
+      const result = await generate(text, voiceId, model, request.signal, timeout);
+      if (result.ok && result.body) {
+        return new Response(result.body, {
           headers: {
             ...noStore,
             "Content-Type": "audio/mpeg",
             "X-Content-Type-Options": "nosniff",
-            "X-Dokyeong-TTS-Model": voice.dialogueModelId,
+            "X-Dokyeong-TTS-Model": model,
           },
         });
       }
-      failure=await describeFailure(dialogue);
-      console.warn("[dokyeong/tts] dialogue failed", {status:dialogue.status,code:failure.code});
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      console.warn("[dokyeong/tts] dialogue connection failed");
+      failure = await describeFailure(result);
+      console.warn("[dokyeong/tts] synthesis failed", { model, status: result.status, code: failure.code });
+      if (failure.terminal || result.status === 429) break;
+    } catch {
+      if (request.signal.aborted) return new Response(null, { status: 499, headers: noStore });
+      console.warn("[dokyeong/tts] synthesis connection failed", { model });
     }
-
-    // Reliable low-latency fallback. Retry once because transient ElevenLabs 5xx errors do occur.
-    for (let attempt = 1; !failure.terminal && attempt <= 2; attempt++) {
-      try {
-        const fallback = await callFlash(text, voiceId, request.signal, attempt === 1 ? 10000 : 7000);
-        if (fallback.ok && fallback.body) {
-          return new Response(fallback.body, {
-            headers: {
-              ...noStore,
-              "Content-Type": "audio/mpeg",
-              "X-Content-Type-Options": "nosniff",
-              "X-Dokyeong-TTS-Model": voice.fallbackModelId,
-            },
-          });
-        }
-        failure=await describeFailure(fallback);
-        console.warn("[dokyeong/tts] flash failed", {attempt,status:fallback.status,code:failure.code});
-        if (failure.terminal || fallback.status === 429) break;
-      } catch (error) {
-        if (request.signal.aborted) throw error;
-        console.warn("[dokyeong/tts] flash connection failed", { attempt });
-      }
-    }
-    }
-    return Response.json({ error: failure.message,code:failure.code }, { status: 503, headers: noStore });
-  } catch {
-    return Response.json({ error: failure.message,code:failure.code }, { status: 502, headers: noStore });
   }
+
+  return Response.json({ error: failure.message, code: failure.code }, { status: 503, headers: noStore });
 }

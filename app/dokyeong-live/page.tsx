@@ -5,6 +5,7 @@ import styles from "./live.module.css";
 import {useCompanion} from "./useCompanion";
 import {MessageSessionSettings} from "./MessageSessionSettings";
 import LiveTools from "./LiveTools";
+import LiveModelEditor from "./LiveModelEditor";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
@@ -1121,6 +1122,7 @@ export default function DokyeongLive() {
           </select>
         </div>
         <div className={styles.settingSummary}><span>현재 목소리</span><strong>{activeVoiceName}</strong></div>
+        <div className={styles.tools}><LiveModelEditor/></div>
         {!voiceOnly && <>
         <div className={styles.settingRow}><span>이 캐릭터 선톡</span><button type="button" className={styles.notificationButton} aria-pressed={companion.state.characters[characterId]?.enabled!==false} onClick={()=>void companion.toggle()}>{companion.state.characters[characterId]?.enabled===false?"꺼짐":"켜짐"}</button></div>
         <MessageSessionSettings key={characterId} name={activeName} session={companion.state.characters[characterId]?.session} onStart={companion.startSession} onStop={companion.stopSession}/>

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
+import { liveModelOverrides } from "@/lib/dokyeong/model-settings";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -31,7 +32,8 @@ export async function POST(request: NextRequest) {
     return failure("녹음 형식을 확인해 줘.", 400);
   }
 
-  const model = liveConfig.elevenlabs.transcriptionModelId;
+  const { transcriptionModel } = await liveModelOverrides(request.signal);
+  const model = transcriptionModel ?? liveConfig.elevenlabs.transcriptionModelId;
   const form = new FormData();
   form.append("file", file, `speech.${extension}`);
   form.append("model_id", model);

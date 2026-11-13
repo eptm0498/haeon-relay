@@ -1,5 +1,7 @@
 "use client";
 
+import LiveModelEditor from "../../LiveModelEditor";
+import liveStyles from "../../live.module.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles, Trash2, Volume2 } from "lucide-react";
 import SampleManager from "./SampleManager";
@@ -267,6 +269,8 @@ export default function CharacterEditor({ token }: { token: string }) {
       <section className={styles.content}>
         <div className={styles.eyebrow}>CHARACTER LIVE <ChevronRight size={13}/> STUDIO</div>
         <div className={styles.titleRow}><div><h1>{working?.name || "캐릭터 설정실"}<span className={styles.titleStar}>✳</span></h1><p>성격, 대화 샘플, 프로필과 ElevenLabs 목소리를 캐릭터마다 따로 관리해.</p></div><div className={styles.badge}>● LIVE SETTINGS</div></div>
+
+        <div className={liveStyles.tools}><LiveModelEditor endpoint={`${api}/model-settings`}/></div>
 
         {loading ? <div className={styles.centerState}>전체 설정을 불러오는 중…</div> : !working ? <div className={styles.centerState}><CircleAlert size={26}/>{error||"캐릭터가 없어."}<button onClick={()=>void loadCharacters()}>다시 불러오기</button></div> : <>
           <div className={styles.mobileNav}>

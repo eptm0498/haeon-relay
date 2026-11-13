@@ -4,6 +4,7 @@ import {isProjectCharacter,spokenDialogue} from "@/lib/dokyeong/project-dialogue
 import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
+import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
 import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
@@ -93,16 +94,16 @@ async function callGeminiModel(model: string, messages: Message[], prompt: strin
   );
 }
 
-async function requestGemini(messages: Message[], prompt: string, signal: AbortSignal, allowPhotos: boolean) {
+async function requestGemini(messages: Message[], prompt: string, signal: AbortSignal, allowPhotos: boolean, selection: string | null) {
   if (!process.env.GEMINI_API_KEY) return { response: null, error: Response.json({ error: "Gemini 연결 설정이 필요해." }, { status: 503 }), model: null };
 
-  const primary = liveConfig.gemini.responseModel;
+  const primary = selection ?? liveConfig.gemini.responseModel;
   const fallback = liveConfig.gemini.fallbackModel;
   try {
     let response = await callGeminiModel(primary, messages, prompt, signal, allowPhotos);
     let model = primary;
 
-    if ((response.status === 404 || response.status === 403) && fallback && fallback !== primary) {
+    if (!selection && (response.status === 404 || response.status === 403) && fallback && fallback !== primary) {
       response.body?.cancel().catch(() => {});
       response = await callGeminiModel(fallback, messages, prompt, signal, allowPhotos);
       model = fallback;
@@ -122,14 +123,14 @@ function decodeSocketText(data: unknown): Promise<string> {
   return Promise.resolve("");
 }
 
-function createDialogueBridge(send: (event: object) => void, signal: AbortSignal, voiceId: string, linked=false): DialogueBridge | null {
+function createDialogueBridge(send: (event: object) => void, signal: AbortSignal, voiceId: string, linked=false, model = liveConfig.elevenlabs.dialogueRealtimeModelId): DialogueBridge | null {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey || typeof WebSocket === "undefined") return null;
 
   const voice = liveConfig.elevenlabs;
   const url =
     "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input" +
-    `?model_id=${encodeURIComponent(voice.dialogueRealtimeModelId)}` +
+    `?model_id=${encodeURIComponent(model)}` +
     `&output_format=${encodeURIComponent(voice.dialogueOutputFormat)}&language_code=ko`;
 
   const ws = new WebSocket(url);
@@ -195,7 +196,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
         const message = JSON.parse(raw);
         if (typeof message.audio === "string" && message.audio) {
           hadAudio = true;
-          send({ type: "audio", data: message.audio, model: voice.dialogueRealtimeModelId, format: voice.dialogueOutputFormat });
+          send({ type: "audio", data: message.audio, model, format: voice.dialogueOutputFormat });
         }
         // A flush can finish one prosody segment while more text is coming.
         // Only the final socket frame can complete the whole response.
@@ -207,7 +208,7 @@ function createDialogueBridge(send: (event: object) => void, signal: AbortSignal
           clearTimeout(keepAliveTimer);
           failed = true;
           failure=voiceFailure(message);
-          console.warn('[dokyeong/respond] voice unavailable',{code:failure.code,model:voice.dialogueRealtimeModelId});
+          console.warn('[dokyeong/respond] voice unavailable',{code:failure.code,model});
           settleFinished();
         }
       } catch {}
@@ -384,12 +385,13 @@ export async function POST(request: NextRequest) {
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const [activity, sampleContext, remembered, project, callPhotos] = await Promise.all([
+  const [activity, sampleContext, remembered, project, callPhotos, models] = await Promise.all([
     voiceOnly ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
     relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat"),
     memoryContext(character.id),
     voiceOnly ? "" : projectContext(character,sampleMessages,wantVoice),
     voiceOnly || callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
+    liveModelOverrides(request.signal),
   ]);
   timings.contextReadyMs = elapsed();
   const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
@@ -401,10 +403,11 @@ export async function POST(request: NextRequest) {
   // Open the voice connection while Gemini prepares its first response, without
   // sending any text or generating paid audio before it is actually needed.
   let sendAudio: ((event: object) => void) | undefined;
-  const dialogue = wantVoice ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || voiceOnly) : null;
+  const speechModel = wantVoice ? realtimeSpeechModel(models.speechModel) : null;
+  const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || voiceOnly, speechModel) : null;
   const sceneOptions = voiceOnly ? JIWOO_CALL_SCENES : callPhotos ?? [];
   const scenePrompt = voiceOnly ? JIWOO_CALL_SCENE_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null);
-  const result = await requestGemini(messages, prompt + scenePrompt, request.signal, !voiceOnly);
+  const result = await requestGemini(messages, prompt + scenePrompt, request.signal, !voiceOnly, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -544,7 +547,7 @@ export async function POST(request: NextRequest) {
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
         sceneReader.finish();
         if(linked && !lastError) {
-          const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice);
+          const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice,activeModel);
           if(!clean.trim()&&!photoPlan)throw Error("Empty character dialogue");
           emitText(clean);
         }
@@ -558,7 +561,7 @@ export async function POST(request: NextRequest) {
         if(!voiceOnly && !photoPlan && !lastError && photoFallbackAllowed(messages.at(-1)?.content||"",full,photoIntentContext(messages))) {
           photoPlan={scene:messages.slice(-6).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-1800),waitMessage:"잠깐만, 사진 찍어서 보내줄게."};
         }
-        if(photoPlan){if(linked)photoPlan.waitMessage=await projectReply(photoPlan.waitMessage,wantVoice);dialogue?.close();send({type:"photo",...photoPlan});return;}
+        if(photoPlan){if(linked)photoPlan.waitMessage=await projectReply(photoPlan.waitMessage,wantVoice,activeModel);dialogue?.close();send({type:"photo",...photoPlan});return;}
         if (!lastError || full.trim()) {
           segment(true);
           const completedText = full.trim();
@@ -588,7 +591,7 @@ export async function POST(request: NextRequest) {
               text: completedText,
               provider: "gemini",
               model: activeModel,
-              audioModel: audioStatus.completed ? liveConfig.elevenlabs.dialogueRealtimeModelId : null,
+              audioModel: audioStatus.completed ? speechModel : null,
               timings: wantVoice ? timings : undefined,
             });
             if (wantVoice) console.info("LIVE_VOICE_TIMING", { ...timings, streamed: audioStatus.completed });
