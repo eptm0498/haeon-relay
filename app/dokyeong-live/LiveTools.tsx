@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useState} from 'react';
 import type {Message} from './useSharedHistory';
+import JiwooPromptEditor from './JiwooPromptEditor';
 import styles from './live.module.css';
 type Preferences={quiet_start:number;quiet_end:number;daily_cap:number;interval_hours:number;image_daily_limit:number;character_daily_cap:number;image_used_today?:number;routine:string;situation:string;version:number};
 type Memory={epoch:string;summary:string;covered_count:number;message_count:number};
@@ -27,6 +28,7 @@ export default function LiveTools({characterId,name,onOlder,onReset,onTestNotifi
   const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`LIVE-${name}-${new Date().toISOString().slice(0,10)}.txt`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);setFeedback('대화 TXT 파일을 내려받았어. 사진은 표시만 포함돼.');
  }
  return <div className={styles.tools}>
+  {voiceOnly && <JiwooPromptEditor/>}
   {!voiceOnly && <details><summary>선톡 시간·상황·사진 한도</summary>{preferences&&<div className={styles.toolFields}>
    <p>모든 캐릭터에 적용돼. 방해 금지 시작과 끝이 같으면 시간 제한 없이 문맥으로 판단해. 최소 간격 0은 문맥에 따라 연락하며, 반복 선톡은 최소 15분 간격을 둬.</p>
    <label>방해 금지 시작<select value={preferences.quiet_start} onChange={e=>setPreferences({...preferences,quiet_start:Number(e.target.value)})}>{Array.from({length:24},(_,i)=><option key={i} value={i}>{i}시</option>)}</select></label>
