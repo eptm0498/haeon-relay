@@ -38,3 +38,7 @@
 .callPhotoNew{display:grid;gap:10px;border-top:1px solid #383b45;padding-top:17px}
 .callPhotoNew p{margin:0;font-size:13px;color:#aeb4c1}
 @media(max-width:420px){.callPhotoRow{grid-template-columns:68px minmax(0,1fr);gap:10px}}
+
+.jiwooWeek{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin:12px 0 20px}
+.jiwooWeek label{display:grid;gap:6px}
+.jiwooWeek input{min-width:0;width:100%;box-sizing:border-box;padding:9px;border:1px solid #3b3d44;border-radius:8px;background:#101115;color:#f1f1f1;font:inherit}

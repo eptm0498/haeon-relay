@@ -6,6 +6,7 @@ import ts from 'typescript';
 import * as dialogue from '../lib/dokyeong/project-dialogue.ts';
 import * as characterModes from '../lib/dokyeong/character-modes.ts';
 import * as jiwooBedtime from '../lib/dokyeong/jiwoo-bedtime.ts';
+import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
@@ -35,7 +36,9 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
-  '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>{assert.ok(!standaloneJiwoo,'no call photo lookup');return photos||[];}},
+  '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
+  '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
+  '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:standaloneJiwoo?characterModes.STANDALONE_JIWOO_ID:'fixture-character',name:standaloneJiwoo?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
   '@/lib/dokyeong/memory':{memoryContext:()=>read('memory'),serverRpc:(_,body)=>{assert.equal(body.action,'activity');return read('activity');}},
   '@/lib/dokyeong/project-context':{projectContext:()=>read('project')},
@@ -138,15 +141,19 @@ test('standalone Jiwoo voice keeps its call-only processing and skips project an
 
 test('Jiwoo gets conversational context and keeps its scene marker out of spoken dialogue',{timeout:3000},async()=>{
  const messages=[{role:'assistant',content:'더 꼭 안아줄까?'},{role:'user',content:'응, 그렇게 해줘.'}];
- const f=fixture({standaloneJiwoo:true,messages});
+ const photos=Array.from({length:42},(_,i)=>({id:`photo-${i+1}`,situation:`편집한 상황 ${i+1}`}));
+ const f=fixture({standaloneJiwoo:true,messages,photos});
  await tick();f.contextReady();await tick();f.sockets[0].open();
- assert.match(f.modelBody.systemInstruction.parts[0].text,/직전 대화/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/편집한 상황 42/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/음성 전용 예시/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/16:00-21:00/);
+ assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/문자 전용 예시/);
  assert.deepEqual(f.modelBody.contents.map(turn=>turn.parts[0].text),messages.map(turn=>turn.content));
  f.gates.headers.resolve(new Response(f.upstream));
  const response=await f.pending;
- f.frame('[CALL_');f.frame('SCENE:4]');f.frame('\n이리 와.');f.input.close();
+ f.frame('[CALL_');f.frame('SCENE:42]');f.frame('\n이리 와.');f.input.close();
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
- assert.deepEqual(events[0],{type:'jiwoo_scene',id:'closeHug'});
+ assert.deepEqual(events[0],{type:'jiwoo_photo',id:'photo-42'});
  assert.equal(events.find(e=>e.type==='done').text,'이리 와.');
  assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
 });
@@ -199,7 +206,8 @@ test('Jiwoo direct text chat uses its text model and keeps chat reactions withou
  f.contextReady();await tick();
  assert.match(f.modelUrl,/gemini-3\.5-flash-lite:streamGenerateContent/);
  assert.match(f.modelBody.systemInstruction.parts[0].text,/\[문자 채팅\]/);
- assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/CALL_SCENE/);
+ assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/CALL_SCENE|음성 전용 예시/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/문자 전용 예시/);
  assert.equal(f.sockets.length,0);
  f.gates.headers.resolve(new Response(f.upstream));
  const response=await f.pending;

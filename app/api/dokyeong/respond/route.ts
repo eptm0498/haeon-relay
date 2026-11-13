@@ -9,8 +9,10 @@ import { isStandaloneJiwoo, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/charac
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { JIWOO_CALL_SCENES, JIWOO_CALL_SCENE_PROMPT } from "@/lib/dokyeong/jiwoo-bedtime";
+import { JIWOO_BEDTIME_SCENES, jiwooBedtimeCue, jiwooBedtimePhotoId } from "@/lib/dokyeong/jiwoo-bedtime";
 import { memoryContext } from "@/lib/dokyeong/memory";
+import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
+import { readJiwooPreferences } from "@/lib/dokyeong/jiwoo-settings";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
 import { sleepIntent } from "@/lib/dokyeong/sleep-intent";
@@ -386,18 +388,20 @@ export async function POST(request: NextRequest) {
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const [activity, sampleContext, remembered, project, callPhotos, models] = await Promise.all([
+  const [activity, sampleContext, remembered, project, callPhotos, models, jiwooPreferences] = await Promise.all([
     standaloneJiwoo ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
     relatedSampleContext(sampleMessages, character.id, character.name, realtime ? "voice" : "chat"),
     memoryContext(character.id),
     standaloneJiwoo ? "" : projectContext(character,sampleMessages,wantVoice),
-    standaloneJiwoo || callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
+    !jiwooCall && callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
     liveModelOverrides(request.signal),
+    standaloneJiwoo ? readJiwooPreferences(request.signal) : null,
   ]);
   timings.contextReadyMs = elapsed();
   const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
   const linked=!standaloneJiwoo && isProjectCharacter(character);
-  const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (standaloneJiwoo ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (standaloneJiwoo ? "" : photoRequestPrompt(character.name) + `
+  const responseTime = new Date();
+  const prompt = character.prompt + (linked ? "" : currentTimeContext(responseTime,character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (standaloneJiwoo ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (standaloneJiwoo ? "" : photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`);
   const activeVoiceId = voiceIdOverride || character.voice_id;
@@ -406,11 +410,11 @@ export async function POST(request: NextRequest) {
   let sendAudio: ((event: object) => void) | undefined;
   const speechModel = wantVoice && (!standaloneJiwoo || jiwooCall) ? realtimeSpeechModel(models.speechModel) : null;
   const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || standaloneJiwoo, speechModel) : null;
-  const sceneOptions = jiwooCall ? JIWOO_CALL_SCENES : callPhotos ?? [];
-  const modePrompt = standaloneJiwoo
-    ? jiwooCall ? JIWOO_CALL_SCENE_PROMPT : JIWOO_TEXT_CHAT_PROMPT
-    : callScenePrompt(sceneOptions, currentPhoto ?? null);
-  const result = await requestGemini(messages, prompt + modePrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const sceneOptions = callPhotos ?? [];
+  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
+  const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
+  const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
+  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -499,9 +503,11 @@ export async function POST(request: NextRequest) {
         segment();
       };
 
+      let photoSelected = false;
       const sceneReader = callSceneReader(sceneOptions,
         id => {
-          if (jiwooCall) send({ type: "jiwoo_scene", id });
+          photoSelected = true;
+          if (jiwooCall) send({ type: "jiwoo_photo", id });
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
         text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
@@ -549,6 +555,13 @@ export async function POST(request: NextRequest) {
         if (!streamOpen || request.signal.aborted) return;
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
         sceneReader.finish();
+        if (jiwooCall && !photoSelected && !lastError) {
+          const slots = jiwooBedtimeCue(messages.at(-1)?.content || "") ?? [];
+          const candidates = slots.map(slot => sceneOptions.find(photo =>
+            photo.id === jiwooBedtimePhotoId(slot) && photo.situation === JIWOO_BEDTIME_SCENES[slot - 1],
+          )?.id).filter((id): id is string => !!id);
+          if (candidates.length) send({ type: "jiwoo_photo_candidates", ids: candidates });
+        }
         if(linked && !lastError) {
           const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice,activeModel);
           if(!clean.trim()&&!photoPlan)throw Error("Empty character dialogue");

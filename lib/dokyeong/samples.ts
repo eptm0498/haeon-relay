@@ -1,5 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { categoryFor, ImportedSample, SampleCategory } from "./sample-parser";
+import { isStandaloneJiwoo } from "./character-modes";
 import { rpc } from "./settings";
 import { dialogueStylePrompt, selectVoiceSamples, styleQuery, type DialogueMedium } from "./dialogue-style";
 
@@ -44,7 +45,8 @@ export function importSampleBatch(editToken: string, characterId: string, sample
 }
 
 export async function relatedSampleContext(messages: { role: string; content: string }[], characterId: string, characterName: string, medium: DialogueMedium = "chat") {
-  if (!["온유", "도경", "두리"].includes(characterName)) return "";
+  const jiwoo = isStandaloneJiwoo(characterId);
+  if (!jiwoo && !["온유", "도경", "두리"].includes(characterName)) return "";
   const query = styleQuery(messages);
   const category = categoryFor(query.context, "");
   try {
@@ -52,9 +54,10 @@ export async function relatedSampleContext(messages: { role: string; content: st
       server_token: process.env.CHARACTER_HISTORY_KEY, target_character: characterId,
       query_terms: query.terms, preferred_category: category, variation: query.seed,
     }, 4000);
-    return dialogueStylePrompt(messages, characterName, selectVoiceSamples(candidates, messages, category), medium);
+    const selected = selectVoiceSamples(candidates, messages, category);
+    return jiwoo && !selected.length ? "" : dialogueStylePrompt(messages, characterName, selected, medium);
   } catch {
     console.warn("LIVE_VOICE_SAMPLES_UNAVAILABLE", characterId);
-    return dialogueStylePrompt(messages, characterName, [], medium);
+    return jiwoo ? "" : dialogueStylePrompt(messages, characterName, [], medium);
   }
 }

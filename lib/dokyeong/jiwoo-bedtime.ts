@@ -58,26 +58,6 @@ const scenePhotos = {
   hug: [1, 2, 3, ...embraceSlots],
 } as const;
 
-export const JIWOO_CALL_SCENES = [
-  { id: "affection", situation: "지금 애정 표현, 귀여워해 주기, 칭찬, 오구오구, 다정한 말이나 쓰다듬기를 원함" },
-  { id: "abdomen", situation: "지우의 배나 허리에 기대거나 안고 싶어 함. 배꼽이나 복부를 보려는 말 포함" },
-  { id: "chest", situation: "지우의 가슴팍에 머리를 묻거나 쇄골 가까이 기대고 싶어 함" },
-  { id: "closeHug", situation: "더 가까이 오거나 더 꼭 끌어안아 주기를 바람" },
-  { id: "sleep", situation: "지금 함께 잠들거나 재워 주길 원함, 졸려 하거나 잠자리 인사를 함" },
-  { id: "comfort", situation: "지금 지쳤거나 속상해서 위로나 다독임이 필요한 흐름" },
-  { id: "hug", situation: "지우의 품이나 어깨에 기대거나 일반적으로 포옹하고 싶어 함" },
-];
-
-export const JIWOO_CALL_SCENE_PROMPT = `
-[지우 통화 화면]
-답변 맨 앞에 [CALL_SCENE:번호]를 한 번만 쓰고 줄을 바꾼 다음, 평소대로 말할 대사를 써. 이 표시는 대사에서 언급하지 마.
-번호와 장면은 다음과 같아.
-${JIWOO_CALL_SCENES.map(({ situation }, index) => `${index + 1}. ${situation}`).join("\n")}
-마지막 사용자 말의 의미와 직전 대화를 함께 봐. 말투나 표현이 달라도 뜻이 같으면 고르고, "좀 더", "응, 그렇게 해줘" 같은 후속 말은 직전 주제와 이어질 때만 해석해.
-애정 표현을 바라는 말은 포옹이나 잠자리 이야기가 섞여도 1을 골라. 그 외에는 현재 요청에서 구체적인 동작이나 상황에 가장 가까운 번호를 골라.
-평소 잡담, 과거의 이야기, 거절, 불이나 이불만 조절하는 말, 베개나 눈맞춤만 요청하는 말에는 0을 골라. 0일 때 사진은 자동으로 돌아가므로 대사에서 사진을 언급할 필요 없어.
-`;
-
 export function jiwooScenePhotos(id: unknown): readonly number[] | null {
   return typeof id === "string" && Object.hasOwn(scenePhotos, id)
     ? scenePhotos[id as keyof typeof scenePhotos]
@@ -106,6 +86,16 @@ export function pickJiwooBedtimePhoto(
   random = Math.random,
 ) {
   const ids = (candidates ?? JIWOO_BEDTIME_SCENES.map((_, i) => i + 1)).map(jiwooBedtimePhotoId);
+  return pickJiwooCallPhoto(ids, recent, counts, random);
+}
+
+export function pickJiwooCallPhoto(
+  ids: readonly string[],
+  recent: readonly string[],
+  counts: Readonly<Record<string, number>>,
+  random = Math.random,
+) {
+  if (ids.length === 1) return ids[0];
   const fresh = ids.filter(id => !recent.includes(id));
   const eligible = fresh.length ? fresh : ids.filter(id => id !== recent[0]);
   const fewest = Math.min(...eligible.map(id => counts[id] ?? 0));

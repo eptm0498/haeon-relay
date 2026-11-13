@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
+import { isStandaloneJiwoo, JIWOO_MAX_CALL_PHOTOS } from "@/lib/dokyeong/character-modes";
 import sharp from "sharp";
 import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
 import { callPhotoResponse, editorCallPhotos } from "@/lib/dokyeong/call-photos";
-import { isCallPhotoId, MAX_CALL_PHOTO_LENGTH, MAX_CALL_SITUATION_LENGTH, type CallPhoto } from "@/lib/dokyeong/call-scenes";
+import { isCallPhotoId, MAX_CALL_PHOTOS, MAX_CALL_PHOTO_LENGTH, MAX_CALL_SITUATION_LENGTH, type CallPhoto } from "@/lib/dokyeong/call-scenes";
 import { verifyEditor } from "@/lib/dokyeong/settings";
 
 type Params = { params: Promise<{ token: string }> };
@@ -32,15 +33,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     let data;
     try { data = JSON.parse(raw); } catch { return failure("사진 정보를 확인해 줘.", 400); }
     const { characterId, photoId, action } = data ?? {};
-    if (!isCallPhotoId(characterId) || !["add", "edit", "delete"].includes(action) || (action !== "add" && !isCallPhotoId(photoId))) {
+    if (!isCallPhotoId(characterId) || !["add", "edit", "replace", "delete"].includes(action) || (action !== "add" && !isCallPhotoId(photoId))) {
       return failure("사진과 캐릭터를 확인해 줘.", 400);
     }
     const situation = typeof data.situation === "string" ? data.situation.trim() : "";
-    if (action !== "delete" && (!situation || situation.length > MAX_CALL_SITUATION_LENGTH)) {
+    if ((action === "add" || action === "edit") && (!situation || situation.length > MAX_CALL_SITUATION_LENGTH)) {
       return failure("사진이 나올 상황을 1~240자로 적어 줘.", 400);
     }
     let image: string | undefined;
-    if (action === "add") {
+    if (action === "add" || action === "replace") {
       image = data.image;
       if (typeof image !== "string" || image.length > MAX_CALL_PHOTO_LENGTH || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) {
         return failure("사진을 다시 선택해 줘.", 400);
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       } catch { return failure("이 사진을 읽지 못했어. JPG나 PNG로 다시 선택해 줘.", 400); }
     }
     const photos = await editorCallPhotos<CallPhoto[] | null>(token, characterId, action, action === "add" ? undefined : photoId, situation, image);
-    if (!photos) return failure(action === "add" ? "사진을 더 추가할 수 없어. 최대 8장까지 저장할 수 있어." : "사진을 찾지 못했어. 새로고침해 줘.", 409);
+    if (!photos) return failure(action === "add" ? `사진을 더 추가할 수 없어. 최대 ${(isStandaloneJiwoo(characterId) ? JIWOO_MAX_CALL_PHOTOS : MAX_CALL_PHOTOS)}장까지 저장할 수 있어.` : "사진을 찾지 못했어. 새로고침해 줘.", 409);
     return Response.json(photos, { headers: noStore });
   } catch {
     return failure("통화 사진을 저장하지 못했어. 다시 시도해 줘.", 503);

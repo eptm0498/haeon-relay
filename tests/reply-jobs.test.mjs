@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as projectDialogue from '../lib/dokyeong/project-dialogue.ts';
 import * as characterModes from '../lib/dokyeong/character-modes.ts';
+import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 
 async function prepare(activity, model=null, jiwoo=false){
@@ -14,6 +15,8 @@ async function prepare(activity, model=null, jiwoo=false){
  const mocks={
   './project-reply':{projectReply:async text=>text},
   './character-modes':characterModes,
+  './jiwoo-preferences':jiwooPreferences,
+  './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:()=> '대화',updateMemory:async()=>0},
@@ -58,9 +61,21 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
  assert.match(outcome.prompts[0],/저장된 설정/);
  assert.match(outcome.prompts[0],/\[문자 채팅\]/);
  assert.match(outcome.prompts[0],/최근 대화의 실제 시각/);
+ assert.match(outcome.prompts[0],/문자 전용 예시/);
+ assert.match(outcome.prompts[0],/16:00-21:00/);
+ assert.doesNotMatch(outcome.prompts[0],/음성 전용 예시/);
  assert.deepEqual(outcome.models,['gemini-3.5-flash-lite']);
  const scheduled=outcome.calls.at(-1);
  assert.equal(scheduled.action,'schedule');
  assert.equal(scheduled.data.text,'형, 나 쉬고 있었어 ㅋㅋ');
  assert.equal(scheduled.data.photo,null);
+});
+
+
+test('Jiwoo schedule uses Korean weekdays and the saved work hours',()=>{
+ const prefs=jiwooPreferences.defaultJiwooPreferences;
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T15:00:00Z'),prefs),/09:00 시작/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/21:00 종료 예정/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T12:00:00Z'),prefs),/종료 시각\(21:00\) 이후/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T05:00:00Z'),prefs),/정규 근무가 없는 날/);
 });

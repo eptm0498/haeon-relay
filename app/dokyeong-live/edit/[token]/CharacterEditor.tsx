@@ -8,6 +8,7 @@ import SampleManager from "./SampleManager";
 import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
 import ProfilePhoto from "./ProfilePhoto";
 import CallPhotoEditor from "./CallPhotoEditor";
+import JiwooSettings from "./JiwooSettings";
 import ReferenceModel from "./ReferenceModel";
 import StoryEditor from "./StoryEditor";
 import { isProjectCharacter } from "@/lib/dokyeong/project-dialogue";
@@ -85,7 +86,7 @@ export default function CharacterEditor({ token }: { token: string }) {
   const [rawMode, setRawMode] = useState(false);
   const [raw, setRaw] = useState("");
   const [active, setActive] = useState("intro");
-  const [tab, setTab] = useState<"profile"|"samples"|"story"|"callPhotos">("profile");
+  const [tab, setTab] = useState<"profile"|"samples"|"story"|"callPhotos"|"jiwoo"|"jiwooMemory">("profile");
   const [loading, setLoading] = useState(true);
   const [voiceLoading, setVoiceLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -286,11 +287,15 @@ export default function CharacterEditor({ token }: { token: string }) {
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
             {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
-            {!standaloneJiwoo && <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>}
+            <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>
+            {standaloneJiwoo && <>
+              <button role="tab" aria-selected={tab==="jiwoo"} className={tab==="jiwoo"?styles.tabActive:""} onClick={()=>setTab("jiwoo")}>대화 지침·일정</button>
+              <button role="tab" aria-selected={tab==="jiwooMemory"} className={tab==="jiwooMemory"?styles.tabActive:""} onClick={()=>setTab("jiwooMemory")}>요약 기억</button>
+            </>}
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
           </div>
 
-          {tab==="callPhotos" && working.id ? <CallPhotoEditor key={working.id} api={api} characterId={working.id}/> : tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : tab==="story"&&working.story&&working.id ? <StoryEditor key={working.id} value={working.story} onChange={story=>{setWorking(previous=>previous?{...previous,story}:previous);setNotice("");}} api={api} characterId={working.id} disabled={saving}/> : <>
+          {standaloneJiwoo && (tab==="jiwoo" || tab==="jiwooMemory") ? <JiwooSettings key={tab} endpoint={`${api}/jiwoo`} memory={tab==="jiwooMemory"}/> : tab==="callPhotos" && working.id ? <CallPhotoEditor key={working.id} api={api} characterId={working.id}/> : tab==="samples" && working.id ? <SampleManager token={token} characterId={working.id} characterName={working.name}/> : tab==="story"&&working.story&&working.id ? <StoryEditor key={working.id} value={working.story} onChange={story=>{setWorking(previous=>previous?{...previous,story}:previous);setNotice("");}} api={api} characterId={working.id} disabled={saving}/> : <>
             <div className={styles.editorCard}>
               <div className={styles.cardHeader}><div className={styles.cardIcon}><Volume2 size={23}/></div><div className={styles.cardTitles}><span className={styles.overline}>IDENTITY / VOICE</span><h2>이름과 목소리</h2><p>ElevenLabs에 만들어 둔 목소리 중 이 캐릭터가 사용할 목소리를 지정해.</p></div></div>
               <div className={styles.fieldArea}>
@@ -319,10 +324,10 @@ export default function CharacterEditor({ token }: { token: string }) {
                   })}
                 </div>}
                 {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%",marginTop:12}}/>}
-                {!standaloneJiwoo && <ReferenceModel key={`references-${working.id || "new"}`} name={working.name} prompt={currentPrompt} api={api} value={working.reference_images || emptyReferences()} disabled={saving}
+                <ReferenceModel key={`references-${working.id || "new"}`} name={working.name} prompt={currentPrompt} api={api} value={working.reference_images || emptyReferences()} disabled={saving}
                   onBusyChange={setImageBusy}
                   onChange={reference_images=>{setWorking(previous=>previous?{...previous,reference_images}:previous);setNotice("");}}
-                  onProfile={avatar_url=>{setWorking(previous=>previous?{...previous,avatar_url}:previous);setNotice("프로필을 만들었어. 저장하면 기준 사진과 함께 적용돼.");}}/>}
+                  onProfile={avatar_url=>{setWorking(previous=>previous?{...previous,avatar_url}:previous);setNotice("프로필을 만들었어. 저장하면 기준 사진과 함께 적용돼.");}}/>
                 <ProfilePhoto key={`profile-${working.id || "new"}`} name={working.name} value={working.avatar_url} disabled={saving || imageBusy}
                   onChange={avatar_url => { setWorking(previous => previous ? {...previous, avatar_url} : previous); setNotice(""); }}/>
                 <label style={{display:"flex",gap:8,alignItems:"center",marginTop:14}}><input type="checkbox" checked={working.is_default} onChange={e=>setWorking({...working,is_default:e.target.checked})}/> 앱을 열었을 때 기본 캐릭터로 사용</label>
