@@ -11,9 +11,9 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=realtime,models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
- const started=[],sockets=[],timers=[],repairs=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
+ const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
  class Socket extends EventTarget{
   readyState=0;sent=[];
@@ -25,7 +25,7 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=re
  }
  const read=name=>{started.push(name);return gates[name].promise;};
  const mocks={
-  'next/server':{after:()=>assert.fail('no background mutations for a diagnostic turn')},
+  'next/server':{after:task=>{assert.ok(requestId);background.push(task);}},
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
   '@/lib/dokyeong/config':{liveConfig:{gemini:{responseModel:'fixture-model'},elevenlabs:{dialogueRealtimeModelId:'eleven_v3_conversational',dialogueOutputFormat:'pcm_24000'}}},
   '@/lib/dokyeong/model-settings':{
@@ -35,8 +35,8 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=re
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
-  '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>{assert.ok(!voiceOnly,'no call photo lookup');return photos||[];}},
-  '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:voiceOnly?characterModes.VOICE_ONLY_JIWOO_ID:'fixture-character',name:voiceOnly?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
+  '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>{assert.ok(!standaloneJiwoo,'no call photo lookup');return photos||[];}},
+  '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:standaloneJiwoo?characterModes.STANDALONE_JIWOO_ID:'fixture-character',name:standaloneJiwoo?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
   '@/lib/dokyeong/memory':{memoryContext:()=>read('memory'),serverRpc:(_,body)=>{assert.equal(body.action,'activity');return read('activity');}},
   '@/lib/dokyeong/project-context':{projectContext:()=>read('project')},
   '@/lib/dokyeong/project-dialogue':dialogue,
@@ -44,9 +44,9 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=re
   '@/lib/dokyeong/samples':{relatedSampleContext:()=>read('samples')},
   '@/lib/dokyeong/time-context':{currentTimeContext:()=>''},
   '@/lib/dokyeong/photo-tool':{photoTool:{name:'send_character_photo'},parsePhotoCall:()=>null},
-  '@/lib/dokyeong/photo-intent':{declinesPhoto:()=>false,photoFallbackAllowed:()=>{assert.ok(!voiceOnly,'no photo fallback');return false;},photoIntentContext:()=>'',photoRequestPrompt:()=>''},
+  '@/lib/dokyeong/photo-intent':{declinesPhoto:()=>false,photoFallbackAllowed:()=>{assert.ok(!standaloneJiwoo,'no photo fallback');return false;},photoIntentContext:()=>'',photoRequestPrompt:()=>''},
   '@/lib/dokyeong/sleep-intent':{sleepIntent:()=>false},
-  '@/lib/dokyeong/reply-jobs':{},
+  '@/lib/dokyeong/reply-jobs':{queueReply:async(...args)=>{jobs.push(args);},runReplyWorker:async id=>{jobs.push(id);}},
   '@/lib/dokyeong/reply-timing':{timingPrompt:'',timingPlan:()=>({awaySeconds:0})},
   '@/lib/dokyeong/voice-failure':{voiceFailure},
  };
@@ -57,11 +57,11 @@ function fixture({linked=false,photos,voiceOnly=false,realtime=true,wantVoice=re
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
- return {gates,started,sockets,timers,pending,contextReady,frame,input,upstream,repairs,get fetchCalled(){return fetchCalled;},get modelBody(){return modelBody;},get modelUrl(){return modelUrl;}};
+ return {gates,started,sockets,timers,pending,contextReady,frame,input,upstream,repairs,jobs,background,get fetchCalled(){return fetchCalled;},get modelBody(){return modelBody;},get modelUrl(){return modelUrl;}};
 }
 
 test('independent context reads start together and the voice socket opens before model headers',{timeout:3000},async()=>{
@@ -119,11 +119,8 @@ test('the call photo choice reaches the screen separately and never enters speec
  assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
 });
 
-test('standalone Jiwoo uses only voice and never requests project or image generation',{timeout:3000},async()=>{
- const text=fixture({voiceOnly:true,realtime:false});
- assert.equal((await text.pending).status,400);
- assert.equal(text.fetchCalled,false);assert.equal(text.sockets.length,0);
- const call=fixture({voiceOnly:true,photos:[]});
+test('standalone Jiwoo voice keeps its call-only processing and skips project and image generation',{timeout:3000},async()=>{
+ const call=fixture({standaloneJiwoo:true,photos:[]});
  await tick();assert.deepEqual(call.started.sort(),['memory','samples']);
  call.contextReady();await tick();call.sockets[0].open();
  assert.equal(call.modelBody.tools,undefined);
@@ -141,7 +138,7 @@ test('standalone Jiwoo uses only voice and never requests project or image gener
 
 test('Jiwoo gets conversational context and keeps its scene marker out of spoken dialogue',{timeout:3000},async()=>{
  const messages=[{role:'assistant',content:'더 꼭 안아줄까?'},{role:'user',content:'응, 그렇게 해줘.'}];
- const f=fixture({voiceOnly:true,messages});
+ const f=fixture({standaloneJiwoo:true,messages});
  await tick();f.contextReady();await tick();f.sockets[0].open();
  assert.match(f.modelBody.systemInstruction.parts[0].text,/직전 대화/);
  assert.deepEqual(f.modelBody.contents.map(turn=>turn.parts[0].text),messages.map(turn=>turn.content));
@@ -179,4 +176,35 @@ test('a selected HTTP speech model sends completed text for playback without ope
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.equal(events.find(e=>e.type==='text_done').text,'안녕.');
  assert.equal(events.find(e=>e.type==='audio_unavailable').hadAudio,false);
+});
+
+
+test('Jiwoo text chat enqueues the same reply job as the other characters',{timeout:3000},async()=>{
+ const requestId='79c511c3-2b79-489d-81a3-b048fe6a3d3c';
+ const messages=[{role:'assistant',content:'퇴근했어?'},{role:'user',content:'응, 방금 집 왔어.'}];
+ const f=fixture({standaloneJiwoo:true,realtime:false,requestId,messages});
+ const response=await f.pending;
+ assert.equal(response.status,202);
+ assert.deepEqual(await response.json(),{type:'queued',requestId});
+ assert.equal(f.jobs[0][0],characterModes.STANDALONE_JIWOO_ID);
+ assert.equal(f.jobs[0][1],requestId);
+ assert.equal(JSON.stringify(f.jobs[0][2].messages),JSON.stringify(messages));
+ await f.background[0]();
+ assert.equal(f.jobs[1],requestId);
+ assert.equal(f.fetchCalled,false);assert.equal(f.sockets.length,0);
+});
+
+test('Jiwoo direct text chat uses its text model and keeps chat reactions without call scenes',{timeout:3000},async()=>{
+ const f=fixture({standaloneJiwoo:true,realtime:false,models:{textModel:'gemini-3.5-flash-lite'}});
+ f.contextReady();await tick();
+ assert.match(f.modelUrl,/gemini-3\.5-flash-lite:streamGenerateContent/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/\[문자 채팅\]/);
+ assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/CALL_SCENE/);
+ assert.equal(f.sockets.length,0);
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('아, 형은 진짜 ㅋㅋ');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(e=>e.type==='done').text,'아, 형은 진짜 ㅋㅋ');
+ assert.ok(!events.some(e=>e.type==='jiwoo_scene'||e.type==='audio'||e.type==='photo'));
 });

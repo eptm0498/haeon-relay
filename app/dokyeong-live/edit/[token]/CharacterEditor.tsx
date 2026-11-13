@@ -5,7 +5,7 @@ import liveStyles from "../../live.module.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, CircleAlert, FileText, Link2, MessageCircle, Plus, RotateCcw, Save, Sparkles, Trash2, Volume2 } from "lucide-react";
 import SampleManager from "./SampleManager";
-import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
+import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
 import ProfilePhoto from "./ProfilePhoto";
 import CallPhotoEditor from "./CallPhotoEditor";
 import ReferenceModel from "./ReferenceModel";
@@ -241,7 +241,7 @@ export default function CharacterEditor({ token }: { token: string }) {
     finally { setSaving(false); }
   }
 
-  const voiceOnly = isVoiceOnlyCharacter(working?.id);
+  const standaloneJiwoo = isStandaloneJiwoo(working?.id);
   const selected = draft?.sections.find(section => section.id === active);
   const voice = voices.find(v => v.voice_id === working?.voice_id);
 
@@ -286,7 +286,7 @@ export default function CharacterEditor({ token }: { token: string }) {
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
             {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
-            {!voiceOnly && <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>}
+            {!standaloneJiwoo && <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>}
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
           </div>
 
@@ -319,7 +319,7 @@ export default function CharacterEditor({ token }: { token: string }) {
                   })}
                 </div>}
                 {voice?.preview_url && <audio controls preload="none" src={voice.preview_url} style={{height:36,maxWidth:"100%",marginTop:12}}/>}
-                {!voiceOnly && <ReferenceModel key={`references-${working.id || "new"}`} name={working.name} prompt={currentPrompt} api={api} value={working.reference_images || emptyReferences()} disabled={saving}
+                {!standaloneJiwoo && <ReferenceModel key={`references-${working.id || "new"}`} name={working.name} prompt={currentPrompt} api={api} value={working.reference_images || emptyReferences()} disabled={saving}
                   onBusyChange={setImageBusy}
                   onChange={reference_images=>{setWorking(previous=>previous?{...previous,reference_images}:previous);setNotice("");}}
                   onProfile={avatar_url=>{setWorking(previous=>previous?{...previous,avatar_url}:previous);setNotice("프로필을 만들었어. 저장하면 기준 사진과 함께 적용돼.");}}/>}

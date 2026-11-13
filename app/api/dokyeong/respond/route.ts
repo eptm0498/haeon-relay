@@ -1,11 +1,11 @@
 import {projectReply} from '@/lib/dokyeong/project-reply';
 import {projectContext} from "@/lib/dokyeong/project-context";
-import {isProjectCharacter,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
+import {dialogueOnly,isProjectCharacter,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
 import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { isVoiceOnlyCharacter } from "@/lib/dokyeong/character-modes";
+import { isStandaloneJiwoo, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -360,10 +360,11 @@ export async function POST(request: NextRequest) {
   const character = await readLiveCharacter(characterId);
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   timings.characterReadyMs = elapsed();
-  const voiceOnly = isVoiceOnlyCharacter(character.id);
-  if (voiceOnly && (!realtime || messages.some(message => message.image))) {
-    return Response.json({ error: "지우와는 음성 통화로만 대화할 수 있어." }, { status: 400, headers: noStore });
+  const standaloneJiwoo = isStandaloneJiwoo(character.id);
+  if (standaloneJiwoo && messages.some(message => message.image)) {
+    return Response.json({ error: "지우 채팅방에서는 사진을 첨부할 수 없어." }, { status: 400, headers: noStore });
   }
+  const jiwooCall = standaloneJiwoo && realtime;
 
   const now = Date.now();
   const isDokyeong = character.name.trim() === "도경";
@@ -386,28 +387,30 @@ export async function POST(request: NextRequest) {
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
   const [activity, sampleContext, remembered, project, callPhotos, models] = await Promise.all([
-    voiceOnly ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
-    relatedSampleContext(sampleMessages, character.id, character.name, wantVoice ? "voice" : "chat"),
+    standaloneJiwoo ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
+    relatedSampleContext(sampleMessages, character.id, character.name, realtime ? "voice" : "chat"),
     memoryContext(character.id),
-    voiceOnly ? "" : projectContext(character,sampleMessages,wantVoice),
-    voiceOnly || callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
+    standaloneJiwoo ? "" : projectContext(character,sampleMessages,wantVoice),
+    standaloneJiwoo || callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
     liveModelOverrides(request.signal),
   ]);
   timings.contextReadyMs = elapsed();
   const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
-  const linked=!voiceOnly && isProjectCharacter(character);
-  const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (voiceOnly ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (voiceOnly ? "" : photoRequestPrompt(character.name) + `
+  const linked=!standaloneJiwoo && isProjectCharacter(character);
+  const prompt = character.prompt + (linked ? "" : currentTimeContext(new Date(),character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (standaloneJiwoo ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (standaloneJiwoo ? "" : photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`);
   const activeVoiceId = voiceIdOverride || character.voice_id;
   // Open the voice connection while Gemini prepares its first response, without
   // sending any text or generating paid audio before it is actually needed.
   let sendAudio: ((event: object) => void) | undefined;
-  const speechModel = wantVoice ? realtimeSpeechModel(models.speechModel) : null;
-  const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || voiceOnly, speechModel) : null;
-  const sceneOptions = voiceOnly ? JIWOO_CALL_SCENES : callPhotos ?? [];
-  const scenePrompt = voiceOnly ? JIWOO_CALL_SCENE_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null);
-  const result = await requestGemini(messages, prompt + scenePrompt, request.signal, !voiceOnly, realtime ? models.voiceModel : models.textModel);
+  const speechModel = wantVoice && (!standaloneJiwoo || jiwooCall) ? realtimeSpeechModel(models.speechModel) : null;
+  const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || standaloneJiwoo, speechModel) : null;
+  const sceneOptions = jiwooCall ? JIWOO_CALL_SCENES : callPhotos ?? [];
+  const modePrompt = standaloneJiwoo
+    ? jiwooCall ? JIWOO_CALL_SCENE_PROMPT : JIWOO_TEXT_CHAT_PROMPT
+    : callScenePrompt(sceneOptions, currentPhoto ?? null);
+  const result = await requestGemini(messages, prompt + modePrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -473,7 +476,7 @@ export async function POST(request: NextRequest) {
             if (!inTerminalRun) {
               sentenceCount++;
               inTerminalRun = true;
-              if (!linked && !voiceOnly && sentenceCount >= 3) {
+              if (!linked && !standaloneJiwoo && sentenceCount >= 3) {
                 let j = i + 1;
                 while (j < text.length && /[.!?。！？]/.test(text[j])) j++;
                 cut = j;
@@ -498,10 +501,10 @@ export async function POST(request: NextRequest) {
 
       const sceneReader = callSceneReader(sceneOptions,
         id => {
-          if (voiceOnly) send({ type: "jiwoo_scene", id });
+          if (jiwooCall) send({ type: "jiwoo_scene", id });
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
-        text => { if (linked || voiceOnly) linkedOutput += text; else emitText(text); },
+        text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
       );
       const processGeminiFrame = (frame: string) => {
         const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
@@ -512,7 +515,7 @@ export async function POST(request: NextRequest) {
           if (Array.isArray(parts)) {
             for (const part of parts) {
               if (part?.thought === true) continue;
-              const photo=voiceOnly ? null : parsePhotoCall(part);
+              const photo=standaloneJiwoo ? null : parsePhotoCall(part);
               if(photo)photoPlan=photo;
               if (typeof part?.text === "string") sceneReader.push(part.text);
             }
@@ -552,13 +555,13 @@ export async function POST(request: NextRequest) {
           emitText(clean);
         }
 
-        if (voiceOnly && !lastError) {
-          const clean = spokenDialogue(linkedOutput);
-          if (!clean) throw Error("Empty voice dialogue");
+        if (standaloneJiwoo && !lastError) {
+          const clean = jiwooCall ? spokenDialogue(linkedOutput) : dialogueOnly(linkedOutput);
+          if (!clean) throw Error("Empty Jiwoo dialogue");
           emitText(clean);
         }
 
-        if(!voiceOnly && !photoPlan && !lastError && photoFallbackAllowed(messages.at(-1)?.content||"",full,photoIntentContext(messages))) {
+        if(!standaloneJiwoo && !photoPlan && !lastError && photoFallbackAllowed(messages.at(-1)?.content||"",full,photoIntentContext(messages))) {
           photoPlan={scene:messages.slice(-6).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-1800),waitMessage:"잠깐만, 사진 찍어서 보내줄게."};
         }
         if(photoPlan){if(linked)photoPlan.waitMessage=await projectReply(photoPlan.waitMessage,wantVoice,activeModel);dialogue?.close();send({type:"photo",...photoPlan});return;}
@@ -568,7 +571,7 @@ export async function POST(request: NextRequest) {
           if (!completedText) {
             send({ type: "error", message: "답장을 만들지 못했어." });
           } else {
-            if(!voiceOnly&&realtime&&requestId){
+            if(!standaloneJiwoo&&realtime&&requestId){
               const activityPlan=timingPlan({},completedText);
               if(activityPlan.awaySeconds)await serverRpc("live_reply_work",{action:"voice_activity",target_character:character.id,target_job:requestId,data:activityPlan}).catch(()=>console.warn("LIVE_VOICE_ACTIVITY_RETRY"));
             }

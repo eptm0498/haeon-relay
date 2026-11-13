@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
-import { VOICE_ONLY_JIWOO_ID } from "@/lib/dokyeong/character-modes";
+import { STANDALONE_JIWOO_ID } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { serverRpc } from "@/lib/dokyeong/memory";
 
@@ -13,7 +13,7 @@ function failure(error: string, status: number) {
 export async function GET(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   try {
-    const jiwoo = await readLiveCharacter(VOICE_ONLY_JIWOO_ID);
+    const jiwoo = await readLiveCharacter(STANDALONE_JIWOO_ID);
     if (!jiwoo) return failure("지우 설정을 찾지 못했어.", 404);
     return Response.json({ prompt: jiwoo.prompt, version: jiwoo.version }, { headers: noStore });
   } catch {

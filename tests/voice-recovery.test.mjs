@@ -23,7 +23,7 @@ async function speech(responses,{backup=true,model=null}={}){
    httpSpeechModel:selection=>selection==='eleven_v4_turbo'?'eleven_v4':selection??'eleven_v3',
    realtimeSpeechModel:selection=>selection===null||selection==='eleven_v4_turbo',
   },
-  '@/lib/dokyeong/character-modes':{isVoiceOnlyCharacter:()=>false},
+  '@/lib/dokyeong/character-modes':{isStandaloneJiwoo:()=>false},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({voice_id:'saved-character-voice',prompt:'기존 캐릭터 설정'})},
   '@/lib/dokyeong/project-dialogue':projectDialogue,
   '@/lib/dokyeong/voice-failure':{voiceFailure},

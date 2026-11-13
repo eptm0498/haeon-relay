@@ -1,6 +1,6 @@
 import {NextRequest} from 'next/server';
 import {authenticated,noStore,sameOrigin,unauthorized} from '@/lib/dokyeong/auth';
-import {isVoiceOnlyCharacter} from '@/lib/dokyeong/character-modes';
+import {isStandaloneJiwoo} from '@/lib/dokyeong/character-modes';
 import {serverRpc} from '@/lib/dokyeong/memory';
 import {after} from 'next/server';
 import {deliverPushJobs} from '@/lib/dokyeong/push';
@@ -17,8 +17,8 @@ export async function POST(request:NextRequest){
   const raw=await request.text();if(raw.length>6000)return new Response(null,{status:413});
   const body=JSON.parse(raw);
   if(!uuid.test(body.deviceId||'')||!['status','presence','preference','subscribe','unsubscribe','test','session_start','session_stop'].includes(body.action)||body.characterId && !uuid.test(body.characterId))return new Response(null,{status:400});
-  if(isVoiceOnlyCharacter(body.characterId)&&['preference','test','session_start'].includes(body.action))
-   return Response.json({error:'지우는 음성 통화 전용이야.'},{status:400,headers:noStore});
+  if(isStandaloneJiwoo(body.characterId)&&['preference','test','session_start'].includes(body.action))
+   return Response.json({error:'지우 채팅방에서는 선톡과 예약 메시지를 설정할 수 없어.'},{status:400,headers:noStore});
   if(['session_start','session_stop'].includes(body.action)){
    if(!body.characterId||!uuid.test(body.data?.sessionId||''))return Response.json({error:'캐릭터와 예약 설정을 확인해 줘.'},{status:400,headers:noStore});
    if(body.action==='session_start'&&!validMessageSessionSettings(body.data?.minutes,body.data?.count))return Response.json({error:MESSAGE_SESSION_SETTINGS_ERROR},{status:400,headers:noStore});
