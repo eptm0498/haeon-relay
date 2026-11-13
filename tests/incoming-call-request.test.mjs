@@ -31,6 +31,7 @@ function routeFixture() {
       return { ...saved, reply_job_id: "reply" };
     } },
     "@/lib/dokyeong/reply-jobs": { runReplyWorker: async id => pushCalls.push(id) },
+    "@/lib/dokyeong/voip-push": { deliverIncomingCallNotifications: async () => pushCalls.push("push") },
     "@/lib/dokyeong/push": { deliverPushJobs: async () => pushCalls.push("push") },
     "@/lib/dokyeong/image-jobs": {},
     "@/lib/dokyeong/character-modes": { isStandaloneJiwoo: id => id === STANDALONE_JIWOO_ID },
