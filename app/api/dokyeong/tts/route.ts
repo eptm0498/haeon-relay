@@ -37,7 +37,7 @@ async function callSpeech(text: string, voiceId: string, model: string, signal: 
       body: JSON.stringify({
         text,
         model_id: model,
-        language_code: "ko",
+        ...(model !== "eleven_multilingual_v2" && { language_code: "ko" }),
         voice_settings: {
           stability: voice.stability,
           similarity_boost: voice.similarityBoost,

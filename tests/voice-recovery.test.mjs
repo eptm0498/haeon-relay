@@ -135,10 +135,11 @@ test('a websocket that never opens has a bounded finish',async()=>{
 
 
 test('selected HTTP speech models use their supported endpoint and retry the same model',async()=>{
- for(const [model,path] of [['eleven_turbo_v2_5','/text-to-speech/'],['eleven_v4','/text-to-dialogue/']]){
+ for(const [model,path] of [['eleven_turbo_v2_5','/text-to-speech/'],['eleven_multilingual_v2','/text-to-speech/'],['eleven_v4','/text-to-dialogue/']]){
   const {result,calls}=await speech([Response.json({},{status:500}),audio()],{model});
   assert.deepEqual(calls.map(call=>call.body.model_id),[model,model]);
   assert.ok(calls.every(call=>call.url.includes(path)));
+  if(model==='eleven_multilingual_v2')assert.ok(calls.every(call=>!Object.hasOwn(call.body,'language_code')));
   assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),model);
  }
 });
