@@ -6,16 +6,18 @@ import ts from 'typescript';
 import * as projectDialogue from '../lib/dokyeong/project-dialogue.ts';
 import * as characterModes from '../lib/dokyeong/character-modes.ts';
 import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
+import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 
-async function prepare(activity, model=null, jiwoo=false){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?'){
  const calls=[],prompts=[],models=[],warnings=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
- const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:'뭐 해?'}]},context:{messages:[{id:'pending',role:'user',content:'뭐 해?',ts:1}],memory:''},activity};
+ const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[{id:'pending',role:'user',content:latest,ts:1}],memory:''},activity};
  const mocks={
   './project-reply':{projectReply:async text=>text},
   './character-modes':characterModes,
   './jiwoo-preferences':jiwooPreferences,
+  './incoming-call-intent':incomingCallIntent,
   './incoming-call':{incomingCallContext:async()=>''},
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
@@ -23,7 +25,7 @@ async function prepare(activity, model=null, jiwoo=false){
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:()=> '대화',updateMemory:async()=>0},
   './characters':{readLiveCharacter:async()=>({id:characterId,name:jiwoo?'지우':'온유',prompt:'저장된 설정'})},
   './model-settings':{liveModelOverrides:async()=>({textModel:model})},
-  './gemini-json':{geminiJson:async(prompt,_schema,_signal,_image,options)=>{prompts.push(prompt);models.push(options?.model);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:''};}},
+  './gemini-json':{geminiJson:async(prompt,_schema,_signal,_image,options)=>{prompts.push(prompt);models.push(options?.model);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
   './time-context':{currentTimeContext:()=>''},'./samples':{relatedSampleContext:async()=>''},
   './photo-intent':photoIntent,
   './reply-timing':{timingPrompt:'',timingPlan:()=>({delaySeconds:8,awaySeconds:0,activity:''}),urgentMessage:()=>false},
@@ -79,4 +81,17 @@ test('Jiwoo schedule uses Korean weekdays and the saved work hours',()=>{
  assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/21:00 종료 예정/);
  assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T12:00:00Z'),prefs),/종료 시각\(21:00\) 이후/);
  assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T05:00:00Z'),prefs),/정규 근무가 없는 날/);
+});
+
+test('a contextual Jiwoo call travels with the delivered reply, but a refusal prevents ringing',async()=>{
+ const call=await prepare(null,null,true,{kind:'call',text:'목소리 듣고 싶네. 내가 지금 전화 걸게.'});
+ assert.equal(call.calls.at(-1).data.callNow,true);
+ assert.equal(call.calls.at(-1).data.delaySeconds,5);
+ const implicit=await prepare(null,null,true,{kind:'reply',text:'형 기다려, 바로 전화할게.'});
+ assert.equal(implicit.calls.at(-1).data.callNow,true);
+ const blocked=await prepare(null,null,true,{kind:'call',text:'지금 전화 걸게.'},'지금은 전화 걸지 마');
+ assert.equal(blocked.calls.at(-1).data.callNow,undefined);
+ assert.doesNotMatch(blocked.calls.at(-1).data.text,/전화 걸게/);
+ const future=await prepare(null,null,true,{kind:'call',text:'내일 전화할게.'});
+ assert.equal(future.calls.at(-1).data.callNow,undefined);
 });

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Phone, PhoneOff } from "lucide-react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { Phone } from "lucide-react";
 import type { IncomingCall } from "@/lib/dokyeong/incoming-call";
 import CharacterAvatar from "./CharacterAvatar";
 import { resolveIncomingCall } from "./useIncomingCall";
@@ -19,6 +19,9 @@ type Props = {
 export default function IncomingCallScreen({ call, name, avatar, canAnswer, onAccept, onDismiss }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const deciding = useRef(false);
+  const slider = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: number; start: number } | null>(null);
+  const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -39,7 +42,7 @@ export default function IncomingCallScreen({ call, name, avatar, canAnswer, onAc
     let context: AudioContext | null = null;
     try {
       if (action === "accept" && typeof AudioContext !== "undefined") {
-        // Resume from the tap on iOS before waiting on the server. Mic access follows acceptance.
+        // Resume from the gesture on iOS before waiting on the server. Mic access follows acceptance.
         context = new AudioContext();
         void context.resume().catch(() => {});
       }
@@ -59,24 +62,50 @@ export default function IncomingCallScreen({ call, name, avatar, canAnswer, onAc
     }
   }
 
+  function slide(event: PointerEvent<HTMLButtonElement>) {
+    if (drag.current?.id !== event.pointerId) return 0;
+    const distance = Math.max(1, (slider.current?.clientWidth ?? 0) - event.currentTarget.offsetWidth - 10);
+    const moved = Math.min(distance, Math.max(0, event.clientX - drag.current.start));
+    setOffset(moved);
+    return moved / distance;
+  }
+
   return <dialog ref={dialog} className={styles.incomingCall} aria-labelledby="incoming-call-name"
     onCancel={event => { event.preventDefault(); void decide("decline"); }}>
+    <div className={styles.incomingCallBackdrop} aria-hidden="true">
+      <CharacterAvatar name={name} src={avatar}/>
+    </div>
     <div className={styles.incomingCallIdentity}>
-      <div className={styles.incomingCallAvatar}><CharacterAvatar name={name} src={avatar}/></div>
+      <p>{busy ? "연결 중…" : seconds ? "LIVE 음성 통화" : "부재중 전화"}</p>
       <h1 id="incoming-call-name">{name}</h1>
-      <p>{busy ? "전화 상태 확인 중…" : seconds ? "수신 전화" : "부재중 전화"}</p>
     </div>
     <div className={styles.incomingCallBottom}>
       {error && <p role="alert">{error}</p>}
-      <div className={styles.incomingCallActions}>
-        <button type="button" disabled={busy} onClick={() => seconds ? void decide("decline") : onDismiss(call.id)}>
-          <span className={styles.incomingDecline}><PhoneOff aria-hidden="true"/></span>{seconds ? "거절" : "닫기"}
+      <button className={styles.incomingReject} type="button" disabled={busy}
+        onClick={() => seconds ? void decide("decline") : onDismiss(call.id)}>{seconds ? "거절" : "닫기"}</button>
+      {seconds > 0 && <div ref={slider} className={styles.incomingSlider} data-disabled={!canAnswer || busy}>
+        <span aria-hidden="true">밀어서 응답</span>
+        <button type="button" aria-label="받기" disabled={busy || !canAnswer}
+          style={{ transform: `translateX(${offset}px)` }}
+          onClick={event => { if (event.detail === 0) void decide("accept"); }}
+          onPointerDown={event => {
+            if (!event.isPrimary || event.button !== 0) return;
+            drag.current = { id: event.pointerId, start: event.clientX };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={slide}
+          onPointerUp={event => {
+            if (drag.current?.id !== event.pointerId) return;
+            const completed = slide(event) >= 0.82;
+            drag.current = null;
+            setOffset(0);
+            if (completed) void decide("accept");
+          }}
+          onLostPointerCapture={() => { drag.current = null; setOffset(0); }}>
+          <Phone aria-hidden="true"/>
         </button>
-        {seconds > 0 && <button type="button" disabled={busy || !canAnswer} onClick={() => void decide("accept")}>
-          <span className={styles.incomingAccept}><Phone aria-hidden="true"/></span>받기
-        </button>}
-      </div>
-      {seconds > 0 && <small>{seconds}초 남음</small>}
+      </div>}
+      {!canAnswer && seconds > 0 && !busy && <small role="status">통화 준비 중…</small>}
     </div>
   </dialog>;
 }
