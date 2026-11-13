@@ -4,6 +4,7 @@ export type JiwooPreferences = {
   voicePrompt: string;
   workHours: string[];
   scheduleNotes: string;
+  incomingCalls?: boolean;
   version: number;
 };
 

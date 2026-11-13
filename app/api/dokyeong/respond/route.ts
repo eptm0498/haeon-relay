@@ -12,6 +12,7 @@ import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/
 import { JIWOO_BEDTIME_SCENES, jiwooBedtimeCue, jiwooBedtimePhotoId } from "@/lib/dokyeong/jiwoo-bedtime";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
+import { incomingCallContext, incomingCallWork, isIncomingCallId } from "@/lib/dokyeong/incoming-call";
 import { readJiwooPreferences } from "@/lib/dokyeong/jiwoo-settings";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
@@ -330,11 +331,16 @@ export async function POST(request: NextRequest) {
   let characterId: string | null = null;
   let voiceIdOverride: string | null = null;
   let requestedSleepModeUntil = 0;
+  let openingCallId: string | undefined;
   try {
     const parsed = JSON.parse(raw);
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
     realtime=parsed.realtime===true;
+    if (parsed.openingCallId !== undefined) {
+      if (!realtime || !isIncomingCallId(parsed.openingCallId)) throw Error();
+      openingCallId = parsed.openingCallId;
+    }
     if (realtime && (parsed.callPhoto === null || isCallPhotoId(parsed.callPhoto))) callPhoto = parsed.callPhoto;
     requestId=typeof parsed.requestId==="string"&&/^[a-f0-9-]{36}$/i.test(parsed.requestId)?parsed.requestId:undefined;
     sourceMessageId=typeof parsed.sourceMessageId==="string"&&/^[A-Za-z0-9:_-]{1,120}$/.test(parsed.sourceMessageId)?parsed.sourceMessageId:undefined;
@@ -348,13 +354,13 @@ export async function POST(request: NextRequest) {
       if (typeof image.data !== "string" || image.data.length < 40 || image.data.length > 1_900_000) return false;
       return /^[A-Za-z0-9+/=]+$/.test(image.data);
     };
-    if (!Array.isArray(messages) || !messages.length || messages.length > 24 ||
+    if (!Array.isArray(messages) || messages.length > 24 ||
       !messages.every((m) => {
         if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string" || m.content.length > 1500) return false;
         if (m.image !== undefined && (m.role !== "user" || !validImage(m.image))) return false;
         return m.content.trim().length > 0 || !!m.image;
       }) ||
-      messages.at(-1)?.role !== "user") throw Error();
+      (!openingCallId && messages.at(-1)?.role !== "user")) throw Error();
   } catch {
     return Response.json({ error: "대화 기록을 확인해 줘." }, { status: 400 });
   }
@@ -367,6 +373,11 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "지우 채팅방에서는 사진을 첨부할 수 없어." }, { status: 400, headers: noStore });
   }
   const jiwooCall = standaloneJiwoo && realtime;
+  if (openingCallId) {
+    const accepted = jiwooCall && await incomingCallWork("greet", openingCallId).catch(() => null);
+    if (!accepted) return Response.json({ error: "연결된 수신 전화를 확인하지 못했어." }, { status: 409, headers: noStore });
+    messages = [...messages.slice(-23), { role: "user", content: "[수신 통화가 연결됨]" }];
+  }
 
   const now = Date.now();
   const isDokyeong = character.name.trim() === "도경";
@@ -388,7 +399,7 @@ export async function POST(request: NextRequest) {
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const [activity, sampleContext, remembered, project, callPhotos, models, jiwooPreferences] = await Promise.all([
+  const [activity, sampleContext, remembered, project, callPhotos, models, jiwooPreferences, callContext] = await Promise.all([
     standaloneJiwoo ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
     relatedSampleContext(sampleMessages, character.id, character.name, realtime ? "voice" : "chat"),
     memoryContext(character.id),
@@ -396,6 +407,7 @@ export async function POST(request: NextRequest) {
     !jiwooCall && callPhoto === undefined ? null : readCallPhotos(character.id).catch(() => null),
     liveModelOverrides(request.signal),
     standaloneJiwoo ? readJiwooPreferences(request.signal) : null,
+    standaloneJiwoo && !openingCallId ? incomingCallContext() : "",
   ]);
   timings.contextReadyMs = elapsed();
   const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
@@ -414,7 +426,8 @@ export async function POST(request: NextRequest) {
   const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
-  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 연결되자마자 네가 먼저 짧게 인사하고 왜 전화했는지 자연스럽게 한마디 해. 통화가 연결됐다는 시스템 문구는 읽지 마.\n" : "";
+  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + openingPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;

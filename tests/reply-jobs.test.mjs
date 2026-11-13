@@ -16,6 +16,7 @@ async function prepare(activity, model=null, jiwoo=false){
   './project-reply':{projectReply:async text=>text},
   './character-modes':characterModes,
   './jiwoo-preferences':jiwooPreferences,
+  './incoming-call':{incomingCallContext:async()=>''},
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,

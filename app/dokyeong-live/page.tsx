@@ -9,8 +9,10 @@ import LiveModelEditor from "./LiveModelEditor";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
+import IncomingCallScreen from "./IncomingCallScreen";
+import { resolveIncomingCall, useIncomingCall } from "./useIncomingCall";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
-import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
+import { isStandaloneJiwoo, STANDALONE_JIWOO_ID } from "@/lib/dokyeong/character-modes";
 import { callPhotoUrl, isCallPhotoId, type CallPhoto } from "@/lib/dokyeong/call-scenes";
 import { pickJiwooCallPhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
@@ -166,6 +168,8 @@ export default function DokyeongLive() {
   const [needsTap, setNeedsTap] = useState(false);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
+  const [acceptedCall, setAcceptedCall] = useState<{ id: string; context: AudioContext | null } | null>(null);
+  const incomingCall = useIncomingCall(!!status?.authenticated);
   const callPhotoRef = useRef<string | null>(null);
   const jiwooRecentPhotos = useRef<string[]>([]);
   const jiwooPhotoCounts = useRef<Record<string, number> | null>(null);
@@ -175,7 +179,7 @@ export default function DokyeongLive() {
   const [characterId, setCharacterId] = useState("");
   const standaloneJiwoo = isStandaloneJiwoo(characterId);
   const [resetting, setResetting] = useState(false);
-  const companion=useCompanion(!!status?.authenticated,characterId,view,phase==="thinking"||phase==="speaking",()=>{void sharedHistory.synchronize().catch(()=>{});},messages.at(-1)?.ts||0);
+  const companion=useCompanion(!!status?.authenticated,characterId,view,phase!=="off"||startingCall||!!acceptedCall,()=>{void sharedHistory.synchronize().catch(()=>{});},messages.at(-1)?.ts||0);
   const hasMessageSession=Object.values(companion.state.characters).some(c=>c.session?.status==='active');
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:5000);
   const imageJobs=useImageJobs(characterId,!!status?.authenticated && !standaloneJiwoo,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
@@ -458,20 +462,20 @@ export default function DokyeongLive() {
     });
   }
 
-  async function reply(userText: string, image?: ChatImage) {
+  async function reply(userText: string, image?: ChatImage, openingCallId?: string) {
     const requestCharacterId = characterIdRef.current;
     const realtime = chatModeRef.current === "voice";
     const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
     if (image && isStandaloneJiwoo(requestCharacterId)) return;
     const text = userText.trim().slice(0, 1500);
-    if (!text && !image) { if (running.current) setMode("listening"); return; }
+    if (!text && !image && !openingCallId) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
     const editSource=editImageRef.current;editImageRef.current=undefined;
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
     const incoming = { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image };
-    const conversation = [...messageRef.current, incoming];
-    setHistory(conversation, jiwooText ? incoming.id : undefined);
+    const conversation = openingCallId ? [...messageRef.current] : [...messageRef.current, incoming];
+    if (!openingCallId) setHistory(conversation, jiwooText ? incoming.id : undefined);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -536,7 +540,7 @@ export default function DokyeongLive() {
     };
 
     try {
-      await sharedHistory.synchronize();
+      if (!openingCallId) await sharedHistory.synchronize();
       if (jiwooText || controller.signal.aborted) return;
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
@@ -553,7 +557,8 @@ export default function DokyeongLive() {
           voice: realtime && voice,
           realtime,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
-          requestId:conversation.at(-1)?.id,
+          requestId: openingCallId ? undefined : conversation.at(-1)?.id,
+          openingCallId,
           sourceMessageId:editSource,
           characterId: requestCharacterId || null,
           voiceId: voiceIdRef.current || null,
@@ -733,11 +738,19 @@ export default function DokyeongLive() {
     }
   }
 
-  async function startCall() {
-    if (startingCall || running.current) return;
+  async function startCall(preparedContext?: AudioContext | null, openingCallId?: string) {
+    if (startingCall || running.current) {
+      if (preparedContext) void preparedContext.close().catch(() => {});
+      return;
+    }
     setError(""); setNeedsTap(false);
-    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") { setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
+      if (preparedContext) void preparedContext.close().catch(() => {});
+      setError("이 브라우저는 마이크 녹음을 지원하지 않아.");
+      return;
+    }
     const attempt = ++callAttempt.current;
+    if (preparedContext) contextRef.current = preparedContext;
     setStartingCall(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
@@ -746,7 +759,7 @@ export default function DokyeongLive() {
         return;
       }
       streamRef.current = stream;
-      const context = new AudioContext();
+      const context = preparedContext ?? new AudioContext();
       contextRef.current = context;
       await context.resume();
       if (attempt !== callAttempt.current) return;
@@ -808,7 +821,8 @@ export default function DokyeongLive() {
         };
         // The processor emits silence; the destination keeps the capture graph running.
         micInput.connect(worklet).connect(context.destination);
-        return;
+        if (openingCallId) void reply("", undefined, openingCallId);
+        return true;
       }
 
       const analyser = context.createAnalyser(); analyser.fftSize = 2048; micInput.connect(analyser);
@@ -870,6 +884,8 @@ export default function DokyeongLive() {
         }
       };
       timerRef.current = requestAnimationFrame(loop);
+      if (openingCallId) void reply("", undefined, openingCallId);
+      return true;
     } catch {
       if (attempt === callAttempt.current) { endCall(); setError("마이크 권한을 확인하고 다시 눌러줘."); }
     } finally {
@@ -939,6 +955,32 @@ export default function DokyeongLive() {
     else window.history.pushState({characterLive:"chat",characterId:nextId},"",url);
     setView("chat");
   }
+  function answerIncomingCall(id: string, context: AudioContext | null) {
+    incomingCall.dismiss(id);
+    if (running.current || document.hidden) {
+      if (context) void context.close().catch(() => {});
+      void resolveIncomingCall(id, "failed").catch(() => {});
+      return;
+    }
+    openConversation(STANDALONE_JIWOO_ID);
+    switchChatMode("voice");
+    setAcceptedCall({ id, context });
+  }
+  const acceptedCallAttempt = useRef("");
+  useEffect(() => {
+    if (!acceptedCall || acceptedCallAttempt.current === acceptedCall.id) return;
+    acceptedCallAttempt.current = acceptedCall.id;
+    setAcceptedCall(null);
+    if (view === "chat" && standaloneJiwoo && chatMode === "voice" && historyReady && !resetting) {
+      void startCall(acceptedCall.context, acceptedCall.id).then(started => {
+        if (!started) void resolveIncomingCall(acceptedCall.id, "failed").catch(() => {});
+      });
+    } else {
+      if (acceptedCall.context) void acceptedCall.context.close().catch(() => {});
+      void resolveIncomingCall(acceptedCall.id, "failed").catch(() => {});
+    }
+  }, [acceptedCall, view, standaloneJiwoo, chatMode, historyReady, resetting]);
+
   function goBack(){
     if(settingsOpen){setSettingsOpen(false);return false;}
     endCall();setSettingsOpen(false);
@@ -1036,6 +1078,15 @@ export default function DokyeongLive() {
   }, [rotateJiwooPhoto, rotateJiwooCallPhoto]);
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
+  const ringing = incomingCall.ringing;
+  const caller = ringing && characters.find(item => item.id === ringing.characterId);
+  const incomingOverlay = ringing && caller && !running.current && !startingCall && !acceptedCall
+    ? <IncomingCallScreen key={ringing.id} call={ringing} name={caller.name} avatar={avatarFor(caller)}
+        canAnswer={!!status?.ready && !!sharedHistory.histories[caller.id] && !resetting}
+        onAccept={answerIncomingCall} onDismiss={incomingCall.dismiss}/>
+    : incomingCall.notice && !running.current
+      ? <p className={styles.incomingCallNotice} role="status">{incomingCall.notice}</p>
+      : null;
 
   if ((view === "list" || !activeCharacter) && status?.authenticated !== false) {
     const listItems = [...characters]
@@ -1043,6 +1094,7 @@ export default function DokyeongLive() {
       .sort((a, b) => (chatPreviews[b.id]?.ts || 0) - (chatPreviews[a.id]?.ts || 0) || a.sort_order - b.sort_order);
 
     return <main lang="ko" translate="no" className={`${styles.shell} notranslate`}>
+      {incomingOverlay}
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <div className={styles.listTitleRow}>
@@ -1099,6 +1151,7 @@ export default function DokyeongLive() {
   }
 
   return <main ref={swipeSurface} lang="ko" translate="no" className={`${styles.shell} notranslate`}>
+    {incomingOverlay}
     <div className={styles.phone}>
       <header className={styles.chatHeader}>
         <button className={styles.backButton} onClick={goBack} aria-label="채팅 목록">
@@ -1144,6 +1197,14 @@ export default function DokyeongLive() {
         <button type="button" className={styles.newChatButton} disabled={companion.registering} onClick={()=>void (companion.state.subscribed?companion.stopNotifications():companion.notifications())}>{companion.registering?"알림 등록 중…":companion.state.subscribed?"이 기기 알림 끄기":"앱을 닫아도 선톡 알림 받기"}</button>
         <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 알림을 허용해 줘. 선톡은 대화 흐름과 한국 시간에 맞춰 와.</p>
         {companion.error&&<p role="alert" className={styles.notificationHint}>{companion.error}</p>}
+        </>}
+        {standaloneJiwoo && <>
+          <button type="button" className={styles.newChatButton} disabled={companion.registering}
+            onClick={() => void (companion.state.subscribed ? companion.stopNotifications() : companion.notifications())}>
+            {companion.registering ? "알림 등록 중…" : companion.state.subscribed ? "이 기기 앱 알림 끄기" : "앱을 닫아도 통화 알림 받기"}
+          </button>
+          <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 앱을 열고 알림을 허용해 줘.</p>
+          {companion.error && <p role="alert" className={styles.notificationHint}>{companion.error}</p>}
         </>}
         <LiveTools standaloneJiwoo={standaloneJiwoo} key={characterId} characterId={characterId} name={activeName} onOlder={older=>sharedHistory.addOlder(characterId,older)} onReset={keep=>{void restart(keep);setSettingsOpen(false);}} onTestNotification={companion.testNotification}/>
         </section>

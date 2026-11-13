@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,openingCallId,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -37,6 +37,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
   '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
+  '@/lib/dokyeong/incoming-call':{incomingCallContext:async()=>callContext,incomingCallWork:async(action,id)=>{assert.equal(action,'greet');assert.equal(id,openingCallId);return answered?{id}:null;},isIncomingCallId:value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)},
   '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:standaloneJiwoo?characterModes.STANDALONE_JIWOO_ID:'fixture-character',name:standaloneJiwoo?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
@@ -60,7 +61,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,openingCallId,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -215,4 +216,29 @@ test('Jiwoo direct text chat uses its text model and keeps chat reactions withou
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.equal(events.find(e=>e.type==='done').text,'아, 형은 진짜 ㅋㅋ');
  assert.ok(!events.some(e=>e.type==='jiwoo_scene'||e.type==='audio'||e.type==='photo'));
+});
+
+test('only an answered Jiwoo call can trigger the opening greeting', { timeout: 3000 }, async () => {
+ const openingCallId = 'aabbccdd-1234-4321-aaaa-abcdef123456';
+ const unanswered = fixture({standaloneJiwoo:true,openingCallId,messages:[]});
+ assert.equal((await unanswered.pending).status,409);
+ assert.equal(unanswered.fetchCalled,false);
+ assert.equal(unanswered.sockets.length,0);
+ const answered = fixture({standaloneJiwoo:true,openingCallId,answered:true,messages:[]});
+ await tick();answered.contextReady();await tick();
+ assert.match(answered.modelBody.systemInstruction.parts[0].text,/네가 먼저 짧게 인사/);
+ assert.equal(answered.modelBody.contents[0].parts[0].text,'[수신 통화가 연결됨]');
+ answered.gates.headers.resolve(new Response(null,{status:500}));
+ assert.equal((await answered.pending).status,502);
+});
+
+test('Jiwoo receives the real missed-call context in regular voice and text replies', { timeout: 3000 }, async () => {
+ const callContext = '[실제 최근 수신 전화 기록] 형이 제한 시간 안에 받지 못했어.';
+ for (const realtime of [true,false]) {
+  const f=fixture({standaloneJiwoo:true,realtime,callContext});
+  await tick();f.contextReady();await tick();
+  assert.ok(f.modelBody.systemInstruction.parts[0].text.includes(callContext));
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+ }
 });

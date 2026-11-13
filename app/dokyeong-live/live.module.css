@@ -144,3 +144,20 @@
 .callStageInterrupt{border-radius:999px;background:#171717cf;padding:7px 12px;font-size:13px}
 .callStage button:focus-visible{outline:2px solid white;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.callStagePhoto>img[data-visible]{transition:none}}
+
+.incomingCall{position:fixed;inset:0;box-sizing:border-box;width:min(100%,480px);height:100%;height:100dvh;max-width:none;max-height:none;margin:auto;border:0;color:#fff;background:radial-gradient(ellipse at 50% 18%,#344950,#19262e 45%,#10171d 78%);padding:max(32px,calc(env(safe-area-inset-top) + 24px)) 24px max(32px,calc(env(safe-area-inset-bottom) + 20px));text-align:center;overscroll-behavior:none}
+.incomingCall::backdrop{background:#080c10eb}
+.incomingCall[open]{display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:24px;overflow:auto}
+.incomingCallIdentity{margin-top:clamp(0px,10vh,110px)}
+.incomingCallAvatar{width:96px;height:96px;margin:0 auto 18px;border-radius:50%;overflow:hidden;border:2px solid #ffffff58;background:#53676d;display:grid;place-items:center}
+.incomingCallAvatar img{width:100%;height:100%;object-fit:cover}
+.incomingCallIdentity h1{margin:0;font-size:2.25rem;letter-spacing:-.04em}
+.incomingCallIdentity p,.incomingCallBottom small{color:#d6e2e6}
+.incomingCallBottom{display:grid;gap:12px;width:min(100%,280px);min-height:130px}
+.incomingCallActions{display:flex;justify-content:center;gap:clamp(34px,18vw,100px)}
+.incomingCallActions button{display:grid;justify-items:center;gap:8px;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.incomingCallActions button:disabled{opacity:.55;cursor:wait}
+.incomingCallActions button span{display:grid;place-items:center;width:62px;height:62px;border-radius:50%}
+.incomingDecline{background:#c83648}
+.incomingAccept{background:#15754d}
+.incomingCallNotice{position:fixed;z-index:65;bottom:max(24px,env(safe-area-inset-bottom));left:50%;translate:-50% 0;padding:10px 16px;border-radius:22px;color:#fff;background:#26343c;max-width:calc(100% - 32px);text-align:center}

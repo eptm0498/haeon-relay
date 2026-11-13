@@ -62,6 +62,12 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
         <textarea id="jiwoo-chat" className={styles.textarea} value={settings.chatPrompt} maxLength={8000} disabled={busy} onChange={event => setSettings({ ...settings, chatPrompt: event.target.value })}/>
         <label htmlFor="jiwoo-voice">음성 통화 추가 지침</label>
         <textarea id="jiwoo-voice" className={styles.textarea} value={settings.voicePrompt} maxLength={8000} disabled={busy} onChange={event => setSettings({ ...settings, voicePrompt: event.target.value })}/>
+        <label>
+          <input type="checkbox" checked={settings.incomingCalls !== false} disabled={busy}
+            onChange={event => setSettings({ ...settings, incomingCalls: event.target.checked })}/>
+          지우가 먼저 전화하기
+        </label>
+        <p>한국 시간 12~14시 또는 19~22시 중 근무시간과 알림 금지 시간을 피해 하루 한 번까지 전화해.</p>
         <h3>내 주간 근무시간</h3>
         <p>한국 시간 기준으로 09:00-21:00처럼 입력해. 비워 두면 그 요일은 정규 근무가 없는 날로 봐.</p>
         <div className={styles.jiwooWeek}>
