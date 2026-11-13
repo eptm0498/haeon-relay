@@ -3,9 +3,11 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { rpc } from "@/lib/dokyeong/settings";
 
-import { deliverReplies } from "@/lib/dokyeong/reply-jobs";
+import { deliverReplies, runReplyWorker } from "@/lib/dokyeong/reply-jobs";
 import { deliverPushJobs } from "@/lib/dokyeong/push";
 import { runImageJob } from "@/lib/dokyeong/image-jobs";
+import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
+import { urgentMessage } from "@/lib/dokyeong/reply-timing";
 import { updateMemory } from "@/lib/dokyeong/memory";
 export const runtime = "nodejs";
 export const maxDuration=300;
@@ -56,6 +58,29 @@ export async function POST(request: NextRequest) {
       id:m.id, role:m.role, content:m.content, ts:m.ts,
       ...(m.image ? {image:{dataUrl:m.image.dataUrl,mimeType:m.image.mimeType}} : {}),
     }));
+    if (body.replyTo !== undefined) {
+      const reply = messages.find((message: {id:string}) => message.id === body.replyTo);
+      if (body.action !== "append" || !isStandaloneJiwoo(body.characterId) ||
+          typeof body.replyTo !== "string" || !uuid.test(body.replyTo) || reply?.role !== "user" ||
+          reply.image || !reply.content.trim() || reply.content.length > 1500) {
+        return Response.json({ error: "문자 답장 요청을 확인해 줘." }, { status: 400, headers: noStore });
+      }
+      const { reply_job_id: jobId, ...saved } = await rpc<Record<string, unknown> & {reply_job_id?: string}>("live_append_jiwoo_text", {
+        server_token: process.env.CHARACTER_HISTORY_KEY,
+        target_character: body.characterId,
+        expected_epoch: body.epoch,
+        incoming: messages,
+        reply_to: body.replyTo,
+        urgent: urgentMessage(reply.content),
+      }, 15000);
+      after(async () => {
+        await Promise.all([
+          jobId && runReplyWorker(jobId).catch(() => console.warn("LIVE_REPLY_WORKER_RETRY")),
+          updateMemory(body.characterId).catch(() => console.warn("CHARACTER_MEMORY_RETRY", body.characterId)),
+        ]);
+      });
+      return Response.json(saved, { headers: noStore });
+    }
     const saved=body.action==="reset" && body.keepMemory===true
       ? await rpc("live_data_work",{server_token:process.env.CHARACTER_HISTORY_KEY,action:"reset_keep_memory",target_character:body.characterId,data:{epoch:body.epoch}},15000)
       : await sync({action:body.action,target_character:body.characterId,expected_epoch:body.epoch,incoming:messages});

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type ChatImage = { dataUrl: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; name?: string };
 export type Message = { id?: string; role: "user" | "assistant"; content: string; ts?: number; image?: ChatImage; proactive?:boolean };
 type History = { character_id:string; epoch:string; messages:Message[]; import_allowed:boolean };
-type Outbox = { epoch:string; messages:Message[] };
+type Outbox = { epoch:string; messages:Message[]; replyIds?:string[] };
 const historyKey = (id:string) => "character-live-history-v2:" + id;
 const outboxKey = (id:string) => "character-live-outbox-v1:" + id;
 const migratedKey = (id:string) => "character-live-migrated-v1:" + id;
@@ -73,11 +73,13 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
           bytes += size; batch.push(message);
         }
         try {
-          const saved:History = await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch});
+          const replyTo = batch.findLast(message => pending.replyIds?.includes(message.id ?? ""))?.id;
+          const saved:History = await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch,replyTo});
           lastEtag.current="";
           states.current[id] = {...saved,messages:states.current[id]?.epoch===saved.epoch?merge(states.current[id].messages,saved.messages):saved.messages};
           const sent = new Set(batch.map(m => m.id));
           pending.messages = pending.messages.filter(m => !sent.has(m.id));
+          if (pending.replyIds) pending.replyIds = pending.replyIds.filter(id => !sent.has(id));
           if (!pending.messages.length) { delete outboxes.current[id]; removeLocal(outboxKey(id)); }
           else writeLocal(outboxKey(id),JSON.stringify(pending));
         } catch (cause) {
@@ -135,11 +137,12 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
     return ()=> {window.removeEventListener("focus",refresh);window.removeEventListener("online",refresh);document.removeEventListener("visibilitychange",refresh);window.clearInterval(timer);};
   },[enabled,ids,synchronize,refreshInterval]);
 
-  function append(id:string,messages:Message[]) {
+  function append(id:string,messages:Message[],replyTo?:string) {
     const state=states.current[id];
     if (!state || !messages.length) return;
     const pending=outboxes.current[id] || {epoch:state.epoch,messages:[]};
     pending.messages=merge(pending.messages,messages);
+    if (replyTo) pending.replyIds = [...new Set([...(pending.replyIds || []), replyTo])];
     outboxes.current[id]=pending;
     try {writeLocal(outboxKey(id),JSON.stringify(pending));} catch {setError("이 기기의 임시 저장 공간이 부족해. 연결이 유지되는지 확인해 줘.");}
     publish();

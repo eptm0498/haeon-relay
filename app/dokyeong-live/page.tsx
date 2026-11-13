@@ -219,13 +219,13 @@ export default function DokyeongLive() {
   const draftInputRef = useRef<HTMLInputElement | null>(null);
 
   const setMode = (next: Phase) => { phaseRef.current = next; setPhase(next); };
-  const setHistory = (next: Message[]) => {
+  const setHistory = (next: Message[], replyTo?: string) => {
     const previous = new Set(messageRef.current.map(m => m.id));
     const added = next.filter(m => m.id && !previous.has(m.id));
     const kept = next.slice(-1000);
     messageRef.current = kept;
     setMessages(kept);
-    sharedHistory.append(characterIdRef.current, added);
+    sharedHistory.append(characterIdRef.current, added, replyTo);
   };
   useEffect(() => {
     const previews: Record<string, ChatPreview> = {};
@@ -446,14 +446,19 @@ export default function DokyeongLive() {
   }
 
   async function reply(userText: string, image?: ChatImage) {
-    if (image && isStandaloneJiwoo(characterIdRef.current)) return;
+    const requestCharacterId = characterIdRef.current;
+    const realtime = chatModeRef.current === "voice";
+    const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
+    if (image && isStandaloneJiwoo(requestCharacterId)) return;
     const text = userText.trim().slice(0, 1500);
     if (!text && !image) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
     const editSource=editImageRef.current;editImageRef.current=undefined;
     interrupt(); const turn = generation.current;
     const start = performance.now(); setLatency(null); setError("");
-    const conversation = [...messageRef.current, { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image }]; setHistory(conversation);
+    const incoming = { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image };
+    const conversation = [...messageRef.current, incoming];
+    setHistory(conversation, jiwooText ? incoming.id : undefined);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -520,9 +525,9 @@ export default function DokyeongLive() {
     };
 
     try {
-      const requestCharacterId = characterIdRef.current;
-      const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       await sharedHistory.synchronize();
+      if (jiwooText || controller.signal.aborted) return;
+      const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -534,9 +539,9 @@ export default function DokyeongLive() {
             }
             return base;
           }),
-          voice: chatModeRef.current === "voice" && voice,
-          realtime:chatModeRef.current === "voice",
-          callPhoto: !standaloneJiwoo && running.current && chatModeRef.current === "voice" ? callPhotoRef.current : undefined,
+          voice: realtime && voice,
+          realtime,
+          callPhoto: !standaloneJiwoo && running.current && realtime ? callPhotoRef.current : undefined,
           requestId:conversation.at(-1)?.id,
           sourceMessageId:editSource,
           characterId: requestCharacterId || null,
