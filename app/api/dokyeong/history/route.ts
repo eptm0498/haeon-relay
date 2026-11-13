@@ -7,6 +7,7 @@ import { deliverReplies, runReplyWorker } from "@/lib/dokyeong/reply-jobs";
 import { deliverPushJobs } from "@/lib/dokyeong/push";
 import { runImageJob } from "@/lib/dokyeong/image-jobs";
 import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
+import { requestsIncomingCall } from "@/lib/dokyeong/incoming-call-intent";
 import { urgentMessage } from "@/lib/dokyeong/reply-timing";
 import { updateMemory } from "@/lib/dokyeong/memory";
 export const runtime = "nodejs";
@@ -64,6 +65,21 @@ export async function POST(request: NextRequest) {
           typeof body.replyTo !== "string" || !uuid.test(body.replyTo) || reply?.role !== "user" ||
           reply.image || !reply.content.trim() || reply.content.length > 1500) {
         return Response.json({ error: "문자 답장 요청을 확인해 줘." }, { status: 400, headers: noStore });
+      }
+      if (requestsIncomingCall(reply.content)) {
+        const { incoming_call_id: callId, ...saved } = await rpc<Record<string, unknown> & {incoming_call_id?: string}>("live_request_jiwoo_call", {
+          server_token: process.env.CHARACTER_HISTORY_KEY,
+          expected_epoch: body.epoch,
+          incoming: messages,
+          reply_to: body.replyTo,
+        }, 15000);
+        after(async () => {
+          await Promise.all([
+            callId && deliverPushJobs().catch(() => console.warn("LIVE_INCOMING_CALL_PUSH_RETRY")),
+            updateMemory(body.characterId).catch(() => console.warn("CHARACTER_MEMORY_RETRY", body.characterId)),
+          ]);
+        });
+        return Response.json({ ...saved, incomingCallId: callId }, { headers: noStore });
       }
       const { reply_job_id: jobId, ...saved } = await rpc<Record<string, unknown> & {reply_job_id?: string}>("live_append_jiwoo_text", {
         server_token: process.env.CHARACTER_HISTORY_KEY,

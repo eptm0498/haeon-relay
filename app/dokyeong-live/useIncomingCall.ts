@@ -64,17 +64,20 @@ export function useIncomingCall(enabled: boolean) {
         if (intent.current && intent.current !== requested) void poll();
       }
     };
+    const showCall = (id: unknown) => {
+      if (typeof id !== "string" || !uuid.test(id)) return;
+      intent.current = id;
+      void poll();
+    };
+    const requested = (event: Event) => showCall((event as CustomEvent).detail);
     const pushed = (event: MessageEvent) => {
-      const id = event.data?.callId;
-      if (event.data?.type === "INCOMING_CALL" && typeof id === "string" && uuid.test(id)) {
-        intent.current = id;
-        void poll();
-      }
+      if (event.data?.type === "INCOMING_CALL") showCall(event.data.callId);
     };
     void poll();
     const interval = window.setInterval(() => void poll(), 5000);
     document.addEventListener("visibilitychange", poll);
     window.addEventListener("focus", poll);
+    window.addEventListener("character-live:incoming-call", requested);
     navigator.serviceWorker?.addEventListener("message", pushed);
     return () => {
       disposed = true;
@@ -82,6 +85,7 @@ export function useIncomingCall(enabled: boolean) {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", poll);
       window.removeEventListener("focus", poll);
+      window.removeEventListener("character-live:incoming-call", requested);
       navigator.serviceWorker?.removeEventListener("message", pushed);
     };
   }, [enabled]);

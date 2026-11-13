@@ -74,7 +74,9 @@ export function useSharedHistory(characters:{id:string;is_default:boolean}[], en
         }
         try {
           const replyTo = batch.findLast(message => pending.replyIds?.includes(message.id ?? ""))?.id;
-          const saved:History = await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch,replyTo});
+          const { incomingCallId, ...saved }: History & { incomingCallId?: string } =
+            await request({action:"append",characterId:id,epoch:pending.epoch,messages:batch,replyTo});
+          if (incomingCallId) window.dispatchEvent(new CustomEvent("character-live:incoming-call", { detail: incomingCallId }));
           lastEtag.current="";
           states.current[id] = {...saved,messages:states.current[id]?.epoch===saved.epoch?merge(states.current[id].messages,saved.messages):saved.messages};
           const sent = new Set(batch.map(m => m.id));
