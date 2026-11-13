@@ -4,7 +4,6 @@ import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong
 import { rpc } from "@/lib/dokyeong/settings";
 
 import { deliverReplies, runReplyWorker } from "@/lib/dokyeong/reply-jobs";
-import { deliverIncomingCallNotifications } from "@/lib/dokyeong/voip-push";
 import { deliverPushJobs } from "@/lib/dokyeong/push";
 import { runImageJob } from "@/lib/dokyeong/image-jobs";
 import { isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
@@ -76,7 +75,7 @@ export async function POST(request: NextRequest) {
         }, 15000);
         after(async () => {
           await Promise.all([
-            callId && deliverIncomingCallNotifications(),
+            callId && deliverPushJobs().catch(() => console.warn("LIVE_INCOMING_CALL_PUSH_RETRY")),
             updateMemory(body.characterId).catch(() => console.warn("CHARACTER_MEMORY_RETRY", body.characterId)),
           ]);
         });

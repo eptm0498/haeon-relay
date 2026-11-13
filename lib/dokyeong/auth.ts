@@ -21,10 +21,9 @@ export function validAccessCode(input: string) {
   return timingSafeEqual(expected, actual);
 }
 
-export function newSession(days = 7) {
-  const maxAge = days * 24 * 60 * 60;
-  const expiry = String(Date.now() + maxAge * 1000);
-  return { value: `${expiry}.${sign(expiry)}`, maxAge };
+export function newSession() {
+  const expiry = String(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  return { value: `${expiry}.${sign(expiry)}`, maxAge: 7 * 24 * 60 * 60 };
 }
 
 export function sameOrigin(request: NextRequest) {
