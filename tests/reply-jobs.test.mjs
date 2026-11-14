@@ -72,6 +72,7 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
  assert.equal(scheduled.action,'schedule');
  assert.equal(scheduled.data.text,'형, 나 쉬고 있었어 ㅋㅋ');
  assert.equal(scheduled.data.photo,null);
+ assert.equal(scheduled.data.delaySeconds,0);
 });
 
 
@@ -86,7 +87,7 @@ test('Jiwoo schedule uses Korean weekdays and the saved work hours',()=>{
 test('a contextual Jiwoo call travels with the delivered reply, but a refusal prevents ringing',async()=>{
  const call=await prepare(null,null,true,{kind:'call',text:'목소리 듣고 싶네. 내가 지금 전화 걸게.'});
  assert.equal(call.calls.at(-1).data.callNow,true);
- assert.equal(call.calls.at(-1).data.delaySeconds,5);
+ assert.equal(call.calls.at(-1).data.delaySeconds,0);
  const implicit=await prepare(null,null,true,{kind:'reply',text:'형 기다려, 바로 전화할게.'});
  assert.equal(implicit.calls.at(-1).data.callNow,true);
  const blocked=await prepare(null,null,true,{kind:'call',text:'지금 전화 걸게.'},'지금은 전화 걸지 마');

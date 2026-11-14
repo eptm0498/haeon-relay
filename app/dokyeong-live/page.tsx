@@ -181,7 +181,10 @@ export default function DokyeongLive() {
   const [resetting, setResetting] = useState(false);
   const companion=useCompanion(!!status?.authenticated,characterId,view,phase!=="off"||startingCall||!!acceptedCall,()=>{void sharedHistory.synchronize().catch(()=>{});},messages.at(-1)?.ts||0);
   const hasMessageSession=Object.values(companion.state.characters).some(c=>c.session?.status==='active');
-  const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:5000);
+  const lastChatMessage = messages.at(-1);
+  const waitingForJiwoo = standaloneJiwoo && view === "chat" && chatMode === "text" &&
+    lastChatMessage?.role === "user" && Date.now() - (lastChatMessage.ts ?? 0) < 90_000;
+  const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:waitingForJiwoo?1250:5000);
   const imageJobs=useImageJobs(characterId,!!status?.authenticated && !standaloneJiwoo,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
   const swipeSurface=useRef<HTMLElement|null>(null);
@@ -1322,6 +1325,7 @@ export default function DokyeongLive() {
 
       {status?.authenticated && callOpen && <CallStage key={characterId}
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
+        videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         speaking={phase === "speaking"} voice={voice}
         onEnd={closeVoicePanel} onResume={() => { if (startingCall) return; closeMic(); running.current = false; void startCall(); }}
