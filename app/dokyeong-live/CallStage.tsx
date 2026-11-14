@@ -16,11 +16,9 @@ type Props = {
   error: string;
   paused: boolean;
   reconnecting: boolean;
-  speaking: boolean;
   voice: boolean;
   onEnd: () => void;
   onResume: () => void;
-  onInterrupt: () => void;
   onToggleVoice: () => void;
 };
 
@@ -28,10 +26,12 @@ export default function CallStage(props: Props) {
   const { videoOn, onVideoChange } = props;
   const [videoError, setVideoError] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [{ loaded, previous }, setLayers] = useState<{ loaded: string | null; previous: string | null }>({ loaded: null, previous: null });
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
+    heading.current?.focus({ preventScroll: true });
     return () => element?.close();
   }, []);
   useEffect(() => {
@@ -57,14 +57,13 @@ export default function CallStage(props: Props) {
     </div>
     <div className={styles.callStageContent}>
       <header className={styles.callStageHeader}>
-        <h1>{props.name}</h1>
+        <h1 ref={heading} tabIndex={-1}>{props.name}</h1>
         <span role="status">{props.paused ? "통화 일시 정지" : props.status}</span>
       </header>
       <div className={styles.callStageBottom}>
         {videoOn && videoError && <p className={styles.callStageNotice} role="status">배경 영상을 불러오지 못했어. 통화는 계속돼.</p>}
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
         {props.paused && <p className={styles.callStageNotice}>이어서 통화하려면 마이크 버튼을 눌러 줘.</p>}
-        {props.speaking && <button type="button" className={styles.callStageInterrupt} onClick={props.onInterrupt}>말 끊기</button>}
         <div className={styles.callStageActions}>
           <button type="button" className={styles.callStageControl} onClick={props.onToggleVoice} aria-pressed={props.voice} aria-label="상대 음성">
             <span>{props.voice ? <Volume2 /> : <VolumeX />}</span><small>음성</small>

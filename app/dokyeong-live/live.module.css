@@ -133,7 +133,7 @@
 .callStageBottom{width:min(100%,560px);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 .callStageNotice{margin:0;max-width:100%;max-height:27dvh;overflow:auto;overflow-wrap:anywhere;background:#151515cb;border-radius:14px;padding:9px 13px;font-size:13px;line-height:1.45}
 .callStageActions{display:flex;justify-content:center;gap:clamp(8px,4vw,24px);align-items:flex-end}
-.callStageControl,.callStageInterrupt{border:0;color:#fff;background:none;cursor:pointer}
+.callStageControl{border:0;color:#fff;background:none;cursor:pointer}
 .callStageControl{display:grid;justify-items:center;gap:4px;min-width:52px;padding:0}
 .callStageControl span{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:#171717cf}
 .callStageControl svg{width:21px;height:21px}
@@ -141,8 +141,8 @@
 .callStageControl[aria-pressed="false"] span{color:#a6a6a6}
 .callStageControl:disabled{opacity:.65;cursor:default}
 .callStageHangup span{background:#ce303f;width:60px;height:60px}
-.callStageInterrupt{border-radius:999px;background:#171717cf;padding:7px 12px;font-size:13px}
-.callStage button:focus-visible{outline:2px solid white;outline-offset:3px}
+.callStageHeader h1:focus,.callStageControl:focus-visible{outline:none}
+.callStageControl:focus-visible span{outline:2px solid white;outline-offset:3px}
 @media(prefers-reduced-motion:reduce){.callStagePhoto>img[data-visible]{transition:none}}
 
 .incomingCall{position:fixed;inset:0;isolation:isolate;box-sizing:border-box;width:min(100%,480px);height:100%;height:100dvh;max-width:none;max-height:none;margin:auto;border:0;color:#fff;background:#25262b;padding:0 28px max(44px,calc(env(safe-area-inset-bottom) + 25px));text-align:center;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,sans-serif}

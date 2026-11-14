@@ -1384,9 +1384,9 @@ export default function DokyeongLive() {
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
         videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
-        speaking={phase === "speaking"} voice={voice}
+        voice={voice}
         onEnd={closeVoicePanel} onResume={() => { if (startingCall) return; closeMic(); running.current = false; void startCall(); }}
-        onInterrupt={interrupt} onToggleVoice={() => { setVoice(!voice); if (voice) stopAudio(); }}
+        onToggleVoice={() => { setVoice(!voice); if (voice) stopAudio(); }}
       />}
 
       {status?.authenticated && chatMode === "voice" && !callOpen && <>
