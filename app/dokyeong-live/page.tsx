@@ -166,6 +166,8 @@ export default function DokyeongLive() {
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
+  const [videoOn, setVideoOn] = useState(false);
+  const videoOnRef = useRef(false);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const [acceptedCall, setAcceptedCall] = useState<{ id: string; context: AudioContext | null } | null>(null);
@@ -345,6 +347,7 @@ export default function DokyeongLive() {
   }, []);
   const endCall = useCallback(() => {
     callAttempt.current++;
+    videoOnRef.current = false; setVideoOn(false);
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     jiwooLastPhotoAt.current = 0;
@@ -379,6 +382,7 @@ export default function DokyeongLive() {
   }, [changeJiwooPhoto]);
   useEffect(() => () => {
     callAttempt.current++;
+    videoOnRef.current = false; setVideoOn(false);
     running.current = false;
     requestRef.current?.abort();
     audioAbortRef.current.forEach((c) => c.abort());
@@ -559,6 +563,7 @@ export default function DokyeongLive() {
           }),
           voice: realtime && voice,
           realtime,
+          videoCall: realtime && videoOnRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
           openingCallId,
@@ -1326,6 +1331,7 @@ export default function DokyeongLive() {
       {status?.authenticated && callOpen && <CallStage key={characterId}
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
+        videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         speaking={phase === "speaking"} voice={voice}
         onEnd={closeVoicePanel} onResume={() => { if (startingCall) return; closeMic(); running.current = false; void startCall(); }}

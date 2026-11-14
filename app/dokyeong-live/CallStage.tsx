@@ -10,6 +10,8 @@ type Props = {
   avatar?: string | null;
   scene?: string | null;
   videoSource?: string;
+  videoOn: boolean;
+  onVideoChange: (on: boolean) => void;
   status: string;
   error: string;
   paused: boolean;
@@ -23,7 +25,7 @@ type Props = {
 };
 
 export default function CallStage(props: Props) {
-  const [videoOn, setVideoOn] = useState(false);
+  const { videoOn, onVideoChange } = props;
   const [videoError, setVideoError] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const [{ loaded, previous }, setLayers] = useState<{ loaded: string | null; previous: string | null }>({ loaded: null, previous: null });
@@ -68,7 +70,7 @@ export default function CallStage(props: Props) {
             <span>{props.voice ? <Volume2 /> : <VolumeX />}</span><small>음성</small>
           </button>
           {props.videoSource && <button type="button" className={styles.callStageControl}
-            onClick={() => { setVideoError(false); setVideoOn(!videoOn); }}
+            onClick={() => { setVideoError(false); onVideoChange(!videoOn); }}
             aria-label={videoOn ? "음성 통화로 전환" : "영상 통화로 전환"}>
             <span>{videoOn ? <VideoOff /> : <Video />}</span><small>{videoOn ? "영상 끄기" : "영상"}</small>
           </button>}

@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,openingCallId,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,openingCallId,videoCall=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -61,7 +61,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,openingCallId,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,openingCallId,videoCall,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -238,6 +238,18 @@ test('Jiwoo receives the real missed-call context in regular voice and text repl
   const f=fixture({standaloneJiwoo:true,realtime,callContext});
   await tick();f.contextReady();await tick();
   assert.ok(f.modelBody.systemInstruction.parts[0].text.includes(callContext));
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+ }
+});
+
+test('Jiwoo distinguishes text, voice and video while keeping the audio transport', { timeout: 3000 }, async () => {
+ for (const [realtime,videoCall,mode] of [[false,true,'문자 채팅'],[true,false,'음성 통화'],[true,true,'영상 통화']]) {
+  const f=fixture({standaloneJiwoo:true,realtime,videoCall});
+  await tick();f.contextReady();await tick();
+  const prompt=f.modelBody.systemInstruction.parts[0].text;
+  assert.ok(prompt.includes('[현재 대화 모드: '+mode+']'));
+  if(realtime&&videoCall)assert.match(prompt,/미리 등록된 반복 영상/);
   f.gates.headers.resolve(new Response(null,{status:500}));
   assert.equal((await f.pending).status,502);
  }
