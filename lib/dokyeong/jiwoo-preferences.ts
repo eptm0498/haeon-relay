@@ -5,13 +5,14 @@ export type JiwooPreferences = {
   workHours: string[];
   scheduleNotes: string;
   incomingCalls?: boolean;
+  proactiveTexts?: boolean;
   version: number;
 };
 
 export const defaultJiwooPreferences: JiwooPreferences = {
   chatPrompt: "",
   voicePrompt: "",
-  workHours: ["09:00-21:00", "16:00-21:00", "", "16:00-21:00", "", "", "09:00-21:00"],
+  workHours: ["08:40-22:00", "16:00-22:00", "", "16:00-22:00", "", "", "08:40-22:00"],
   scheduleNotes: "2026년 11월 23~27일 오전 하남중 시간강사 출강 예정.",
   version: 0,
 };
@@ -26,11 +27,21 @@ export function validWorkHours(value: unknown): value is string[] {
   });
 }
 
-export function jiwooScheduleContext(now: Date, settings: JiwooPreferences) {
+function localShift(now: Date, settings: JiwooPreferences) {
   const local = new Date(now.getTime() + 9 * 3_600_000);
   const day = local.getUTCDay();
   const time = local.toISOString().slice(11, 16);
   const [start, end] = settings.workHours[day].split("-");
+  return { time, start, end };
+}
+
+export function jiwooIsWorking(now: Date, settings: JiwooPreferences) {
+  const { time, start, end } = localShift(now, settings);
+  return Boolean(start && time >= start && time < end);
+}
+
+export function jiwooScheduleContext(now: Date, settings: JiwooPreferences) {
+  const { time, start, end } = localShift(now, settings);
   const status = !start ? "오늘은 정규 근무가 없는 날" : time < start ? `오늘 정규 근무 시작 전 (${start} 시작)` :
     time < end ? `오늘 정규 근무 시간대 (${end} 종료 예정)` : `오늘 정규 근무 종료 시각(${end}) 이후`;
   const week = settings.workHours.map((period, index) => `${jiwooDays[index]} ${period || "정규 근무 없음"}`).join(", ");

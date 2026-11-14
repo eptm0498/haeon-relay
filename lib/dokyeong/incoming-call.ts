@@ -13,7 +13,7 @@ export function isIncomingCallId(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 }
 
-export function incomingCallWork(action: "tick" | "status" | "accept" | "decline" | "failed" | "greet" | "context", id?: string) {
+export function incomingCallWork(action: "status" | "accept" | "decline" | "failed" | "greet" | "context", id?: string) {
   return serverRpc<IncomingCall | null>("live_jiwoo_call_work", { action, call_id: id ?? null });
 }
 

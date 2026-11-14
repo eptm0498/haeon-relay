@@ -48,12 +48,13 @@ export async function PUT(request: NextRequest, { params }: Params) {
         typeof body.chatPrompt !== "string" || body.chatPrompt.length > 8000 ||
         typeof body.voicePrompt !== "string" || body.voicePrompt.length > 8000 ||
         (body.incomingCalls !== undefined && typeof body.incomingCalls !== "boolean") ||
+        (body.proactiveTexts !== undefined && typeof body.proactiveTexts !== "boolean") ||
         typeof body.scheduleNotes !== "string" || body.scheduleNotes.length > 2000 || !validWorkHours(body.workHours)) {
       return result({ error: "지침 길이와 근무시간을 확인해 줘. 근무시간은 09:00-21:00처럼 적어 줘." }, 400);
     }
-    const { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, version } = body;
+    const { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts, version } = body;
     return result(await rpc("live_jiwoo_preferences", {
-      access_token: token, editor: true, action: "save", settings: { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls }, expected_version: version,
+      access_token: token, editor: true, action: "save", settings: { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts }, expected_version: version,
     }));
   } catch (error) {
     if (error instanceof Error && error.message === "VERSION_CONFLICT") {

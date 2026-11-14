@@ -9,7 +9,7 @@ import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?'){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00'){
  const calls=[],prompts=[],models=[],warnings=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
  const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[{id:'pending',role:'user',content:latest,ts:1}],memory:''},activity};
@@ -32,8 +32,9 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './push':{deliverPushJobs:async()=>0},'./image-jobs':{runImageJob:async()=>{}},
  };
  const exports={};
+ class FixedDate extends Date { constructor(...args){ super(...(args.length ? args : [now])); } }
  const source=fs.readFileSync(new URL('../lib/dokyeong/reply-jobs.ts',import.meta.url),'utf8');
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>{assert.ok(mocks[name],name);return mocks[name];},console:{warn:(...args)=>warnings.push(args)},Date,setTimeout});
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>{assert.ok(mocks[name],name);return mocks[name];},console:{warn:(...args)=>warnings.push(args)},Date:FixedDate,setTimeout});
  const result=await exports.prepareReply('pending');return {result,calls,prompts,models,warnings};
 }
 
@@ -65,7 +66,7 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
  assert.match(outcome.prompts[0],/\[문자 채팅\]/);
  assert.match(outcome.prompts[0],/최근 대화의 실제 시각/);
  assert.match(outcome.prompts[0],/문자 전용 예시/);
- assert.match(outcome.prompts[0],/16:00-21:00/);
+ assert.match(outcome.prompts[0],/16:00-22:00/);
  assert.doesNotMatch(outcome.prompts[0],/음성 전용 예시/);
  assert.deepEqual(outcome.models,['gemini-3.5-flash-lite']);
  const scheduled=outcome.calls.at(-1);
@@ -78,9 +79,9 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
 
 test('Jiwoo schedule uses Korean weekdays and the saved work hours',()=>{
  const prefs=jiwooPreferences.defaultJiwooPreferences;
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T15:00:00Z'),prefs),/09:00 시작/);
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/21:00 종료 예정/);
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T12:00:00Z'),prefs),/종료 시각\(21:00\) 이후/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T15:00:00Z'),prefs),/08:40 시작/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/22:00 종료 예정/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T13:00:00Z'),prefs),/종료 시각\(22:00\) 이후/);
  assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T05:00:00Z'),prefs),/정규 근무가 없는 날/);
 });
 
@@ -95,4 +96,13 @@ test('a contextual Jiwoo call travels with the delivered reply, but a refusal pr
  assert.doesNotMatch(blocked.calls.at(-1).data.text,/전화 걸게/);
  const future=await prepare(null,null,true,{kind:'call',text:'내일 전화할게.'});
  assert.equal(future.calls.at(-1).data.callNow,undefined);
+});
+
+test('Jiwoo replies by text during work and can start a call at the end of the shift',async()=>{
+ const draft={kind:'call',text:'형 기다려, 바로 전화할게.'};
+ const working=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T08:40:00+09:00');
+ assert.equal(working.calls.at(-1).data.callNow,undefined);
+ assert.match(working.prompts[0],/지금은 먼저 전화할 수 없어/);
+ const after=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T22:00:00+09:00');
+ assert.equal(after.calls.at(-1).data.callNow,true);
 });
