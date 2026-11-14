@@ -1,7 +1,7 @@
 {
-  "name": "kakao",
-  "short_name": "kakao",
-  "description": "캐릭터와 대화하고 사진과 선톡을 받는 kakao",
+  "name": "카카오톡",
+  "short_name": "카카오톡",
+  "description": "캐릭터와 대화하고 사진과 선톡을 받는 웹앱",
   "start_url": "/dokyeong-live",
   "scope": "/dokyeong-live",
   "display": "standalone",

@@ -12,7 +12,7 @@ export type JiwooPreferences = {
 export const defaultJiwooPreferences: JiwooPreferences = {
   chatPrompt: "",
   voicePrompt: "",
-  workHours: ["08:40-22:00", "16:00-22:00", "", "16:00-22:00", "", "", "08:40-22:00"],
+  workHours: ["09:00-21:00", "16:00-21:00", "", "16:00-21:00", "", "", "09:00-21:00"],
   scheduleNotes: "2026년 11월 23~27일 오전 하남중 시간강사 출강 예정.",
   version: 0,
 };

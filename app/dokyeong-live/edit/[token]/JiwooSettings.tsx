@@ -67,13 +67,13 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
             onChange={event => setSettings({ ...settings, incomingCalls: event.target.checked })}/>
           지우가 먼저 전화하기
         </label>
-        <p>근무시간 밖에 대화 흐름을 보고 먼저 전화해. 새벽에도 가능해.</p>
+        <p>지금 목소리가 듣고 싶으면 근무시간 밖에 먼저 전화해. 새벽에도 가능해.</p>
         <label>
           <input type="checkbox" checked={settings.proactiveTexts !== false} disabled={busy}
             onChange={event => setSettings({ ...settings, proactiveTexts: event.target.checked })}/>
           지우가 먼저 톡 보내기
         </label>
-        <p>현재 시각, 최근 대화, 내 일정을 보고 자연스러운 때에 먼저 톡을 보내.</p>
+        <p>근무시간에도 선톡을 받을 수 있어. 한국 시간 기준 하루 최대 10번 시작하고, 답장 없이 한 번에 최대 5개까지 이어서 보내.</p>
         <h3>내 주간 근무시간</h3>
         <p>한국 시간 기준으로 09:00-21:00처럼 입력해. 비워 두면 그 요일은 정규 근무가 없는 날로 봐.</p>
         <div className={styles.jiwooWeek}>

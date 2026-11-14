@@ -1111,7 +1111,7 @@ export default function DokyeongLive() {
   }
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
-  const activeName = activeCharacter?.name || "kakao";
+  const activeName = activeCharacter?.name || "카카오톡";
   const activeAvatar = activeCharacter?.avatar_url;
 
   useEffect(()=>{
@@ -1157,7 +1157,7 @@ export default function DokyeongLive() {
       <div className={styles.phone}>
         <header className={styles.listHeader}>
           <div className={styles.listTitleRow}>
-            <strong className={styles.liveBrand}><img src="/live-chat-icon-192.png" alt=""/>kakao</strong>
+            <strong className={styles.liveBrand}><img src="/live-chat-icon-192.png" alt=""/>카카오톡</strong>
             <div className={styles.listHeaderActions}>
               <button onClick={() => { setListSearchOpen((open) => !open); if (listSearchOpen) setListQuery(""); }} aria-label="채팅 검색">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
@@ -1276,7 +1276,7 @@ export default function DokyeongLive() {
 
         {status?.configured && !status.authenticated && <div className={styles.loginCard}>
           <div className={styles.loginAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
-          <strong>kakao</strong>
+          <strong>카카오톡</strong>
           <p>접속 코드를 입력하면 대화방이 열려.</p>
           <form onSubmit={login} className={styles.login}>
             <input type="password" autoComplete="current-password" aria-label="접속 코드" placeholder="접속 코드" value={code} onChange={(e) => setCode(e.target.value)} />

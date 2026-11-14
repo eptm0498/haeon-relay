@@ -66,7 +66,7 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
  assert.match(outcome.prompts[0],/\[문자 채팅\]/);
  assert.match(outcome.prompts[0],/최근 대화의 실제 시각/);
  assert.match(outcome.prompts[0],/문자 전용 예시/);
- assert.match(outcome.prompts[0],/16:00-22:00/);
+ assert.match(outcome.prompts[0],/16:00-21:00/);
  assert.doesNotMatch(outcome.prompts[0],/음성 전용 예시/);
  assert.deepEqual(outcome.models,['gemini-3.5-flash-lite']);
  const scheduled=outcome.calls.at(-1);
@@ -79,9 +79,9 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
 
 test('Jiwoo schedule uses Korean weekdays and the saved work hours',()=>{
  const prefs=jiwooPreferences.defaultJiwooPreferences;
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T15:00:00Z'),prefs),/08:40 시작/);
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/22:00 종료 예정/);
- assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T13:00:00Z'),prefs),/종료 시각\(22:00\) 이후/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T15:00:00Z'),prefs),/09:00 시작/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T05:00:00Z'),prefs),/21:00 종료 예정/);
+ assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-14T12:00:00Z'),prefs),/종료 시각\(21:00\) 이후/);
  assert.match(jiwooPreferences.jiwooScheduleContext(new Date('2026-11-13T05:00:00Z'),prefs),/정규 근무가 없는 날/);
 });
 
@@ -100,9 +100,9 @@ test('a contextual Jiwoo call travels with the delivered reply, but a refusal pr
 
 test('Jiwoo replies by text during work and can start a call at the end of the shift',async()=>{
  const draft={kind:'call',text:'형 기다려, 바로 전화할게.'};
- const working=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T08:40:00+09:00');
+ const working=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T09:00:00+09:00');
  assert.equal(working.calls.at(-1).data.callNow,undefined);
  assert.match(working.prompts[0],/지금은 먼저 전화할 수 없어/);
- const after=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T22:00:00+09:00');
+ const after=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T21:00:00+09:00');
  assert.equal(after.calls.at(-1).data.callNow,true);
 });

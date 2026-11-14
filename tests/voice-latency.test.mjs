@@ -147,7 +147,7 @@ test('Jiwoo gets conversational context and keeps its scene marker out of spoken
  await tick();f.contextReady();await tick();f.sockets[0].open();
  assert.match(f.modelBody.systemInstruction.parts[0].text,/편집한 상황 42/);
  assert.match(f.modelBody.systemInstruction.parts[0].text,/음성 전용 예시/);
- assert.match(f.modelBody.systemInstruction.parts[0].text,/16:00-22:00/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/16:00-21:00/);
  assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/문자 전용 예시/);
  assert.deepEqual(f.modelBody.contents.map(turn=>turn.parts[0].text),messages.map(turn=>turn.content));
  f.gates.headers.resolve(new Response(f.upstream));
