@@ -189,6 +189,8 @@ export default function DokyeongLive() {
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:waitingForJiwoo?1250:5000);
   const imageJobs=useImageJobs(characterId,!!status?.authenticated && !standaloneJiwoo,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
+  const [notificationVisible, setNotificationVisible] = useState(true);
+  const latestNotificationTap = useRef({ id: "", time: 0 });
   const swipeSurface=useRef<HTMLElement|null>(null);
   useBackSwipe(swipeSurface,goBack,view==='chat');
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
@@ -995,29 +997,78 @@ export default function DokyeongLive() {
     if(window.history.state?.characterLive==="chat"){window.history.back();return true;}
     setView("list");return false;
   }
-  useEffect(()=>{
+  useEffect(() => {
+    let active = true;
+    const queueConversation = (id: unknown, tap?: unknown) => {
+      if (typeof id !== "string" || !/^[a-f0-9-]{36}$/i.test(id)) return;
+      if (typeof tap === "string" && tap) {
+        const time = Number(tap.split("-")[0]);
+        if (!Number.isFinite(time) || Date.now() - time > 120_000 ||
+            tap === latestNotificationTap.current.id || time < latestNotificationTap.current.time) return;
+        latestNotificationTap.current = { id: tap, time };
+      }
+      setPendingConversation(id);
+    };
+    const recoverNotification = async () => {
+      if (!active || document.hidden || !window.caches) return;
+      try {
+        const cache = await window.caches.open("live-notification-navigation-v1");
+        const keys = await cache.keys();
+        const notices = await Promise.all(keys.map(async key => {
+          const response = await cache.match(key);
+          return response?.json().catch(() => null);
+        }));
+        if (!active || document.hidden) return;
+        const newest = notices.filter(item => item?.type === "OPEN_CHARACTER" && typeof item.tap === "string")
+          .sort((a, b) => Number(b.tap.split("-")[0]) - Number(a.tap.split("-")[0]))[0];
+        if (newest) queueConversation(newest.characterId, newest.tap);
+        await Promise.all(keys.map(key => cache.delete(key)));
+      } catch {
+        // The launch URL and service-worker messages can also carry the target.
+      }
+    };
+
     const params = new URLSearchParams(window.location.search);
-    const target = params.get("notification") === "1" ? params.get("character") : null;
-    if(target && /^[a-f0-9-]{36}$/i.test(target))setPendingConversation(target);
+    if (params.get("notification") === "1") queueConversation(params.get("character"), params.get("tap"));
     // Consume notification intent once. Previous chat URLs/history are not launch intent.
     window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
-    const open=(event:MessageEvent)=>{
-      if(event.data?.type==="OPEN_CHARACTER" && /^[a-f0-9-]{36}$/i.test(event.data.characterId||""))setPendingConversation(event.data.characterId);
+    const open = (event: MessageEvent) => {
+      if (event.data?.type === "OPEN_CHARACTER") queueConversation(event.data.characterId, event.data.tap);
     };
-    const background=()=>{
-      if(!document.hidden || running.current)return;
-      setView("list");setSettingsOpen(false);
-      window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
+    const visibility = () => {
+      setNotificationVisible(!document.hidden);
+      if (!document.hidden) {
+        void recoverNotification();
+      } else if (!running.current) {
+        setView("list"); setSettingsOpen(false);
+        window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
+      }
     };
-    navigator.serviceWorker?.addEventListener("message",open);
-    document.addEventListener("visibilitychange",background);
-    return()=>{navigator.serviceWorker?.removeEventListener("message",open);document.removeEventListener("visibilitychange",background);};
-  },[]);
-  useEffect(()=>{
-    if(!status?.authenticated || !pendingConversation || !characters.length)return;
-    if(characters.some(item=>item.id===pendingConversation))openConversation(pendingConversation);
+    const foreground = () => {
+      setNotificationVisible(!document.hidden);
+      void recoverNotification();
+    };
+    navigator.serviceWorker?.addEventListener("message", open);
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("focus", foreground);
+    window.addEventListener("pageshow", foreground);
+    foreground();
+    return () => {
+      active = false;
+      navigator.serviceWorker?.removeEventListener("message", open);
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", foreground);
+      window.removeEventListener("pageshow", foreground);
+    };
+  }, []);
+  useEffect(() => {
+    if (!pendingConversation || !status?.authenticated || !characters.length || !notificationVisible || document.hidden) return;
+    if (characters.some(item => item.id === pendingConversation)) {
+      if (characterIdRef.current !== pendingConversation || !running.current) switchChatMode("text");
+      openConversation(pendingConversation);
+    }
     setPendingConversation(null);
-  },[status?.authenticated,pendingConversation,characters]);
+  }, [status?.authenticated, pendingConversation, characters, notificationVisible]);
   useEffect(()=>{
     const pop=(event:PopStateEvent)=>{
       endCall();setSettingsOpen(false);
