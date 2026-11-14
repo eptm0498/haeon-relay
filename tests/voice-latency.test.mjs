@@ -249,6 +249,7 @@ test('Jiwoo distinguishes text, voice and video while keeping the audio transpor
   await tick();f.contextReady();await tick();
   const prompt=f.modelBody.systemInstruction.parts[0].text;
   assert.ok(prompt.includes('[현재 대화 모드: '+mode+']'));
+  assert.match(prompt,/답변에 모드명.*붙이지 마/);
   if(realtime&&videoCall)assert.match(prompt,/미리 등록된 반복 영상/);
   f.gates.headers.resolve(new Response(null,{status:500}));
   assert.equal((await f.pending).status,502);

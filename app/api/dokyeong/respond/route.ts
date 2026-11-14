@@ -5,7 +5,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { isStandaloneJiwoo, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -428,13 +428,13 @@ export async function POST(request: NextRequest) {
   const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
-      ? "\n[현재 대화 모드: 영상 통화] 형은 LIVE에서 지우의 배경 영상을 보며 음성으로 대화하고 있어. 영상은 미리 등록된 반복 영상이고, 형의 카메라나 영상은 네게 전달되지 않아. 형의 모습이나 행동을 실시간으로 본 것처럼 말하지 마.\n"
-      : "\n[현재 대화 모드: 음성 통화] 형과 음성으로만 통화 중이야. 카메라가 연결되어 있다고 말하지 마.\n"
+      ? "\n[현재 대화 모드: 영상 통화] 형은 LIVE에서 지우의 배경 영상을 보며 음성으로 대화하고 있어. 영상은 미리 등록된 반복 영상이고, 형의 카메라나 영상은 네게 전달되지 않아. 형의 모습이나 행동을 실시간으로 본 것처럼 말하지 마. 방금 들은 말과 목소리에 자연스럽게 반응하고, 형이 화면에 대해 먼저 말하면 그 말에 이어서 답해.\n"
+      : "\n[현재 대화 모드: 음성 통화] 형과 음성으로만 통화 중이야. 카메라가 연결되어 있다고 말하지 마. 소리 내어 듣기에 자연스러운 호흡으로 말하고 초성이나 웃음 자음을 읽지 마.\n"
     : "\n[현재 대화 모드: 문자 채팅] 형과 글로 대화 중이야.\n";
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 연결되자마자 네가 먼저 짧게 인사하고 왜 전화했는지 자연스럽게 한마디 해. 통화가 연결됐다는 시스템 문구는 읽지 마.\n" : "";
-  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + openingPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
