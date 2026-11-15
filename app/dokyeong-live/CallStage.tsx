@@ -13,6 +13,7 @@ type Props = {
   videoOn: boolean;
   onVideoChange: (on: boolean) => void;
   status: string;
+  responseDelayMs: number | null;
   error: string;
   paused: boolean;
   reconnecting: boolean;
@@ -59,6 +60,7 @@ export default function CallStage(props: Props) {
       <header className={styles.callStageHeader}>
         <h1 ref={heading} tabIndex={-1}>{props.name}</h1>
         <span role="status">{props.paused ? "통화 일시 정지" : props.status}</span>
+        {props.responseDelayMs !== null && !props.paused && <span>응답 음성 {(props.responseDelayMs / 1000).toFixed(1)}초</span>}
       </header>
       <div className={styles.callStageBottom}>
         {videoOn && videoError && <p className={styles.callStageNotice} role="status">배경 영상을 불러오지 못했어. 통화는 계속돼.</p>}

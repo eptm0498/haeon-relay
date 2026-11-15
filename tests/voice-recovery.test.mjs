@@ -13,7 +13,7 @@ test('billing and credit failures are distinct and never expose upstream details
  assert.equal(voiceFailure({detail:{status:'quota_exceeded'}},401).code,'quota_exceeded');
 });
 
-async function speech(responses,{backup=true,model=null}={}){
+async function speech(responses,{backup=true,model=null,voiceSelection={}}={}){
  const calls=[];const exports={};
  const mocks={
   '@/lib/dokyeong/auth':{authenticated:()=>true,sameOrigin:()=>true,noStore:{'Cache-Control':'no-store'}},
@@ -34,7 +34,7 @@ async function speech(responses,{backup=true,model=null}={}){
   process:{env:{ELEVENLABS_API_KEY:'test-only',...(backup?{OPENAI_API_KEY:'test-only'}:{})}},
   console:{warn:()=>{}},fetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});assert.ok(responses.length,'unexpected paid retry');return responses.shift();}
  });
- const result=await exports.POST(new Request('https://app.test/api/tts',{method:'POST',body:JSON.stringify({text:'목소리 확인할게.'})}));
+ const result=await exports.POST(new Request('https://app.test/api/tts',{method:'POST',body:JSON.stringify({text:'목소리 확인할게.',...voiceSelection})}));
  return {result,calls};
 }
 const blocked=()=>Response.json({detail:{status:'payment_issue',message:'private account details'}},{status:401});
@@ -52,6 +52,13 @@ test('healthy preferred voice returns without invoking backup',async()=>{
  assert.equal(calls[0].body.model_id,'eleven_v3');
  assert.equal(result.headers.get('X-Dokyeong-TTS-Model'),'eleven_v3');
  assert.equal(result.headers.get('X-Dokyeong-TTS-Provider'),null);
+});
+test('an override for an older editor voice does not replace the current server voice',async()=>{
+ const voiceId='temporaryVoice000001';
+ const current=await speech([audio()],{voiceSelection:{voiceId,defaultVoiceId:'saved-character-voice'}});
+ const stale=await speech([audio()],{voiceSelection:{voiceId,defaultVoiceId:'old-character-voice'}});
+ assert.equal(current.calls[0].body.inputs[0].voice_id,voiceId);
+ assert.equal(stale.calls[0].body.inputs[0].voice_id,'saved-character-voice');
 });
 test('transient model failure retains the character voice through Flash',async()=>{
  const {result,calls}=await speech([Response.json({},{status:500}),audio()]);

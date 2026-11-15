@@ -3,7 +3,14 @@ import { authenticated, noStore, unauthorized } from "@/lib/dokyeong/auth";
 
 export const runtime = "nodejs";
 
-const fallbackVoices = [
+type Voice = {
+  voice_id?: string;
+  name?: string;
+  category?: string;
+  labels?: Record<string, string>;
+};
+
+const fallbackVoices: Required<Voice>[] = [
   { voice_id:"heIt0WXN96T1EYYZ3rxA", name:"글루", category:"cloned", labels:{language:"ko"} },
   { voice_id:"peTGXjUdPy5VJNYTcdea", name:"도경", category:"cloned", labels:{language:"ko"} },
   { voice_id:"rRzJ2jwUxhnEVwa36A3h", name:"반일", category:"cloned", labels:{language:"ko"} },
@@ -31,22 +38,22 @@ export async function GET(request: NextRequest) {
       return Response.json({ voices: fallbackVoices, source: "synced" }, { headers: noStore });
     }
 
-    const data = await response.json();
+    const data: { voices?: Voice[] } = await response.json();
     const voices = Array.isArray(data.voices)
-      ? data.voices.map((voice: any) => ({
+      ? data.voices.map((voice) => ({
           voice_id: String(voice.voice_id || ""),
           name: String(voice.name || "이름 없는 목소리"),
           category: String(voice.category || ""),
           labels: voice.labels && typeof voice.labels === "object" ? voice.labels : {},
-        })).filter((voice: any) => voice.voice_id && voice.category !== "premade")
+        })).filter((voice) => voice.voice_id && voice.category !== "premade")
       : [];
 
     const merged = [...voices];
     for (const fallback of fallbackVoices) {
-      if (!merged.some((voice: any) => voice.voice_id === fallback.voice_id)) merged.push(fallback);
+      if (!merged.some((voice) => voice.voice_id === fallback.voice_id)) merged.push(fallback);
     }
 
-    merged.sort((a: any, b: any) => {
+    merged.sort((a, b) => {
       const ak = a.category === "cloned" ? 0 : a.labels?.language === "ko" ? 1 : 2;
       const bk = b.category === "cloned" ? 0 : b.labels?.language === "ko" ? 1 : 2;
       return ak - bk || a.name.localeCompare(b.name, "ko");

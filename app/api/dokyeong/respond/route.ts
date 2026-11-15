@@ -331,6 +331,7 @@ export async function POST(request: NextRequest) {
   let sourceMessageId:string|undefined;
   let characterId: string | null = null;
   let voiceIdOverride: string | null = null;
+  let defaultVoiceId: string | undefined;
   let requestedSleepModeUntil = 0;
   let openingCallId: string | undefined;
   try {
@@ -348,6 +349,7 @@ export async function POST(request: NextRequest) {
     sourceMessageId=typeof parsed.sourceMessageId==="string"&&/^[A-Za-z0-9:_-]{1,120}$/.test(parsed.sourceMessageId)?parsed.sourceMessageId:undefined;
     characterId = typeof parsed.characterId === "string" && /^[a-f0-9-]{36}$/i.test(parsed.characterId) ? parsed.characterId : null;
     voiceIdOverride = typeof parsed.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(parsed.voiceId) ? parsed.voiceId : null;
+    if (typeof parsed.defaultVoiceId === "string") defaultVoiceId = parsed.defaultVoiceId;
     requestedSleepModeUntil = Number.isFinite(Number(parsed.sleepModeUntil)) ? Number(parsed.sleepModeUntil) : 0;
     const validImage = (value: unknown) => {
       if (!value || typeof value !== "object") return false;
@@ -418,7 +420,7 @@ export async function POST(request: NextRequest) {
   const prompt = character.prompt + (linked ? "" : currentTimeContext(responseTime,character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (standaloneJiwoo ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (standaloneJiwoo ? "" : photoRequestPrompt(character.name) + `
 [사진을 보내는 실제 기능]
 사진·셀카·이미지를 요청하거나 앞 대화에서 사진을 보내기로 했고 사용자가 동의했다면 send_character_photo를 호출해. '그거 보내줘', '그 옷 입고 보여줘', '한 장 더'도 앞 문맥으로 판단해. scene에는 앞에서 정한 장소·복장·표정·구도·대상을 합쳐. 사진 언급만 있거나 원치 않는다고 했으면 호출하지 마. 사진을 보낼 때는 도구만 호출하고 waitMessage에 네 말투로 잠깐 기다려 달라는 한 문장을 넣어. 사진을 보냈다는 말, 가짜 링크·첨부, '(사진)' 같은 텍스트를 작성하지 마. 도구가 실제 사진을 전송한다.`);
-  const activeVoiceId = voiceIdOverride || character.voice_id;
+  const activeVoiceId = (defaultVoiceId === undefined || defaultVoiceId === character.voice_id ? voiceIdOverride : null) || character.voice_id;
   // Open the voice connection while Gemini prepares its first response, without
   // sending any text or generating paid audio before it is actually needed.
   let sendAudio: ((event: object) => void) | undefined;

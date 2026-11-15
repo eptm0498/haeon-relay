@@ -1,4 +1,4 @@
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import {serverRpc} from './memory';
 export {validSubscription} from "./push-subscription";
 export async function deliverPushJobs() {

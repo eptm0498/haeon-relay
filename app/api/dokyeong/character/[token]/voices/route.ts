@@ -5,7 +5,17 @@ import { verifyEditor } from "@/lib/dokyeong/settings";
 export const runtime = "nodejs";
 type Context = { params: Promise<{ token: string }> };
 
-const fallbackVoices = [
+type Voice = {
+  voice_id?: string;
+  name?: string;
+  category?: string;
+  labels?: Record<string, string>;
+  description?: string;
+  preview_url?: string | null;
+  is_owner?: boolean;
+};
+
+const fallbackVoices: Required<Voice>[] = [
   { voice_id:"heIt0WXN96T1EYYZ3rxA", name:"글루", category:"cloned", description:"1", preview_url:null, labels:{language:"ko"}, is_owner:true },
   { voice_id:"peTGXjUdPy5VJNYTcdea", name:"도경", category:"cloned", description:"도경1", preview_url:null, labels:{language:"ko"}, is_owner:true },
   { voice_id:"rRzJ2jwUxhnEVwa36A3h", name:"반일", category:"cloned", description:"1111", preview_url:null, labels:{language:"ko"}, is_owner:true },
@@ -30,8 +40,8 @@ export async function GET(_request: NextRequest, { params }: Context) {
     });
 
     if (response.ok) {
-      const data = await response.json();
-      const voices = Array.isArray(data.voices) ? data.voices.map((voice: any) => ({
+      const data: { voices?: Voice[] } = await response.json();
+      const voices = Array.isArray(data.voices) ? data.voices.map((voice) => ({
         voice_id: String(voice.voice_id || ""),
         name: String(voice.name || "이름 없는 목소리"),
         category: String(voice.category || ""),
@@ -39,10 +49,10 @@ export async function GET(_request: NextRequest, { params }: Context) {
         preview_url: typeof voice.preview_url === "string" ? voice.preview_url : null,
         labels: voice.labels && typeof voice.labels === "object" ? voice.labels : {},
         is_owner: voice.is_owner !== false,
-      })).filter((voice: any) => voice.voice_id && voice.category !== "premade") : [];
+      })).filter((voice) => voice.voice_id && voice.category !== "premade") : [];
 
       const merged = [...voices];
-      for (const fallback of fallbackVoices) if (!merged.some((voice: any) => voice.voice_id === fallback.voice_id)) merged.push(fallback);
+      for (const fallback of fallbackVoices) if (!merged.some((voice) => voice.voice_id === fallback.voice_id)) merged.push(fallback);
       return Response.json({ voices: merged, source: "live" }, { headers: noStore });
     }
 

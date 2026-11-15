@@ -67,11 +67,13 @@ export async function POST(request: NextRequest) {
   let text = "";
   let characterId: string | null = null;
   let voiceIdOverride: string | null = null;
+  let defaultVoiceId: string | undefined;
   try {
     const body = JSON.parse(raw);
     text = String(body.text || "").trim();
     characterId = typeof body.characterId === "string" && /^[a-f0-9-]{36}$/i.test(body.characterId) ? body.characterId : null;
     voiceIdOverride = typeof body.voiceId === "string" && /^[A-Za-z0-9]{20}$/.test(body.voiceId) ? body.voiceId : null;
+    if (typeof body.defaultVoiceId === "string") defaultVoiceId = body.defaultVoiceId;
   } catch {}
   if (!text || text.length > 1400) return Response.json({ error: "발화 길이를 확인해 줘." }, { status: 400 });
 
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest) {
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   text=(isProjectCharacter(character)||isStandaloneJiwoo(character.id))?spokenDialogue(text):text.replace(/[ㅋㅎㅠㅜ]+/g," ").trim();
   if(!text)return Response.json({error:"읽을 대사가 없어."},{status:400,headers:noStore});
-  const voiceId = voiceIdOverride || character.voice_id;
+  const voiceId = (defaultVoiceId === undefined || defaultVoiceId === character.voice_id ? voiceIdOverride : null) || character.voice_id;
   const { speechModel } = await liveModelOverrides(request.signal);
   const primary = httpSpeechModel(speechModel);
   const flash = liveConfig.elevenlabs.fallbackModelId;

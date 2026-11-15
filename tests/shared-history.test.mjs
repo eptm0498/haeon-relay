@@ -7,7 +7,7 @@ import ts from 'typescript';
 test('failed sync retains outbox, rejects reply prerequisite, and recovers without duplicates or stale ETag',async()=>{
  const storage=new Map(),states=[],effects=[],listeners=new Map(),seenTags=[],appendRequests=[];
  const id='1e50ad74-d4a0-4204-9064-ffa5c61530d2',epoch='441d2f87-a6da-4bde-8a33-df836df49f41';
- let outage=false,tag='"v1"',index=0;
+ let outage=false,tag='"v1"',index=0,historyWrites=0;
  const row={character_id:id,epoch,messages:[{id:'seed',role:'assistant',content:'preserve existing',ts:1}],import_allowed:false};
  const react={useState(initial){const i=index++;states[i]=initial;return [initial,value=>{states[i]=typeof value==='function'?value(states[i]):value;}];},useRef(value){return {current:value};},useCallback(fn){return fn;},useEffect(fn){effects.push(fn);}};
  const exports={};
@@ -25,12 +25,21 @@ test('failed sync retains outbox, rejects reply prerequisite, and recovers witho
  const source=fs.readFileSync(new URL('../app/dokyeong-live/useSharedHistory.ts',import.meta.url),'utf8');
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
   exports,require:name=>{assert.equal(name,'react');return react;},fetch,AbortSignal,console,
-  localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},
+  localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>{
+   if(key.startsWith('character-live-history-v2:'))historyWrites++;
+   storage.set(key,value);
+  },removeItem:key=>storage.delete(key)},
   window:{addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener(){},setInterval:()=>1,clearInterval(){}},
   document:{hidden:false,addEventListener(){},removeEventListener(){}},
  });
  const api=exports.useSharedHistory([{id,is_default:true}],true);effects[0]();await api.synchronize();
  assert.equal(states[1],true);assert.equal(states[0][id][0].content,'preserve existing');
+ const initialHistory=states[0];
+ const initialWrites=historyWrites;
+ await api.synchronize();
+ assert.equal(seenTags.at(-1),'"v1"');
+ assert.equal(states[0],initialHistory,'a 304 keeps the rendered history reference');
+ assert.equal(historyWrites,initialWrites,'a 304 does not rewrite the local history cache');
  outage=true;api.append(id,[{id:'pending',role:'user',content:'retain pending',ts:2}],'pending');
  await assert.rejects(api.synchronize(),/temporary failure/);
  const pending=JSON.parse(storage.get('character-live-outbox-v1:'+id));

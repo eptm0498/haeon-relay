@@ -9,6 +9,7 @@ Required in Vercel for Production and Preview:
 | Name | Purpose |
 | --- | --- |
 | `DOKYEONG_ACCESS_CODE` | Private access code; choose at least 12 unpredictable characters |
+| `GEMINI_API_KEY` | Text responses for chat and calls |
 | `OPENAI_API_KEY` | Image generation |
 | `ELEVENLABS_API_KEY` | Speech synthesis and Scribe v3 speech transcription; enable Speech to Text access |
 
@@ -16,15 +17,15 @@ Optional:
 
 | Name | Default |
 | --- | --- |
-| `DOKYEONG_OPENAI_MODEL` | `gpt-4o-mini` (temporary, replace when selected) |
-| `DOKYEONG_VOICE_ID` | `peTGXjUdPy5VJNYTcdea` |
-| `DOKYEONG_TTS_MODEL` | `eleven_flash_v2_5` |
+| `DOKYEONG_GEMINI_MODEL` | `gemini-3.8-flash` |
+| `DOKYEONG_GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash` |
+| `DOKYEONG_VOICE_ID` | Default voice for the built-in character |
 | `DOKYEONG_VOICE_STABILITY` | `0.45` |
 | `DOKYEONG_VOICE_SIMILARITY` | `0.8` |
-| `DOKYEONG_VOICE_STYLE` | `0.15` |
+| `DOKYEONG_VOICE_STYLE` | `0` |
 | `DOKYEONG_VOICE_SPEED` | `1` |
 
-The character instructions are in `lib/dokyeong/config.ts`. The browser keeps the last 40 messages locally. Voice requests begin as soon as a phrase arrives from the text stream. The microphone uses local energy detection to avoid uploading silence. Each character uses ElevenLabs Scribe v3 with Korean selected for speech recognition. If recognition fails, the app shows an error and the next utterance can still be processed. API routes require a signed, HttpOnly, SameSite cookie, and reject cross-origin POSTs. No API keys are sent to the browser.
+The browser synchronizes conversation history with the server and keeps a local text cache. Voice synthesis can begin as soon as a phrase arrives from the text stream when a realtime synthesis model is selected. The microphone uses local energy detection, then sends each completed recording to ElevenLabs. The default recognition model is Scribe v3 with Korean selected. During calls, the response delay display measures the time from recording completion to the start of audio playback. If recognition fails, the app shows an error and can process the next utterance. The live client uses a signed, HttpOnly, SameSite cookie and its write endpoints reject cross-origin requests.
 
 ## Character editor
 
