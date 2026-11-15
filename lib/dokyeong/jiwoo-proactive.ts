@@ -1,7 +1,7 @@
 import { JIWOO_STYLE_PROMPT } from "./character-modes";
 import { geminiJson } from "./gemini-json";
 import { promisesIncomingCall } from "./incoming-call-intent";
-import { jiwooScheduleContext, type JiwooPreferences } from "./jiwoo-preferences";
+import { jiwooProactivePreferences, jiwooScheduleContext, type JiwooPreferences } from "./jiwoo-preferences";
 import { serverRpc, type StoredMessage } from "./memory";
 import { liveModelOverrides } from "./model-settings";
 import { dialogueOnly } from "./project-dialogue";
@@ -38,8 +38,9 @@ function contactPrompt(claim: Claim) {
   const calls = claim.calls.map(call => `${koreaTime(new Date(call.at))} ${callResult[call.status] || call.status}`).join("\n");
 
   const seriesSent = claim.seriesSent ?? 0;
+  const { proactiveSeriesMessages } = jiwooProactivePreferences(claim.settings);
   const textContext = seriesSent
-    ? `이번 선톡에서 ${seriesSent}개를 보냈고 형은 아직 답하지 않았어. 같은 얘기를 복붙하거나 새 인사로 다시 시작하지 말고, 한 박자 뒤에 떠오른 말, 삐친 농담이나 장난기 있는 재촉으로 한 메시지를 더 보내도 돼. 형이 답할 때까지 같은 흐름으로 최대 5개까지 이어질 수 있어.`
+    ? `이번 선톡에서 ${seriesSent}개를 보냈고 형은 아직 답하지 않았어. 같은 얘기를 복붙하거나 새 인사로 다시 시작하지 말고, 한 박자 뒤에 떠오른 말, 삐친 농담이나 장난기 있는 재촉으로 한 메시지를 더 보내도 돼. 형이 답할 때까지 같은 흐름으로 최대 ${proactiveSeriesMessages}개까지 이어질 수 있어.`
     : "선톡을 시작할 수 있다면 아까 얘기가 생각났거나, 지금 뭐 하는지 궁금하거나, 보고 싶거나, 별거 아닌 일이라도 제일 먼저 형한테 말하고 싶을 때 먼저 톡해.";
   return `${claim.prompt}
 ${JIWOO_STYLE_PROMPT}

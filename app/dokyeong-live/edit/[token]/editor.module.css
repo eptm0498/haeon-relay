@@ -42,3 +42,7 @@
 .jiwooWeek{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin:12px 0 20px}
 .jiwooWeek label{display:grid;gap:6px}
 .jiwooWeek input{min-width:0;width:100%;box-sizing:border-box;padding:9px;border:1px solid #3b3d44;border-radius:8px;background:#101115;color:#f1f1f1;font:inherit}
+
+.jiwooProactive label { display: grid; gap: 6px; }
+.jiwooProactive select { width: 100%; padding: 9px; border: 1px solid #3b3d44; border-radius: 8px; background: #101115; color: #f1f1f1; }
+.jiwooProactive select:disabled { opacity: .55; }

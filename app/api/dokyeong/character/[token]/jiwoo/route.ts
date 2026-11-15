@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
 import { STANDALONE_JIWOO_ID } from "@/lib/dokyeong/character-modes";
-import { validWorkHours } from "@/lib/dokyeong/jiwoo-preferences";
+import { validJiwooProactivePreferences, validWorkHours, type JiwooPreferences } from "@/lib/dokyeong/jiwoo-preferences";
 import { serverRpc } from "@/lib/dokyeong/memory";
 import { rpc, verifyEditor } from "@/lib/dokyeong/settings";
 
@@ -52,9 +52,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
         typeof body.scheduleNotes !== "string" || body.scheduleNotes.length > 2000 || !validWorkHours(body.workHours)) {
       return result({ error: "지침 길이와 근무시간을 확인해 줘. 근무시간은 09:00-21:00처럼 적어 줘." }, 400);
     }
-    const { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts, version } = body;
+    const { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts,
+      proactiveDailyStarts, proactiveSeriesMessages, version }: JiwooPreferences = body;
+    if ((proactiveDailyStarts !== undefined || proactiveSeriesMessages !== undefined) &&
+        !validJiwooProactivePreferences({ proactiveTexts: proactiveTexts ?? true, proactiveDailyStarts, proactiveSeriesMessages })) {
+      return result({ error: "선톡 횟수를 확인하고 다시 저장해 줘." }, 400);
+    }
     return result(await rpc("live_jiwoo_preferences", {
-      access_token: token, editor: true, action: "save", settings: { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts }, expected_version: version,
+      access_token: token, editor: true, action: "save", settings: { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts, proactiveDailyStarts, proactiveSeriesMessages }, expected_version: version,
     }));
   } catch (error) {
     if (error instanceof Error && error.message === "VERSION_CONFLICT") {

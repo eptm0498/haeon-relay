@@ -1260,7 +1260,7 @@ export default function DokyeongLive() {
         {standaloneJiwoo && <>
           <button type="button" className={styles.newChatButton} disabled={companion.registering}
             onClick={() => void (companion.state.subscribed ? companion.stopNotifications() : companion.notifications())}>
-            {companion.registering ? "알림 등록 중…" : companion.state.subscribed ? "이 기기 앱 알림 끄기" : "앱을 닫아도 통화 알림 받기"}
+            {companion.registering ? "알림 등록 중…" : companion.state.subscribed ? "이 기기 앱 알림 끄기" : "앱을 닫아도 선톡·통화 알림 받기"}
           </button>
           <p className={styles.notificationHint}>아이폰은 Safari에서 홈 화면에 추가한 뒤 앱을 열고 알림을 허용해 줘.</p>
           {companion.error && <p role="alert" className={styles.notificationHint}>{companion.error}</p>}

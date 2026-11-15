@@ -1,11 +1,19 @@
 export const jiwooDays = ["일", "월", "화", "수", "목", "금", "토"] as const;
-export type JiwooPreferences = {
+export const JIWOO_MAX_DAILY_TEXT_STARTS = 10;
+export const JIWOO_MAX_TEXTS_PER_SERIES = 5;
+
+export type JiwooProactivePreferences = {
+  proactiveTexts: boolean;
+  proactiveDailyStarts: number;
+  proactiveSeriesMessages: number;
+};
+
+export type JiwooPreferences = Partial<JiwooProactivePreferences> & {
   chatPrompt: string;
   voicePrompt: string;
   workHours: string[];
   scheduleNotes: string;
   incomingCalls?: boolean;
-  proactiveTexts?: boolean;
   version: number;
 };
 
@@ -16,6 +24,26 @@ export const defaultJiwooPreferences: JiwooPreferences = {
   scheduleNotes: "2026년 11월 23~27일 오전 하남중 시간강사 출강 예정.",
   version: 0,
 };
+
+export function jiwooProactivePreferences(settings: Partial<JiwooProactivePreferences>): JiwooProactivePreferences {
+  return {
+    proactiveTexts: settings.proactiveTexts !== false,
+    proactiveDailyStarts: settings.proactiveDailyStarts ?? JIWOO_MAX_DAILY_TEXT_STARTS,
+    proactiveSeriesMessages: settings.proactiveSeriesMessages ?? JIWOO_MAX_TEXTS_PER_SERIES,
+  };
+}
+
+function isCount(value: unknown, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= maximum;
+}
+
+export function validJiwooProactivePreferences(value: unknown): value is JiwooProactivePreferences {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Partial<JiwooProactivePreferences>;
+  return typeof settings.proactiveTexts === "boolean"
+    && isCount(settings.proactiveDailyStarts, JIWOO_MAX_DAILY_TEXT_STARTS)
+    && isCount(settings.proactiveSeriesMessages, JIWOO_MAX_TEXTS_PER_SERIES);
+}
 
 const clock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 export function validWorkHours(value: unknown): value is string[] {
