@@ -1,9 +1,11 @@
 /** Server-only settings. Never import this module into a client component. */
+import { currentGeminiModel } from "./model-catalog";
+
 export const liveConfig = {
   gemini: {
     provider: "gemini",
-    responseModel: process.env.DOKYEONG_GEMINI_MODEL || "gemini-3.8-flash",
-    fallbackModel: process.env.DOKYEONG_GEMINI_FALLBACK_MODEL || "gemini-3.5-flash",
+    responseModel: currentGeminiModel(process.env.DOKYEONG_GEMINI_MODEL) ?? "gemini-3.8-flash",
+    fallbackModel: currentGeminiModel(process.env.DOKYEONG_GEMINI_FALLBACK_MODEL) ?? "gemini-3.6-flash",
   },
   elevenlabs: {
     transcriptionModelId: "scribe_v3",

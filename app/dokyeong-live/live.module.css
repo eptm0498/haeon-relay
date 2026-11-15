@@ -163,3 +163,15 @@
 .incomingSlider button svg{width:26px;height:26px;fill:currentColor}
 .incomingSlider[data-disabled=true]{opacity:.6}
 .incomingCallNotice{position:fixed;z-index:65;bottom:max(24px,env(safe-area-inset-bottom));left:50%;translate:-50% 0;padding:10px 16px;border-radius:22px;color:#fff;background:#26343c;max-width:calc(100% - 32px);text-align:center}
+.modelField{display:flex;flex-direction:column;gap:5px}
+.modelField small,.modelTable small{color:#b6b6b6;font-size:11px;line-height:1.5}
+.modelComparison{min-width:0}
+.modelTableScroll{overflow-x:auto;margin:8px 0;border:1px solid #3c3c3c;border-radius:9px}
+.modelTable{width:100%;min-width:490px;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.modelTable th,.modelTable td{padding:8px;text-align:left;border-bottom:1px solid #353535;vertical-align:top}
+.modelTable thead{background:#252525}
+.modelTable tbody tr:last-child>*{border-bottom:0}
+.modelTable td{white-space:nowrap}
+.modelTable small{display:block}
+.modelSources{display:flex;flex-wrap:wrap;gap:8px 16px}
+.modelSources a{color:#e8da83;text-underline-offset:2px}

@@ -18,7 +18,7 @@ Optional:
 | Name | Default |
 | --- | --- |
 | `DOKYEONG_GEMINI_MODEL` | `gemini-3.8-flash` |
-| `DOKYEONG_GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash` |
+| `DOKYEONG_GEMINI_FALLBACK_MODEL` | `gemini-3.6-flash` |
 | `DOKYEONG_VOICE_ID` | Default voice for the built-in character |
 | `DOKYEONG_VOICE_STABILITY` | `0.45` |
 | `DOKYEONG_VOICE_SIMILARITY` | `0.8` |

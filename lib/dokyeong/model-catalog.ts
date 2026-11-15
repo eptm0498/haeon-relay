@@ -1,10 +1,53 @@
-const geminiModels = {
-  "gemini-3.8-flash": "Gemini 3.8 Flash",
-  "gemini-3.7-flash": "Gemini 3.7 Flash → 3.8 Flash",
-  "gemini-3.6-flash": "Gemini 3.6 Flash",
-  "gemini-3.5-flash": "Gemini 3.5 Flash → 3.6 Flash",
-  "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+type GeminiModelDetails = {
+  name: string;
+  paid: { input: number; output: number; offerUntil?: string; afterOffer?: { input: number; output: number } };
+  benchmark: { tokensPerSecond: number; firstTokenSeconds: number; thinking?: string };
 };
+
+const flashIntroductoryRate = { input: 0.75, output: 3.75, offerUntil: "2026.12.31", afterOffer: { input: 1.5, output: 7.5 } };
+
+// Generally available Gemini Developer API models with a free text tier.
+// Google pricing and Artificial Analysis benchmarks checked 2026-11-15.
+export const geminiFreeModels: Readonly<Record<string, GeminiModelDetails>> = {
+  "gemini-4-hydrogen": {
+    name: "Gemini 4 Hydrogen",
+    paid: { input: 1.5, output: 7.5 },
+    benchmark: { tokensPerSecond: 167, firstTokenSeconds: 5.7, thinking: "Low" },
+  },
+  "gemini-3.8-flash": {
+    name: "Gemini 3.8 Flash",
+    paid: flashIntroductoryRate,
+    benchmark: { tokensPerSecond: 103, firstTokenSeconds: 4.1, thinking: "Low" },
+  },
+  "gemini-3.6-flash": {
+    name: "Gemini 3.6 Flash",
+    paid: flashIntroductoryRate,
+    benchmark: { tokensPerSecond: 161, firstTokenSeconds: 12.4, thinking: "High" },
+  },
+  "gemini-3.5-flash-lite": {
+    name: "Gemini 3.5 Flash-Lite",
+    paid: { input: 0.3, output: 2.5 },
+    benchmark: { tokensPerSecond: 293, firstTokenSeconds: 4.7 },
+  },
+  "gemini-3.1-flash-lite": {
+    name: "Gemini 3.1 Flash-Lite",
+    paid: { input: 0.25, output: 1.5 },
+    benchmark: { tokensPerSecond: 308, firstTokenSeconds: 4.2 },
+  },
+};
+
+const geminiAliases = {
+  "gemini-3.7-flash": "gemini-3.8-flash",
+  "gemini-3.5-flash": "gemini-3.6-flash",
+};
+
+export function currentGeminiModel(id: string | null | undefined) {
+  if (!id) return null;
+  const canonical = geminiAliases[id as keyof typeof geminiAliases] ?? id;
+  return Object.hasOwn(geminiFreeModels, canonical) ? canonical : null;
+}
+
+const geminiModels = Object.fromEntries(Object.entries(geminiFreeModels).map(([id, model]) => [id, model.name]));
 
 export const liveModelFields = {
   textModel: {
