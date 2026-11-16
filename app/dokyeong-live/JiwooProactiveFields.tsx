@@ -16,6 +16,14 @@ function countOptions(maximum: number) {
 
 export default function JiwooProactiveFields({ value, disabled, onChange }: Props) {
   return <>
+    <label>지우가 먼저 전화하기
+      <select value={String(value.incomingCalls)} disabled={disabled}
+        onChange={event => onChange({ ...value, incomingCalls: event.target.value === "true" })}>
+        <option value="true">켜짐</option>
+        <option value="false">꺼짐</option>
+      </select>
+    </label>
+    <p>켜 두면 지우가 근무시간 밖에 먼저 전화할 수 있어.</p>
     <label>지우가 먼저 톡 보내기
       <select value={String(value.proactiveTexts)} disabled={disabled}
         onChange={event => onChange({ ...value, proactiveTexts: event.target.value === "true" })}>

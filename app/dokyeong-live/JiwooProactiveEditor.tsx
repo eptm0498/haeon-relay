@@ -21,7 +21,7 @@ export default function JiwooProactiveEditor() {
     const controller = new AbortController();
     fetch(endpoint, { cache: "no-store", signal: controller.signal }).then(async response => {
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "선톡 설정을 불러오지 못했어.");
+      if (!response.ok) throw new Error(data.error || "선톡·전화 설정을 불러오지 못했어.");
       if (!controller.signal.aborted) {
         setSettings(data);
         setDirty(false);
@@ -49,10 +49,10 @@ export default function JiwooProactiveEditor() {
       });
       const data = await response.json();
       if (response.status === 409) setConflict(true);
-      if (!response.ok) throw new Error(data.error || "선톡 설정을 저장하지 못했어.");
+      if (!response.ok) throw new Error(data.error || "선톡·전화 설정을 저장하지 못했어.");
       setSettings(data);
       setDirty(false);
-      setNotice("선톡 설정을 저장했어.");
+      setNotice("선톡·전화 설정을 저장했어.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "다시 시도해 줘.");
     } finally {
@@ -68,7 +68,7 @@ export default function JiwooProactiveEditor() {
   }
 
   return <details>
-    <summary>지우 선톡 설정</summary>
+    <summary>지우 선톡·전화 설정</summary>
     <form className={styles.toolFields} onSubmit={save}>
       {settings ? <>
         <JiwooProactiveFields value={settings} disabled={busy || conflict} onChange={value => {
@@ -76,8 +76,8 @@ export default function JiwooProactiveEditor() {
           setDirty(true);
           setNotice("");
         }}/>
-        <button type="submit" disabled={busy || !dirty || conflict}>{busy ? "저장 중…" : "선톡 설정 저장"}</button>
-      </> : busy && <p role="status">선톡 설정을 불러오는 중…</p>}
+        <button type="submit" disabled={busy || !dirty || conflict}>{busy ? "저장 중…" : "선톡·전화 설정 저장"}</button>
+      </> : busy && <p role="status">선톡·전화 설정을 불러오는 중…</p>}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
       {(!settings || conflict) && error && <button type="button" disabled={busy} onClick={reload}>다시 불러오기</button>}

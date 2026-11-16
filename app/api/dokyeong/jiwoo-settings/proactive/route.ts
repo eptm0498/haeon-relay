@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   try {
     return result(await preferences("read"));
   } catch {
-    return result({ error: "선톡 설정을 불러오지 못했어." }, 503);
+    return result({ error: "선톡·전화 설정을 불러오지 못했어." }, 503);
   }
 }
 
@@ -40,15 +40,20 @@ export async function PUT(request: NextRequest) {
   }
   const version = body?.version;
   if (!validJiwooProactivePreferences(body) || !Number.isSafeInteger(version) || version < 0 || version >= 2147483647) {
-    return result({ error: "선톡 횟수를 확인하고 다시 저장해 줘." }, 400);
+    return result({ error: "선톡·전화 설정을 확인하고 다시 저장해 줘." }, 400);
   }
 
   try {
-    return result(await preferences("save_proactive", jiwooProactivePreferences(body), version));
+    const { incomingCalls, proactiveTexts, proactiveDailyStarts, proactiveSeriesMessages } = body;
+    // Cached clients can still save text settings without overwriting the call toggle.
+    return result(await preferences("save_proactive", {
+      ...(incomingCalls !== undefined && { incomingCalls }),
+      proactiveTexts, proactiveDailyStarts, proactiveSeriesMessages,
+    }, version));
   } catch (error) {
     if (error instanceof Error && error.message === "VERSION_CONFLICT") {
       return result({ error: "다른 화면에서 설정이 바뀌었어. 다시 불러온 뒤 저장해 줘." }, 409);
     }
-    return result({ error: "선톡 설정을 저장하지 못했어." }, 503);
+    return result({ error: "선톡·전화 설정을 저장하지 못했어." }, 503);
   }
 }

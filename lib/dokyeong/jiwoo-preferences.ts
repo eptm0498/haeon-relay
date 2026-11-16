@@ -3,6 +3,7 @@ export const JIWOO_MAX_DAILY_TEXT_STARTS = 10;
 export const JIWOO_MAX_TEXTS_PER_SERIES = 5;
 
 export type JiwooProactivePreferences = {
+  incomingCalls: boolean;
   proactiveTexts: boolean;
   proactiveDailyStarts: number;
   proactiveSeriesMessages: number;
@@ -13,7 +14,6 @@ export type JiwooPreferences = Partial<JiwooProactivePreferences> & {
   voicePrompt: string;
   workHours: string[];
   scheduleNotes: string;
-  incomingCalls?: boolean;
   version: number;
 };
 
@@ -27,6 +27,7 @@ export const defaultJiwooPreferences: JiwooPreferences = {
 
 export function jiwooProactivePreferences(settings: Partial<JiwooProactivePreferences>): JiwooProactivePreferences {
   return {
+    incomingCalls: settings.incomingCalls !== false,
     proactiveTexts: settings.proactiveTexts !== false,
     proactiveDailyStarts: settings.proactiveDailyStarts ?? JIWOO_MAX_DAILY_TEXT_STARTS,
     proactiveSeriesMessages: settings.proactiveSeriesMessages ?? JIWOO_MAX_TEXTS_PER_SERIES,
@@ -37,10 +38,13 @@ function isCount(value: unknown, maximum: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= maximum;
 }
 
-export function validJiwooProactivePreferences(value: unknown): value is JiwooProactivePreferences {
+type JiwooProactiveUpdate = Omit<JiwooProactivePreferences, "incomingCalls"> & { incomingCalls?: boolean };
+
+export function validJiwooProactivePreferences(value: unknown): value is JiwooProactiveUpdate {
   if (!value || typeof value !== "object") return false;
   const settings = value as Partial<JiwooProactivePreferences>;
   return typeof settings.proactiveTexts === "boolean"
+    && (settings.incomingCalls === undefined || typeof settings.incomingCalls === "boolean")
     && isCount(settings.proactiveDailyStarts, JIWOO_MAX_DAILY_TEXT_STARTS)
     && isCount(settings.proactiveSeriesMessages, JIWOO_MAX_TEXTS_PER_SERIES);
 }

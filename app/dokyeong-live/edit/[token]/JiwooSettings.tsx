@@ -63,12 +63,6 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
         <textarea id="jiwoo-chat" className={styles.textarea} value={settings.chatPrompt} maxLength={8000} disabled={busy} onChange={event => setSettings({ ...settings, chatPrompt: event.target.value })}/>
         <label htmlFor="jiwoo-voice">음성 통화 추가 지침</label>
         <textarea id="jiwoo-voice" className={styles.textarea} value={settings.voicePrompt} maxLength={8000} disabled={busy} onChange={event => setSettings({ ...settings, voicePrompt: event.target.value })}/>
-        <label>
-          <input type="checkbox" checked={settings.incomingCalls !== false} disabled={busy}
-            onChange={event => setSettings({ ...settings, incomingCalls: event.target.checked })}/>
-          지우가 먼저 전화하기
-        </label>
-        <p>지금 목소리가 듣고 싶으면 근무시간 밖에 먼저 전화해. 새벽에도 가능해.</p>
         <div className={styles.jiwooProactive}>
           <JiwooProactiveFields value={jiwooProactivePreferences(settings)} disabled={busy}
             onChange={value => setSettings({ ...settings, ...value })}/>
