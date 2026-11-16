@@ -142,6 +142,22 @@ test('random album selection is bounded to valid, distinct scene choices and pre
  assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'99',[],()=>0),undefined);
 });
 
+test('organic album matching recognizes conversational tags and requires a concrete subject',()=>{
+ const photos=[
+  {id:'books',situation:'창가에서 독서',tags:['독서','오후','집'],useFor:'both'},
+  {id:'karaoke',situation:'웃으며 부르는 첫 소절',tags:['노래방','취미','외출'],useFor:'both'},
+  {id:'river',situation:'강변 러닝',tags:['러닝','강변','저녁'],useFor:'both'},
+  {id:'sofa',situation:'느긋한 오후',tags:['휴식','오후','집'],useFor:'both'},
+  {id:'call-only',situation:'밤 산책로',tags:['러닝','밤'],useFor:'call'},
+ ];
+ const matches=(content,recentlySent=[])=>jiwooAlbum.matchingAlbumPhotos(photos,[{content}],'chat',{contextualOnly:true,recentlySent}).map(photo=>photo.id);
+ assert.deepEqual(matches('책 뭐 봐?'),['books']);
+ assert.deepEqual(matches('코노 가고 싶다'),['karaoke']);
+ assert.deepEqual(matches('저녁에 어디 뛰고 왔어?'),['river']);
+ assert.deepEqual(matches('저녁에 어디 뛰고 왔어?',['river']),[]);
+ assert.deepEqual(matches('저녁에 집에 갈 거야'),[]);
+});
+
 test('proactive photo selection attaches through the existing texting workflow only when permitted',async()=>{
  const run=async(canText,choice,content)=>{
   const now='2026-11-14T02:00:00+09:00';
