@@ -205,7 +205,7 @@ export default function DokyeongLive() {
   const [notificationVisible, setNotificationVisible] = useState(true);
   const latestNotificationTap = useRef({ id: "", time: 0 });
   const swipeSurface=useRef<HTMLElement|null>(null);
-  useBackSwipe(swipeSurface,goBack,view==='chat' && !photoPreview);
+  useBackSwipe(swipeSurface,goBack,view==='chat');
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
   const [voiceId, setVoiceId] = useState("");
@@ -1034,6 +1034,8 @@ export default function DokyeongLive() {
   }, [acceptedCall, view, standaloneJiwoo, chatMode, historyReady, resetting]);
 
   function goBack(){
+    const viewer = photoViewerRef.current;
+    if (viewer?.open) { viewer.close(); return false; }
     if(settingsOpen){setSettingsOpen(false);return false;}
     endCall();setSettingsOpen(false);
     if(window.history.state?.characterLive==="chat"){window.history.back();return true;}
