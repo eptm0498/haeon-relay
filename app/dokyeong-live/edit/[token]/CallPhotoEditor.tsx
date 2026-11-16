@@ -203,7 +203,7 @@ export default function CallPhotoEditor({ api, characterId }: { api: string; cha
   const visible = album ? filtered.slice(0, visibleCount) : filtered;
   return <section className={`${styles.editorCard} ${styles.callPhotoCard}`} aria-label={title}>
     <div className={styles.cardHeader}>
-      <div className={styles.cardTitles}><h2>{title}</h2><p>{album ? "태그로 사진을 찾고, 채팅·통화에 쓸 사진과 통화 시작 때 보여줄 시간대를 정해." : "기본은 프로필 사진이야. 대화가 아래에 적어둔 상황과 맞으면 해당 사진으로 바뀌어."}</p></div>
+      <div className={styles.cardTitles}><h2>{title}</h2><p>{album ? "채팅에 허용한 사진은 요청받았을 때도, 지우가 먼저 보낼 때도 태그와 대화에 맞춰 골라. 통화에 허용한 사진은 대화와 지정한 시간대에 따라 화면에 나와." : "기본은 프로필 사진이야. 대화가 아래에 적어둔 상황과 맞으면 해당 사진으로 바뀌어."}</p></div>
       {photos && <span className={styles.callPhotoCount}>{photos.length}/{limit}</span>}
     </div>
     <div className={styles.fieldArea}>

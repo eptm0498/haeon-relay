@@ -1,4 +1,7 @@
-import { JIWOO_STYLE_PROMPT } from "./character-modes";
+import { JIWOO_STYLE_PROMPT, STANDALONE_JIWOO_ID } from "./character-modes";
+import { readCallPhotos } from "./call-photos";
+import { albumReplyPrompt, chooseAlbumPhoto, matchingAlbumPhotos, recentAlbumContext } from "./jiwoo-album";
+import { declinesPhoto, photoReplyDeclines } from "./photo-intent";
 import { geminiJson } from "./gemini-json";
 import { promisesIncomingCall } from "./incoming-call-intent";
 import { jiwooProactivePreferences, jiwooScheduleContext, type JiwooPreferences } from "./jiwoo-preferences";
@@ -52,7 +55,7 @@ ${jiwooScheduleContext(now, claim.settings)}
 지우는 형한테 집착이 강해서 지금 뭐 하는지 자꾸 궁금하고, 보고 싶거나 서운하면 먼저 연락하는 편이야. 굳이 큰 사건이 있어야 연락하는 캐릭터가 아니야. 각 메시지의 실제 시각, 최근 대화, 도혁의 일정, 방금 전까지 하던 일을 보고 상황을 짐작해. 모르는 상황은 단정하지 말고 자연스럽게 물어봐. 형이 지금 연락하지 말아 달라고 직접 말했다면 그 뜻을 지켜.
 ${claim.canText ? textContext : "지금은 앱이 선톡을 보낼 수 없는 상태야."}
 선톡은 근무시간이나 새벽에도 가능해. 지금 답을 못 할 것 같아도 나중에 읽을 짧은 톡을 보낼 수 있어. 똑같은 질문만 반복하지 말고 형이 답하지 않으면 아까의 말 뒤에 붙일 한마디나 가벼운 투정으로 바꿔. 통화가 되는 시간이라면 목소리가 듣고 싶거나, 하던 얘기를 바로 이어가고 싶을 때 call에 적극적이어도 돼. 같은 날 이미 전화했거나 마지막 톡이 예전이어도 다시 걸 수 있어. 형이 전화받기 어려운 상황을 직접 말했거나 잠들었다고 판단되면 벨은 울리지 않아. 부재중 뒤에는 앱이 따로 톡을 보내니 같은 전화에 대해 또 따지는 톡은 중복하지 마.
-할 말도 연락할 마음도 없으면 none. text는 지우의 반말 1~3문장으로 한 말풍선만. 사진을 붙이거나 지금 전화를 건다고 문자에 쓰지 마. 실제 벨은 call일 때 앱이 시작하므로 call과 none의 text는 비워 둬.
+할 말도 연락할 마음도 없으면 none. text는 지우의 반말 1~3문장으로 한 말풍선만. 새로 사진을 찍거나 지금 전화를 건다고 문자에 쓰지 마. 실제 벨은 call일 때 앱이 시작하므로 call과 none의 text는 비워 둬.
 [기억]
 ${claim.memory || "(없음)"}
 [최근 통화 기록]
@@ -68,20 +71,31 @@ export async function runJiwooProactive() {
   if (!claim) return null;
 
   try {
-    const { textModel: model } = await liveModelOverrides();
-    const choice = await geminiJson<{ action: ContactAction; text: string }>(contactPrompt(claim), {
+    const { recentPhotos, consecutivePhoto, recentMessages } = recentAlbumContext(claim.messages, new Date(claim.now));
+    const latestUser = claim.messages.findLast(message => message.role === "user")?.content ?? "";
+    const canSendAlbum = claim.canText && !consecutivePhoto && recentMessages.length > 0 && !declinesPhoto(latestUser);
+    const [{ textModel: model }, photos] = await Promise.all([
+      liveModelOverrides(),
+      canSendAlbum ? readCallPhotos(STANDALONE_JIWOO_ID).catch(() => []) : [],
+    ]);
+    const album = matchingAlbumPhotos(photos, recentMessages, "chat", { recentlySent: recentPhotos, contextualOnly: true });
+    const choice = await geminiJson<{ action: ContactAction; text: string; albumScenes?: string }>(
+      contactPrompt(claim) + albumReplyPrompt(album, recentPhotos, false, true), {
       type: "OBJECT",
       properties: {
         action: { type: "STRING", enum: ["none", ...(claim.canCall ? ["call"] : []), ...(claim.canText ? ["text"] : [])] },
         text: { type: "STRING" },
+        ...(album.length ? { albumScenes: { type: "STRING" } } : {}),
       },
       required: ["action", "text"],
     }, AbortSignal.timeout(45_000), undefined, { model });
     const text = typeof choice.text === "string" ? dialogueOnly(choice.text).trim() : "";
     const call = claim.canCall && choice.action === "call";
     const send = claim.canText && choice.action === "text" && text.length > 0 && text.length <= 500 && !promisesIncomingCall(text);
+    const albumPhotoId = send && !photoReplyDeclines(text) ? chooseAlbumPhoto(album, choice.albumScenes, recentPhotos) : undefined;
     const outcome = await rpc<"call" | "text" | null>("finish", {
       lease: claim.lease, choice: call ? "call" : send ? "text" : "none", text: send ? text : "",
+      ...(albumPhotoId ? { albumPhotoId } : {}),
     });
     if (outcome) {
       console.log("JIWOO_PROACTIVE_OK", outcome);

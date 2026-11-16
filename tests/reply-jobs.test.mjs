@@ -10,10 +10,10 @@ import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[]){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[]){
  const calls=[],prompts=[],models=[],warnings=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
- const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[{id:'pending',role:'user',content:latest,ts:1}],memory:''},activity};
+ const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[...preceding,{id:'pending',role:'user',content:latest,ts:Date.parse(now)}],memory:''},activity};
  const mocks={
   './project-reply':{projectReply:async text=>text},
   './character-modes':characterModes,
@@ -122,6 +122,49 @@ test('Jiwoo schedules a chat-enabled album photo through the ordinary reply with
  assert.doesNotMatch(outcome.prompts[0],/잠옷 셀카/);
  assert.equal(outcome.calls.at(-1).data.albumPhotoId,'office-chat');
  assert.equal(outcome.calls.at(-1).data.photo,null);
- const noRequest=await prepare(null,null,true,draft,'오늘 시청 갔어?',undefined,photos);
- assert.equal(noRequest.calls.at(-1).data.albumPhotoId,undefined);
+ const organic=await prepare(null,null,true,draft,'오늘 시청 갔어?',undefined,photos);
+ assert.equal(organic.calls.at(-1).data.albumPhotoId,'office-chat');
+ assert.match(organic.prompts[0],/직접 요청하지 않아도/);
+ for(const message of ['오늘 어때?', '회사 사진은 보내지 마']) {
+  const ordinary=await prepare(null,null,true,draft,message,undefined,photos);
+  assert.equal(ordinary.calls.at(-1).data.albumPhotoId,undefined);
+ }
+ const afterPhoto=[{role:'assistant',content:'아까 찍어둔 거야.',ts:Date.parse('2026-11-14T01:59:00+09:00'),albumPhotoId:'office-chat'}];
+ const repeated=await prepare(null,null,true,draft,'지금도 사무실이야?',undefined,photos,afterPhoto);
+ assert.equal(repeated.calls.at(-1).data.albumPhotoId,undefined);
+});
+
+test('random album selection is bounded to valid, distinct scene choices and prefers unseen photos',()=>{
+ const photos=[{id:'office-a'},{id:'office-b'},{id:'irrelevant'}];
+ assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2, 2, 9',[],()=>0),'office-a');
+ assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2, 2, 9',[],()=>0.8),'office-b');
+ assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2',['office-a'],()=>0),'office-b');
+ assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'99',[],()=>0),undefined);
+});
+
+test('proactive photo selection attaches through the existing texting workflow only when permitted',async()=>{
+ const run=async(canText,choice,content)=>{
+  const now='2026-11-14T02:00:00+09:00';
+  const claim={lease:'lease',now,settings:jiwooPreferences.defaultJiwooPreferences,canCall:true,canText,prompt:'지우',messages:[{role:'user',content,ts:Date.parse(now)}],calls:[]};
+  const actions=[];
+  const dependencies={
+   './character-modes':characterModes,'./jiwoo-album':jiwooAlbum,'./photo-intent':photoIntent,
+   './gemini-json':{geminiJson:async()=>({action:choice,text:'형, 저녁에 생각나더라.',albumScenes:'1'})},
+   './incoming-call-intent':incomingCallIntent,'./jiwoo-preferences':jiwooPreferences,'./project-dialogue':projectDialogue,
+   './call-photos':{readCallPhotos:async()=>[{id:'river',tags:['러닝'],useFor:'both',situation:'운동화 묶는 셀카'}]},
+   './memory':{serverRpc:async(_,body)=>{actions.push(body);return body.action==='claim'?claim:null;}},
+   './model-settings':{liveModelOverrides:async()=>({})},'./push':{deliverPushJobs:async()=>{}},
+   './time-context':{currentTimeContext:()=>'',koreaTime:()=>now},
+  };
+  const exports={};
+  const source=fs.readFileSync(new URL('../lib/dokyeong/jiwoo-proactive.ts',import.meta.url),'utf8');
+  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+   {exports,require:name=>{assert.ok(dependencies[name],name);return dependencies[name];},AbortSignal,console});
+  await exports.runJiwooProactive();
+  return actions.at(-1).data;
+ };
+ assert.equal((await run(true,'text','저녁에 러닝한다며')).albumPhotoId,'river');
+ assert.equal((await run(true,'text','저녁에 운동 사진 보내지 마')).albumPhotoId,undefined);
+ assert.equal((await run(true,'call','저녁에 러닝한다며')).albumPhotoId,undefined);
+ assert.equal((await run(false,'text','저녁에 러닝한다며')).albumPhotoId,undefined);
 });
