@@ -22,7 +22,7 @@ function harness(search,authenticated=false,characters=[],cached=[],hidden=false
   window:{location:{search},caches:{open:async()=>cache},history:{replaceState:(state,_,url)=>routes.push({state,url})},addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:()=>{}},
   navigator:{serviceWorker:{addEventListener:(_,fn)=>listeners.message=fn,removeEventListener:()=>{}}},
   document:{hidden,addEventListener:(_,fn)=>listeners.visibility=fn,removeEventListener:()=>{}},
-  setNotificationVisible:value=>context.notificationVisible=value,switchChatMode:()=>{},setPendingConversation:value=>context.pendingConversation=value,setView:value=>context.view=value,setSettingsOpen:()=>{},
+  setNotificationVisible:value=>context.notificationVisible=value,switchChatMode:()=>{},setPendingConversation:value=>context.pendingConversation=value,setView:value=>context.view=value,setSettingsOpen:()=>{},setPhotoPreview:value=>context.photoPreview=value,
   openConversation:value=>opened.push(value)};
  function run(effect){return vm.runInNewContext(ts.transpileModule(`(${effect})()`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);}
  run(startup);return {context,listeners,routes,opened,deliver:()=>run(delivery)};
@@ -45,7 +45,9 @@ test('warm notification arriving before character loading is queued; ordinary re
  const app=harness('',true);app.listeners.message({data:{type:'OPEN_CHARACTER',characterId:id}});
  app.deliver();assert.equal(app.context.pendingConversation,id);
  app.context.characters=[{id}];app.deliver();assert.deepEqual(app.opened,[id]);
+ app.context.photoPreview={image:{dataUrl:'/photo'}};
  app.context.document.hidden=true;app.listeners.visibility();assert.equal(app.context.view,'list');
+ assert.equal(app.context.photoPreview,null);
  assert.equal(app.routes.at(-1).url,'/dokyeong-live');
 });
 test('service worker uses explicit cold notification intent and focuses before warm delivery',async()=>{
