@@ -171,6 +171,8 @@ export default function DokyeongLive() {
   const [callHistory, setCallHistory] = useState<string[]>([]);
   const [chatPreviews, setChatPreviews] = useState<Record<string, ChatPreview>>({});
   const [messages, setMessages] = useState<Message[]>([]);
+  const [photoPreview, setPhotoPreview] = useState<{ image: ChatImage; alt: string; filename: string } | null>(null);
+  const photoViewerRef = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState("");
   const [partial, setPartial] = useState("");
   const [generatingPhoto, setGeneratingPhoto] = useState(false);
@@ -203,7 +205,7 @@ export default function DokyeongLive() {
   const [notificationVisible, setNotificationVisible] = useState(true);
   const latestNotificationTap = useRef({ id: "", time: 0 });
   const swipeSurface=useRef<HTMLElement|null>(null);
-  useBackSwipe(swipeSurface,goBack,view==='chat');
+  useBackSwipe(swipeSurface,goBack,view==='chat' && !photoPreview);
   const historyReady = sharedHistory.ready && !!sharedHistory.histories[characterId];
   const [availableVoices, setAvailableVoices] = useState<LiveVoice[]>([]);
   const [voiceId, setVoiceId] = useState("");
@@ -1080,7 +1082,7 @@ export default function DokyeongLive() {
       if (!document.hidden) {
         void recoverNotification();
       } else if (!running.current) {
-        setView("list"); setSettingsOpen(false);
+        setView("list"); setSettingsOpen(false); setPhotoPreview(null);
         window.history.replaceState({characterLive:"list"},"","/dokyeong-live");
       }
     };
@@ -1111,6 +1113,7 @@ export default function DokyeongLive() {
   }, [status?.authenticated, pendingConversation, characters, notificationVisible]);
   useEffect(()=>{
     const pop=(event:PopStateEvent)=>{
+      photoViewerRef.current?.close();
       endCall();setSettingsOpen(false);
       if(event.state?.characterLive==="chat"){
         const id=event.state.characterId;const next=characters.find(c=>c.id===id);
@@ -1165,6 +1168,24 @@ export default function DokyeongLive() {
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
   const ringing = incomingCall.ringing;
+  const ringingId = ringing?.id;
+  useEffect(() => {
+    photoViewerRef.current?.close();
+  }, [characterId, ringingId, callOpen]);
+
+  function photoThumbnail(image: ChatImage, alt: string, label: string) {
+    return <button type="button" className={styles.photoThumbnail} aria-label={alt + " 크게 보기"} aria-haspopup="dialog"
+      onClick={() => {
+        const viewer = photoViewerRef.current;
+        if (!viewer || viewer.open) return;
+        const extension = image.mimeType === "image/png" ? "png" : image.mimeType === "image/webp" ? "webp" : "jpg";
+        setPhotoPreview({ image, alt, filename: image.name || label + "." + extension });
+        viewer.showModal();
+      }}>
+      <img loading="lazy" src={image.dataUrl} alt={alt} />
+    </button>;
+  }
+
   const caller = ringing && characters.find(item => item.id === ringing.characterId);
   const incomingOverlay = ringing && caller && !running.current && !startingCall && !acceptedCall
     ? <IncomingCallScreen key={ringing.id} call={ringing} name={caller.name} avatar={avatarFor(caller)}
@@ -1324,8 +1345,8 @@ export default function DokyeongLive() {
                 <div className={styles.bubbleLine}>
                   <div className={styles.userStack}>
                     {message.image && <div className={styles.imageBubble}>
-                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="사진 저장"><img loading="lazy" src={message.image.dataUrl} alt={`${activeName}이 보낸 사진`} /></a>
-                      <span className={styles.imageLabel}>{standaloneJiwoo ? "지우의 앨범" : "AI 생성 사진"} · 눌러서 저장</span>
+                      {photoThumbnail(message.image, activeName + "이 보낸 사진", activeName + "-사진")}
+                      <span className={styles.imageLabel}>{standaloneJiwoo ? "지우의 앨범" : "AI 생성 사진"}</span>
                       {!standaloneJiwoo && <button className={styles.imageEdit} onClick={()=>{editImageRef.current=message.id;setDraft("이 사진에서 ");draftInputRef.current?.focus();}}>이 사진 이어서 수정</button>}
                     </div>}
                     {message.content && <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>}
@@ -1338,7 +1359,9 @@ export default function DokyeongLive() {
               <div className={styles.bubbleLine}>
                 {message.ts && <time>{formatMessageTime(message.ts)}</time>}
                 <div className={styles.userStack}>
-                  {message.image && <div className={styles.imageBubble}><img loading="lazy" src={message.image.dataUrl} alt="보낸 이미지" /></div>}
+                  {message.image && <div className={styles.imageBubble}>
+                    {photoThumbnail(message.image, "내가 보낸 사진", "보낸-사진")}
+                  </div>}
                   {message.content && <div className={[styles.bubble, styles.userBubble].join(" ")}>{message.content}</div>}
                 </div>
               </div>
@@ -1437,5 +1460,21 @@ export default function DokyeongLive() {
       </section>
       </>}
     </div>
+    <dialog ref={photoViewerRef} className={styles.photoViewer} aria-label="채팅 사진"
+      onClose={(event) => { if (!event.currentTarget.open) setPhotoPreview(null); }}>
+      <header className={styles.photoViewerToolbar}>
+        <button type="button" className={styles.photoViewerAction} aria-label="사진 닫기" onClick={() => photoViewerRef.current?.close()}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+        {photoPreview && <a className={styles.photoViewerAction} href={photoPreview.image.dataUrl} download={photoPreview.filename} aria-label="사진 저장">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg>
+        </a>}
+      </header>
+      <div className={styles.photoViewerStage} onClick={(event) => {
+        if (event.target === event.currentTarget) photoViewerRef.current?.close();
+      }}>
+        {photoPreview && <img src={photoPreview.image.dataUrl} alt={photoPreview.alt} />}
+      </div>
+    </dialog>
   </main>;
 }
