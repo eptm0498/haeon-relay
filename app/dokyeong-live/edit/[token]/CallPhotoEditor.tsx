@@ -1,11 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { isStandaloneJiwoo, JIWOO_MAX_CALL_PHOTOS } from "@/lib/dokyeong/character-modes";
-import { MAX_CALL_PHOTO_LENGTH, MAX_CALL_PHOTOS, MAX_CALL_SITUATION_LENGTH, type CallPhoto } from "@/lib/dokyeong/call-scenes";
+import { MAX_CALL_PHOTO_LENGTH, MAX_CALL_PHOTOS, MAX_CALL_SITUATION_LENGTH, type CallPhoto, type PhotoDays, type PhotoDetails, type PhotoUse } from "@/lib/dokyeong/call-scenes";
+import { DEFAULT_PHOTO_DETAILS, JIWOO_ALBUM_TAGS, parsePhotoTags, validPhotoDetails } from "@/lib/dokyeong/jiwoo-album";
 import styles from "./editor.module.css";
 
 const example = "예: 자기 전에 누워서 조용히 얘기할 때";
+type DetailsDraft = Omit<PhotoDetails, "tags"> & { tags: string };
+type PendingPhoto = { file: File; id?: string };
+const photoDraft = (photo?: CallPhoto): DetailsDraft => ({
+  useFor: photo?.useFor ?? DEFAULT_PHOTO_DETAILS.useFor,
+  startTime: photo?.startTime ?? "",
+  endTime: photo?.endTime ?? "",
+  days: photo?.days ?? DEFAULT_PHOTO_DETAILS.days,
+  tags: photo?.tags?.join(", ") ?? "",
+});
+const photoDetails = (draft: DetailsDraft): PhotoDetails => ({ ...draft, tags: parsePhotoTags(draft.tags) });
+const photoUses = { call: "통화 화면", chat: "채팅에서 보내기", both: "채팅과 통화" };
+
+function AlbumFields({ draft, disabled, onChange, suggestions = false }: {
+  draft: DetailsDraft; disabled: boolean; onChange: (draft: DetailsDraft) => void; suggestions?: boolean;
+}) {
+  const id = useId();
+  const tags = parsePhotoTags(draft.tags);
+  return <fieldset className={styles.albumFields} disabled={disabled}>
+    <legend className={styles.srOnly}>사진 태그와 표시 설정</legend>
+    <label htmlFor={`${id}-tags`}>태그</label>
+    <input id={`${id}-tags`} type="text" value={draft.tags} placeholder="기상, 침대, 아침 햇빛" maxLength={192}
+      onChange={event => onChange({ ...draft, tags: event.target.value })} />
+    {suggestions && <div className={styles.albumTags}>
+      {JIWOO_ALBUM_TAGS.map(tag => <button key={tag} type="button" className={styles.modeButton} aria-pressed={tags.includes(tag)}
+        disabled={tags.length >= 8 && !tags.includes(tag)}
+        onClick={() => onChange({ ...draft, tags: (tags.includes(tag) ? tags.filter(item => item !== tag) : [...tags, tag]).join(", ") })}>{tag}</button>)}
+    </div>}
+    <label htmlFor={`${id}-use`}>사용할 곳</label>
+    <select id={`${id}-use`} value={draft.useFor} onChange={event => {
+      const useFor = event.target.value as PhotoUse;
+      onChange(useFor === "chat" ? { ...draft, useFor, startTime: "", endTime: "" } : { ...draft, useFor });
+    }}>
+      {Object.entries(photoUses).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+    </select>
+    {draft.useFor !== "chat" && <div className={styles.albumSchedule}>
+      <label>표시 요일<select value={draft.days} onChange={event => onChange({ ...draft, days: event.target.value as PhotoDays })}>
+        <option value="daily">매일</option><option value="weekdays">평일</option><option value="weekend">주말</option>
+      </select></label>
+      <label>시작 시간<input type="time" value={draft.startTime} onChange={event => onChange({ ...draft, startTime: event.target.value })} /></label>
+      <label>종료 시간<input type="time" value={draft.endTime} onChange={event => onChange({ ...draft, endTime: event.target.value })} /></label>
+      <p>한국 시간 기준이야. 시간을 비워 두면 대화에 맞을 때만 나와.</p>
+    </div>}
+  </fieldset>;
+}
 
 async function preparePhoto(file: File) {
   if (!file.type.startsWith("image/") || file.size > 25 * 1024 * 1024) throw new Error("25MB 이하의 사진을 골라 줘.");
@@ -31,32 +76,51 @@ async function preparePhoto(file: File) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function PhotoRow({ photo, src, busy, onSave, onReplace, onRemove }: {
-  photo: CallPhoto; src: string; busy: boolean; onSave: (situation: string) => void; onReplace: (file?: File) => void; onRemove: () => void;
+function PhotoRow({ photo, src, busy, album, onSave, onReplace, onRemove }: {
+  photo: CallPhoto; src: string; busy: boolean; album: boolean; onSave: (situation: string, details?: PhotoDetails) => void; onReplace: (file?: File) => void; onRemove: () => void;
 }) {
   const [situation, setSituation] = useState(photo.situation);
-  return <article className={styles.callPhotoRow}>
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src={src} loading="lazy" alt="저장된 통화 사진" />
-    <div>
+  const [draft, setDraft] = useState(() => photoDraft(photo));
+  const details = photoDetails(draft);
+  const changed = situation.trim() !== photo.situation || JSON.stringify(draft) !== JSON.stringify(photoDraft(photo));
+  const fields = <div className={album ? styles.albumPhotoEdit : undefined}>
       <label htmlFor={`situation-${photo.id}`}>사진이 나올 상황</label>
       <textarea id={`situation-${photo.id}`} rows={2} maxLength={MAX_CALL_SITUATION_LENGTH} value={situation} disabled={busy} onChange={event => setSituation(event.target.value)} />
+      {album && <AlbumFields draft={draft} disabled={busy} onChange={setDraft} />}
       <div className={styles.callPhotoActions}>
-        <button type="button" className={styles.modeButton} disabled={busy || !situation.trim() || situation.trim() === photo.situation} onClick={() => onSave(situation)}>상황 저장</button>
+        <button type="button" className={styles.modeButton} disabled={busy || !situation.trim() || !changed || (album && !validPhotoDetails(details))}
+          onClick={() => onSave(situation, album ? details : undefined)}>{album ? "사진 설정 저장" : "상황 저장"}</button>
         <label className={styles.modeButton}>사진 교체<input type="file" accept="image/*" disabled={busy} onChange={event => { onReplace(event.target.files?.[0]); event.target.value = ""; }}/></label>
         <button type="button" className={styles.modeButton} disabled={busy} onClick={onRemove}>사진 삭제</button>
       </div>
-    </div>
+    </div>;
+  return <article className={styles.callPhotoRow}>
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={src} loading="lazy" alt={photo.situation} />
+    {album ? <details className={styles.albumPhotoDetails}>
+      <summary>
+        <strong>{photo.situation}</strong>
+        <small>{photoUses[photo.useFor ?? "call"]}{photo.startTime && ` · ${photo.startTime}~${photo.endTime}`} · 편집</small>
+        {photo.tags?.length ? <span>{photo.tags.map(tag => `#${tag}`).join(" ")}</span> : null}
+      </summary>
+      {fields}
+    </details> : fields}
   </article>;
 }
 
 export default function CallPhotoEditor({ api, characterId }: { api: string; characterId: string }) {
-  const limit = (isStandaloneJiwoo(characterId) ? JIWOO_MAX_CALL_PHOTOS : MAX_CALL_PHOTOS);
+  const album = isStandaloneJiwoo(characterId);
+  const limit = album ? JIWOO_MAX_CALL_PHOTOS : MAX_CALL_PHOTOS;
   const endpoint = `${api}/call-photos`;
   const listUrl = `${endpoint}?characterId=${characterId}`;
   const [photos, setPhotos] = useState<CallPhoto[] | null>(null);
-  const [image, setImage] = useState("");
+  const [files, setFiles] = useState<PendingPhoto[]>([]);
+  const [preview, setPreview] = useState("");
   const [situation, setSituation] = useState("");
+  const [draft, setDraft] = useState<DetailsDraft>(() => photoDraft());
+  const [search, setSearch] = useState("");
+  const [usage, setUsage] = useState("");
+  const [visibleCount, setVisibleCount] = useState(16);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -78,60 +142,106 @@ export default function CallPhotoEditor({ api, characterId }: { api: string; cha
     return () => abort.abort();
   }, [listUrl, retry]);
 
-  async function pick(file?: File) {
-    if (!file || busy) return;
+  async function pick(selected: File[]) {
+    if (!selected.length || busy) return;
     setBusy(true); setNotice(""); setError("");
-    try { setImage(await preparePhoto(file)); }
+    try {
+      if (selected.length > limit - (photos?.length ?? 0)) throw new Error("앨범에 남은 자리보다 많은 사진을 골랐어.");
+      setPreview(await preparePhoto(selected[0]));
+      setFiles(selected.map(file => ({ file, id: album ? crypto.randomUUID() : undefined })));
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : "사진을 준비하지 못했어."); }
     finally { setBusy(false); }
   }
 
-  async function save(action: "add" | "edit" | "replace" | "delete", photoId?: string, description?: string, file?: File) {
+  async function send(action: string, photoId?: string, description?: string, image?: string, details?: PhotoDetails) {
+    const response = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, characterId, photoId, situation: description, image, details }),
+    });
+    const result = await response.json();
+    if (!response.ok || !Array.isArray(result)) throw new Error(result.error || "사진을 저장하지 못했어.");
+    setPhotos(result);
+  }
+
+  async function save(action: "edit" | "replace" | "delete", photoId: string, description?: string, file?: File, details?: PhotoDetails) {
     if (busy) return;
     setBusy(true); setNotice(""); setError("");
     try {
-      const response = await fetch(endpoint, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, characterId, photoId, situation: description, image: action === "replace" && file ? await preparePhoto(file) : action === "add" ? image : undefined }),
-      });
-      const result = await response.json();
-      if (!response.ok || !Array.isArray(result)) throw new Error(result.error || "통화 사진을 저장하지 못했어.");
-      setPhotos(result);
+      await send(action, photoId, description, file ? await preparePhoto(file) : undefined, details);
       if (action === "replace") setPhotoRevision(value => value + 1);
-      if (action === "add") { setImage(""); setSituation(""); }
-      setNotice(action === "delete" ? "사진을 삭제했어." : "저장했어. 다음 음성 답변부터 적용돼.");
+      setNotice(action === "delete" ? "사진을 삭제했어." : "저장했어.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "통화 사진을 저장하지 못했어."); }
     finally { setBusy(false); }
   }
 
-  return <section className={`${styles.editorCard} ${styles.callPhotoCard}`} aria-label="통화 사진">
+  async function add() {
+    if (busy || !files.length) return;
+    setBusy(true); setNotice(""); setError("");
+    let saved = 0;
+    try {
+      for (const [index, item] of files.entries()) {
+        await send("add", item.id, situation, index === 0 && preview ? preview : await preparePhoto(item.file), album ? photoDetails(draft) : undefined);
+        saved++;
+        setFiles(files.slice(saved));
+        setNotice(`${saved}/${files.length}장 저장했어.`);
+      }
+      setPreview(""); setSituation(""); setDraft(photoDraft());
+    } catch (cause) {
+      if (saved) setPreview("");
+      setError(cause instanceof Error ? cause.message : "사진을 저장하지 못했어.");
+    } finally { setBusy(false); }
+  }
+
+  const title = album ? "사진 앨범" : "통화 사진";
+  const filtered = photos?.filter(photo => {
+    const match = search.trim().toLowerCase();
+    const purpose = photo.useFor ?? "call";
+    return (!usage || purpose === usage || purpose === "both") &&
+      (!match || [photo.situation, ...(photo.tags ?? [])].join(" ").toLowerCase().includes(match));
+  }) ?? [];
+  const visible = album ? filtered.slice(0, visibleCount) : filtered;
+  return <section className={`${styles.editorCard} ${styles.callPhotoCard}`} aria-label={title}>
     <div className={styles.cardHeader}>
-      <div className={styles.cardTitles}><span className={styles.overline}>VOICE CALL</span><h2>통화 사진</h2><p>{limit > 8 ? "일상 대화에서는 저장한 사진이 돌아가고, 지금 상황에 맞는 사진이 있으면 해당 사진을 보여줘." : "기본은 프로필 사진이야. 대화가 아래에 적어둔 상황과 맞으면 해당 사진으로 바뀌어."}</p></div>
+      <div className={styles.cardTitles}><h2>{title}</h2><p>{album ? "태그로 사진을 찾고, 채팅·통화에 쓸 사진과 통화 시작 때 보여줄 시간대를 정해." : "기본은 프로필 사진이야. 대화가 아래에 적어둔 상황과 맞으면 해당 사진으로 바뀌어."}</p></div>
       {photos && <span className={styles.callPhotoCount}>{photos.length}/{limit}</span>}
     </div>
     <div className={styles.fieldArea}>
       {error && <p role="alert" className={styles.photoError}>{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {!photos && (error ? <button type="button" className={styles.modeButton} onClick={() => { setError(""); setRetry(n => n + 1); }}>다시 불러오기</button> : <p role="status">통화 사진을 불러오는 중…</p>)}
-      {photos?.map(photo => <PhotoRow key={`${photo.id}:${photo.situation}`} photo={photo} src={`${listUrl}&photoId=${photo.id}&v=${photoRevision}`} busy={busy}
-        onSave={description => void save("edit", photo.id, description)} onReplace={file => { if (file) void save("replace", photo.id, undefined, file); }} onRemove={() => { if (window.confirm("이 통화 사진을 삭제할까?")) void save("delete", photo.id); }} />)}
       {photos && photos.length < limit && <div className={styles.callPhotoNew}>
-        <label htmlFor="new-call-photo">통화 사진 추가</label>
-        <input id="new-call-photo" type="file" accept="image/*" disabled={busy} onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }} />
-        {image && <div className={styles.callPhotoRow}>
+        <label htmlFor="new-call-photo">{album ? "앨범 사진 추가" : "통화 사진 추가"}</label>
+        <input id="new-call-photo" type="file" multiple={album} accept="image/*" disabled={busy} onChange={event => { void pick(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+        {files.length > 0 && <div className={styles.callPhotoRow}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`data:image/jpeg;base64,${image}`} alt="추가할 사진 미리보기" />
+          {preview ? <img src={`data:image/jpeg;base64,${preview}`} alt="첫 사진 미리보기" /> : <span />}
           <div>
+            {files.length > 1 && <p>{files.length}장에 아래 설정을 함께 적용해.</p>}
             <label htmlFor="new-call-situation">이 사진이 나올 상황</label>
             <textarea id="new-call-situation" rows={2} maxLength={MAX_CALL_SITUATION_LENGTH} placeholder={example} value={situation} disabled={busy} onChange={event => setSituation(event.target.value)} />
+            {album && <AlbumFields draft={draft} onChange={setDraft} disabled={busy} suggestions />}
             <div className={styles.callPhotoActions}>
-              <button type="button" className={styles.primaryButton} disabled={busy || !situation.trim()} onClick={() => void save("add", undefined, situation)}>{busy ? "처리 중…" : "사진과 상황 저장"}</button>
-              <button type="button" className={styles.modeButton} disabled={busy} onClick={() => { setImage(""); setSituation(""); }}>취소</button>
+              <button type="button" className={styles.primaryButton} disabled={busy || !situation.trim() || (album && !validPhotoDetails(photoDetails(draft)))}
+                onClick={() => void add()}>{busy ? "처리 중…" : `${files.length}장 등록`}</button>
+              <button type="button" className={styles.modeButton} disabled={busy} onClick={() => { setFiles([]); setPreview(""); setSituation(""); setDraft(photoDraft()); }}>취소</button>
             </div>
           </div>
         </div>}
-        <p>세로 사진을 쓰면 휴대폰 화면에 자연스럽게 맞아. 사진마다 한 가지 상황을 구체적으로 적어 줘.</p>
       </div>}
+      {album && photos && <div className={styles.albumFilters}>
+        <label>태그·설명 검색<input type="search" value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(16); }} /></label>
+        <label>사용할 곳<select value={usage} onChange={event => { setUsage(event.target.value); setVisibleCount(16); }}>
+          <option value="">모두</option>{Object.entries(photoUses).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        </select></label>
+      </div>}
+      {photos && !visible.length && <p>{photos.length ? "검색에 맞는 사진이 없어." : "아직 등록된 사진이 없어."}</p>}
+      {visible.map(photo => <PhotoRow key={JSON.stringify(photo)} photo={photo} src={`${listUrl}&photoId=${photo.id}&v=${photoRevision}`} busy={busy} album={album}
+        onSave={(description, details) => void save("edit", photo.id, description, undefined, details)}
+        onReplace={file => { if (file) void save("replace", photo.id, undefined, file); }}
+        onRemove={() => { if (window.confirm("이 사진을 앨범에서 삭제할까?")) void save("delete", photo.id); }} />)}
+      {album && visible.length < filtered.length && <button type="button" className={styles.modeButton}
+        onClick={() => setVisibleCount(count => count + 16)}>사진 더 보기 ({visible.length}/{filtered.length})</button>}
     </div>
   </section>;
 }

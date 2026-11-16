@@ -46,3 +46,36 @@
 .jiwooProactive label { display: grid; gap: 6px; }
 .jiwooProactive select { width: 100%; padding: 9px; border: 1px solid #3b3d44; border-radius: 8px; background: #101115; color: #f1f1f1; }
 .jiwooProactive select:disabled { opacity: .55; }
+
+.albumFields { border: 0; margin: 12px 0; min-width: 0; padding: 0; }
+.albumFields input, .albumFields select, .albumFilters input, .albumFilters select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px;
+  border: 1px solid #363943;
+  border-radius: 8px;
+  background: #171922;
+  color: inherit;
+  color-scheme: dark;
+}
+.albumFields input:focus-visible, .albumFields select:focus-visible, .albumFilters input:focus-visible, .albumFilters select:focus-visible,
+.albumPhotoDetails summary:focus-visible { outline: 2px solid #d9ff67; outline-offset: 2px; }
+.albumTags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.albumTags button[aria-pressed="true"] { border-color: #d9ff67; color: #d9ff67; }
+.albumFields label, .albumFilters label { font-size: 13px; margin: 8px 0; }
+.albumFilters label > input, .albumFilters label > select, .albumSchedule label > input, .albumSchedule label > select { margin-top: 6px; }
+.albumFilters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.albumSchedule { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 8px; }
+.albumSchedule p { grid-column: 1 / -1; margin: 0; color: #aeb4c1; font-size: 12px; line-height: 1.5; }
+.albumPhotoDetails { min-width: 0; border: 1px solid #383b45; border-radius: 10px; }
+.albumPhotoDetails summary { cursor: pointer; padding: 12px; line-height: 1.5; }
+.albumPhotoDetails summary strong { font-size: 14px; overflow-wrap: anywhere; }
+.albumPhotoDetails summary small, .albumPhotoDetails summary span { display: block; margin-top: 4px; color: #aeb4c1; font-size: 12px; overflow-wrap: anywhere; }
+.albumPhotoDetails summary span { color: #d9ff67; }
+.albumPhotoEdit { border-top: 1px solid #383b45; padding: 12px; }
+@media (max-width: 540px) {
+  .albumSchedule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .albumSchedule label:first-child { grid-column: 1 / -1; }
+}

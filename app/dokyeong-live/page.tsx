@@ -23,7 +23,7 @@ import { useSharedHistory, type Message, type ChatImage } from "./useSharedHisto
 type ChatMode = "text" | "voice";
 type AppView = "list" | "chat";
 type ChatFilter = "all" | "unread" | "calls";
-type ReplyEvent = { type?: string; id?: unknown; ids?: unknown; scene?: unknown; waitMessage?: string; text?: unknown; data?: unknown; message?: string };
+type ReplyEvent = { type?: string; id?: unknown; scene?: unknown; waitMessage?: string; text?: unknown; data?: unknown; message?: string };
 type ChatPreview = { text: string; ts?: number };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
@@ -187,7 +187,6 @@ export default function DokyeongLive() {
   const callPhotoRef = useRef<string | null>(null);
   const jiwooRecentPhotos = useRef<string[]>([]);
   const jiwooPhotoCounts = useRef<Record<string, number> | null>(null);
-  const jiwooLastPhotoAt = useRef(0);
   const callAttempt = useRef(0);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
@@ -385,7 +384,6 @@ export default function DokyeongLive() {
     videoOnRef.current = false; setVideoOn(false);
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
-    jiwooLastPhotoAt.current = 0;
     setMode("off"); setNeedsTap(false);
   }, [interrupt, closeMic, releaseWakeLock]);
   const changeJiwooPhoto = useCallback((id: string | null) => {
@@ -396,21 +394,20 @@ export default function DokyeongLive() {
       counts[id] = (counts[id] ?? 0) + 1;
       try { localStorage.setItem(jiwooPhotoCountsKey, JSON.stringify(counts)); } catch {}
       jiwooRecentPhotos.current = [id, ...jiwooRecentPhotos.current].slice(0, 4);
-      jiwooLastPhotoAt.current = performance.now();
     }
     callPhotoRef.current = id;
     setCallPhoto(id);
   }, []);
-  const rotateJiwooCallPhoto = useCallback(async () => {
+  const showScheduledJiwooPhoto = useCallback(async () => {
     const id = characterIdRef.current;
     if (!running.current || !isStandaloneJiwoo(id)) return;
     const attempt = callAttempt.current;
     try {
       const response = await fetch(`${API}/call-photos/${id}`, { cache: "no-store", signal: AbortSignal.timeout(4000) });
       if (!response.ok) return;
-      const photos: CallPhoto[] = await response.json();
+      const photos: Pick<CallPhoto, "id">[] = await response.json();
       if (!running.current || id !== characterIdRef.current || attempt !== callAttempt.current ||
-          performance.now() - jiwooLastPhotoAt.current < 6000 && callPhotoRef.current) return;
+          callPhotoRef.current) return;
       const counts = jiwooPhotoCounts.current ??= loadJiwooPhotoCounts();
       changeJiwooPhoto(pickJiwooCallPhoto(photos.map(photo => photo.id), jiwooRecentPhotos.current, counts));
     } catch {}
@@ -654,12 +651,6 @@ export default function DokyeongLive() {
           }
           if (event.type === "jiwoo_photo" && standaloneJiwoo && running.current &&
               requestCharacterId === characterIdRef.current && isCallPhotoId(event.id)) changeJiwooPhoto(event.id);
-          if (event.type === "jiwoo_photo_candidates" && standaloneJiwoo && running.current &&
-              requestCharacterId === characterIdRef.current && Array.isArray(event.ids)) {
-            const counts = jiwooPhotoCounts.current ??= loadJiwooPhotoCounts();
-            const photo = pickJiwooCallPhoto(event.ids.filter(isCallPhotoId), jiwooRecentPhotos.current, counts);
-            if (photo) changeJiwooPhoto(photo);
-          }
           if(event.type==="queued"){setPartial("");return;}
           if(event.type==="photo" && typeof event.scene==="string") {photoPlan={scene:event.scene,waitMessage:event.waitMessage||"잠깐만, 사진 찍어서 보내줄게."};setPartial("");}
           if (event.type === "delta" && typeof event.text === "string") {
@@ -861,7 +852,7 @@ export default function DokyeongLive() {
         setCallHistory(next);
         try { localStorage.setItem(callHistoryKey, JSON.stringify(next)); } catch {}
       }
-      if (!callPhotoRef.current) void rotateJiwooCallPhoto();
+      if (!callPhotoRef.current) void showScheduledJiwooPhoto();
 
       if (worklet) {
         micWorkletRef.current = worklet;
@@ -1171,19 +1162,6 @@ export default function DokyeongLive() {
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const callOpen = chatMode === "voice" && (running.current || phase === "paused");
-  const rotateJiwooPhoto = callOpen && standaloneJiwoo && phase !== "paused" && !!status?.authenticated;
-  useEffect(() => {
-    if (!rotateJiwooPhoto) return;
-    let timer: number;
-    const schedule = () => {
-      timer = window.setTimeout(() => {
-        if (!document.hidden) void rotateJiwooCallPhoto();
-        schedule();
-      }, 26_000 + Math.random() * 12_000);
-    };
-    schedule();
-    return () => window.clearTimeout(timer);
-  }, [rotateJiwooPhoto, rotateJiwooCallPhoto]);
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
   const ringing = incomingCall.ringing;
@@ -1346,9 +1324,9 @@ export default function DokyeongLive() {
                 <div className={styles.bubbleLine}>
                   <div className={styles.userStack}>
                     {message.image && <div className={styles.imageBubble}>
-                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="생성된 사진 저장"><img loading="lazy" src={message.image.dataUrl} alt={`${activeName}이 보낸 AI 생성 사진`} /></a>
-                      <span className={styles.imageLabel}>AI 생성 사진 · 눌러서 저장</span>
-                      <button className={styles.imageEdit} onClick={()=>{editImageRef.current=message.id;setDraft("이 사진에서 ");draftInputRef.current?.focus();}}>이 사진 이어서 수정</button>
+                      <a href={message.image.dataUrl} download={`${activeName}-사진.jpg`} aria-label="사진 저장"><img loading="lazy" src={message.image.dataUrl} alt={`${activeName}이 보낸 사진`} /></a>
+                      <span className={styles.imageLabel}>{standaloneJiwoo ? "지우의 앨범" : "AI 생성 사진"} · 눌러서 저장</span>
+                      {!standaloneJiwoo && <button className={styles.imageEdit} onClick={()=>{editImageRef.current=message.id;setDraft("이 사진에서 ");draftInputRef.current?.focus();}}>이 사진 이어서 수정</button>}
                     </div>}
                     {message.content && <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>}
                   </div>

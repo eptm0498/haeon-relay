@@ -1,5 +1,6 @@
 import { rpc } from "./settings";
-import type { CallPhoto } from "./call-scenes";
+import type { CallPhoto, PhotoDetails } from "./call-scenes";
+import { isStandaloneJiwoo } from "./character-modes";
 
 export function readCallPhotos(characterId: string) {
   if (!process.env.CHARACTER_HISTORY_KEY) return Promise.resolve([]);
@@ -14,7 +15,12 @@ export function readCallPhoto(characterId: string, photoId: string) {
   }, 8000);
 }
 
-export function editorCallPhotos<T>(token: string, characterId: string, action: string, photoId?: string, situation?: string, image?: string) {
+export function editorCallPhotos<T>(token: string, characterId: string, action: string, photoId?: string, situation?: string, image?: string, details?: PhotoDetails) {
+  if (isStandaloneJiwoo(characterId)) {
+    return rpc<T>("live_jiwoo_photo_album_edit", {
+      edit_token: token, action, target_photo: photoId, new_situation: situation, new_image: image, details,
+    }, 10000);
+  }
   return rpc<T>("live_call_photos_edit", {
     edit_token: token, target_character: characterId, action, target_photo: photoId,
     new_situation: situation, new_image: image,

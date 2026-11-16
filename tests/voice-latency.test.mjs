@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as dialogue from '../lib/dokyeong/project-dialogue.ts';
 import * as characterModes from '../lib/dokyeong/character-modes.ts';
-import * as jiwooBedtime from '../lib/dokyeong/jiwoo-bedtime.ts';
+import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
@@ -35,7 +35,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   },
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
-  '@/lib/dokyeong/jiwoo-bedtime':jiwooBedtime,
+  '@/lib/dokyeong/jiwoo-album':jiwooAlbum,
   '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
   '@/lib/dokyeong/incoming-call':{incomingCallContext:async()=>callContext,incomingCallWork:async(action,id)=>{assert.equal(action,'greet');assert.equal(id,openingCallId);return answered?{id}:null;},isIncomingCallId:value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)},
   '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
@@ -142,7 +142,7 @@ test('standalone Jiwoo voice keeps its call-only processing and skips project an
 
 test('Jiwoo gets conversational context and keeps its scene marker out of spoken dialogue',{timeout:3000},async()=>{
  const messages=[{role:'assistant',content:'더 꼭 안아줄까?'},{role:'user',content:'응, 그렇게 해줘.'}];
- const photos=Array.from({length:42},(_,i)=>({id:`photo-${i+1}`,situation:`편집한 상황 ${i+1}`}));
+ const photos=Array.from({length:42},(_,i)=>({id:`photo-${i+1}`,situation:`편집한 상황 ${i+1}`,tags:i===41?['포옹']:['일상']}));
  const f=fixture({standaloneJiwoo:true,messages,photos});
  await tick();f.contextReady();await tick();f.sockets[0].open();
  assert.match(f.modelBody.systemInstruction.parts[0].text,/편집한 상황 42/);
@@ -152,7 +152,7 @@ test('Jiwoo gets conversational context and keeps its scene marker out of spoken
  assert.deepEqual(f.modelBody.contents.map(turn=>turn.parts[0].text),messages.map(turn=>turn.content));
  f.gates.headers.resolve(new Response(f.upstream));
  const response=await f.pending;
- f.frame('[CALL_');f.frame('SCENE:42]');f.frame('\n이리 와.');f.input.close();
+ f.frame('[CALL_');f.frame('SCENE:1]');f.frame('\n이리 와.');f.input.close();
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.deepEqual(events[0],{type:'jiwoo_photo',id:'photo-42'});
  assert.equal(events.find(e=>e.type==='done').text,'이리 와.');
@@ -254,4 +254,35 @@ test('Jiwoo distinguishes text, voice and video while keeping the audio transpor
   f.gates.headers.resolve(new Response(null,{status:500}));
   assert.equal((await f.pending).status,502);
  }
+});
+
+test('Jiwoo call options exclude chat-only photos, and no scene selection keeps the displayed photo', { timeout: 3000 }, async () => {
+ const photos=[
+  {id:'chat',situation:'앨범 전용 계곡',tags:['계곡'],useFor:'chat'},
+  {id:'office',situation:'시청 책상',tags:['회사'],useFor:'call'},
+ ];
+ const f=fixture({standaloneJiwoo:true,wantVoice:false,photos});
+ f.contextReady();await tick();
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/시청 책상/);
+ assert.doesNotMatch(f.modelBody.systemInstruction.parts[0].text,/앨범 전용 계곡/);
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('[CALL_SCENE:0]\n지금 괜찮아.');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(event=>event.type==='done').text,'지금 괜찮아.');
+ assert.ok(!events.some(event=>event.type==='jiwoo_photo'));
+});
+
+test('Jiwoo call start uses Korea time and the start day of a window crossing midnight', () => {
+ const photos=[
+  {id:'bed',useFor:'call',days:'weekdays',startTime:'23:00',endTime:'07:00'},
+  {id:'work',useFor:'both',days:'weekdays',startTime:'09:00',endTime:'18:00'},
+  {id:'chat',useFor:'chat',days:'daily',startTime:'00:00',endTime:'23:59'},
+  {id:'untimed',useFor:'call'},
+ ];
+ const ids=now=>jiwooAlbum.scheduledCallPhotos(photos,new Date(now)).map(photo=>photo.id);
+ assert.deepEqual(ids('2026-11-13T16:00:00Z'),['bed']); // Saturday 01:00 KST, from Friday.
+ assert.deepEqual(ids('2026-11-14T16:00:00Z'),[]); // Sunday 01:00 KST, from Saturday.
+ assert.deepEqual(ids('2026-11-16T00:00:00Z'),['work']);
+ assert.deepEqual(ids('2026-11-16T09:00:00Z'),[]);
 });

@@ -287,7 +287,7 @@ export default function CharacterEditor({ token }: { token: string }) {
           <div className={styles.tabs} role="tablist">
             <button role="tab" aria-selected={tab==="profile"} className={tab==="profile"?styles.tabActive:""} onClick={()=>setTab("profile")}><Sparkles size={16}/> 캐릭터 설정</button>
             {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
-            <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>통화 사진</button>
+            <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>{standaloneJiwoo ? "사진 앨범" : "통화 사진"}</button>
             {standaloneJiwoo && <>
               <button role="tab" aria-selected={tab==="jiwoo"} className={tab==="jiwoo"?styles.tabActive:""} onClick={()=>setTab("jiwoo")}>대화 지침·일정</button>
               <button role="tab" aria-selected={tab==="jiwooMemory"} className={tab==="jiwooMemory"?styles.tabActive:""} onClick={()=>setTab("jiwooMemory")}>요약 기억</button>

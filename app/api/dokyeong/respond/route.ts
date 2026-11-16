@@ -9,7 +9,7 @@ import { isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { JIWOO_BEDTIME_SCENES, jiwooBedtimeCue, jiwooBedtimePhotoId } from "@/lib/dokyeong/jiwoo-bedtime";
+import { matchingAlbumPhotos, photoSupports, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
 import { incomingCallContext, incomingCallWork, isIncomingCallId } from "@/lib/dokyeong/incoming-call";
@@ -414,7 +414,7 @@ export async function POST(request: NextRequest) {
     standaloneJiwoo && !openingCallId ? incomingCallContext() : "",
   ]);
   timings.contextReadyMs = elapsed();
-  const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto) ? callPhoto : null;
+  const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto && (!jiwooCall || photoSupports(photo, "call"))) ? callPhoto : null;
   const linked=!standaloneJiwoo && isProjectCharacter(character);
   const responseTime = new Date();
   const prompt = character.prompt + (linked ? "" : currentTimeContext(responseTime,character.id)) + (activity?.until?`\n[현실 시간에 맞춘 현재 행동] ${activity.reason}; 완료 예정 ${activity.until}. 실제 경과 시간을 고려해 이미 돌아온 것처럼 말하지 마.\n`:"") + (standaloneJiwoo ? "" : timingPrompt) + remembered + (sleepModeUntil > now ? SLEEP_MODE_PROMPT : "") + sampleContext + project + (standaloneJiwoo ? "" : photoRequestPrompt(character.name) + `
@@ -426,7 +426,9 @@ export async function POST(request: NextRequest) {
   let sendAudio: ((event: object) => void) | undefined;
   const speechModel = wantVoice && (!standaloneJiwoo || jiwooCall) ? realtimeSpeechModel(models.speechModel) : null;
   const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || standaloneJiwoo, speechModel) : null;
-  const sceneOptions = callPhotos ?? [];
+  const sceneOptions = jiwooCall
+    ? matchingAlbumPhotos(callPhotos ?? [], messages, "call", { current: currentPhoto, scheduled: scheduledCallPhotos(callPhotos ?? [], responseTime) })
+    : callPhotos ?? [];
   const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
@@ -525,11 +527,9 @@ export async function POST(request: NextRequest) {
         segment();
       };
 
-      let photoSelected = false;
       const sceneReader = callSceneReader(sceneOptions,
         id => {
-          photoSelected = true;
-          if (jiwooCall) send({ type: "jiwoo_photo", id });
+          if (jiwooCall) { if (id && id !== currentPhoto) send({ type: "jiwoo_photo", id }); }
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
         text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
@@ -577,13 +577,6 @@ export async function POST(request: NextRequest) {
         if (!streamOpen || request.signal.aborted) return;
         if (pending.trim() && !limitReached) processGeminiFrame(pending);
         sceneReader.finish();
-        if (jiwooCall && !photoSelected && !lastError) {
-          const slots = jiwooBedtimeCue(messages.at(-1)?.content || "") ?? [];
-          const candidates = slots.map(slot => sceneOptions.find(photo =>
-            photo.id === jiwooBedtimePhotoId(slot) && photo.situation === JIWOO_BEDTIME_SCENES[slot - 1],
-          )?.id).filter((id): id is string => !!id);
-          if (candidates.length) send({ type: "jiwoo_photo_candidates", ids: candidates });
-        }
         if(linked && !lastError) {
           const clean=photoPlan&&!linkedOutput.trim()?"":await projectReply(linkedOutput,wantVoice,activeModel);
           if(!clean.trim()&&!photoPlan)throw Error("Empty character dialogue");

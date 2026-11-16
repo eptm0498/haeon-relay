@@ -8,8 +8,9 @@ import * as characterModes from '../lib/dokyeong/character-modes.ts';
 import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
+import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00'){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[]){
  const calls=[],prompts=[],models=[],warnings=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
  const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[{id:'pending',role:'user',content:latest,ts:1}],memory:''},activity};
@@ -28,6 +29,8 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './gemini-json':{geminiJson:async(prompt,_schema,_signal,_image,options)=>{prompts.push(prompt);models.push(options?.model);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
   './time-context':{currentTimeContext:()=>''},'./samples':{relatedSampleContext:async()=>''},
   './photo-intent':photoIntent,
+  './jiwoo-album':jiwooAlbum,
+  './call-photos':{readCallPhotos:async()=>photos},
   './reply-timing':{timingPrompt:'',timingPlan:()=>({delaySeconds:8,awaySeconds:0,activity:''}),urgentMessage:()=>false},
   './push':{deliverPushJobs:async()=>0},'./image-jobs':{runImageJob:async()=>{}},
  };
@@ -105,4 +108,20 @@ test('Jiwoo replies by text during work and can start a call at the end of the s
  assert.match(working.prompts[0],/지금은 먼저 전화할 수 없어/);
  const after=await prepare(null,null,true,draft,'뭐 해?','2026-11-14T21:00:00+09:00');
  assert.equal(after.calls.at(-1).data.callNow,true);
+});
+
+test('Jiwoo schedules a chat-enabled album photo through the ordinary reply without creating an image job',async()=>{
+ const photos=[
+  {id:'sleep-call',situation:'잠옷 셀카',tags:['침대','기상'],useFor:'call'},
+  {id:'office-chat',situation:'시청 사무실 셀카',tags:['회사'],useFor:'both'},
+  {id:'other-chat',situation:'저녁 러닝',tags:['러닝'],useFor:'chat'},
+ ];
+ const draft={kind:'album',scene:'1',text:'앨범에 있길래 골랐어.'};
+ const outcome=await prepare(null,null,true,draft,'시청 사무실에서 찍은 셀카 보내줘',undefined,photos);
+ assert.match(outcome.prompts[0],/시청 사무실 셀카/);
+ assert.doesNotMatch(outcome.prompts[0],/잠옷 셀카/);
+ assert.equal(outcome.calls.at(-1).data.albumPhotoId,'office-chat');
+ assert.equal(outcome.calls.at(-1).data.photo,null);
+ const noRequest=await prepare(null,null,true,draft,'오늘 시청 갔어?',undefined,photos);
+ assert.equal(noRequest.calls.at(-1).data.albumPhotoId,undefined);
 });

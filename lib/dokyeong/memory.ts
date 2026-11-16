@@ -3,7 +3,7 @@ import {rpc} from './settings';
 import {geminiJson} from './gemini-json';
 import {readLiveCharacter} from './characters';
 import {koreaTime} from './time-context';
-export type StoredMessage={id?:string;role:'user'|'assistant';content:string;ts:number;proactive?:boolean};
+export type StoredMessage={id?:string;role:'user'|'assistant';content:string;ts:number;proactive?:boolean;albumPhotoId?:string};
 type Memory={epoch:string;summary:string;covered_count:number;message_count:number;pending?:StoredMessage[]};
 type Claim=Memory & {lease:string;messages:StoredMessage[]};
 export function serverRpc<T>(name:string,body:object):Promise<T> {
