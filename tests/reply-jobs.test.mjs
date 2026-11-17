@@ -20,6 +20,7 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './jiwoo-preferences':jiwooPreferences,
   './incoming-call-intent':incomingCallIntent,
   './incoming-call':{incomingCallContext:async()=>''},
+  './jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(jiwoo);return '넘겨온 대화 맥락';}},
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
@@ -69,6 +70,7 @@ test('Jiwoo queued text retains saved settings and chat reactions without creati
  assert.match(outcome.prompts[0],/\[문자 채팅\]/);
  assert.match(outcome.prompts[0],/최근 대화의 실제 시각/);
  assert.match(outcome.prompts[0],/문자 전용 예시/);
+ assert.match(outcome.prompts[0],/넘겨온 대화 맥락/);
  assert.match(outcome.prompts[0],/16:00-21:00/);
  assert.doesNotMatch(outcome.prompts[0],/음성 전용 예시/);
  assert.deepEqual(outcome.models,['gemini-3.5-flash-lite']);

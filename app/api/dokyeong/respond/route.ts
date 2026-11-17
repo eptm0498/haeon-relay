@@ -13,6 +13,7 @@ import { matchingAlbumPhotos, photoSupports, scheduledCallPhotos } from "@/lib/d
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
 import { incomingCallContext, incomingCallWork, isIncomingCallId } from "@/lib/dokyeong/incoming-call";
+import { jiwooHandoffContext } from "@/lib/dokyeong/jiwoo-handoff";
 import { readJiwooPreferences } from "@/lib/dokyeong/jiwoo-settings";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
@@ -403,7 +404,7 @@ export async function POST(request: NextRequest) {
     }catch{return Response.json({error:"답장 요청을 저장하지 못했어. 잠시 뒤 다시 보내줘."},{status:503,headers:noStore});}
   }
   const sampleMessages = messages.map((m) => ({ role: m.role, content: m.content || (m.image ? "사진을 보냈어." : "") }));
-  const [activity, sampleContext, remembered, project, callPhotos, models, jiwooPreferences, callContext] = await Promise.all([
+  const [activity, sampleContext, remembered, project, callPhotos, models, jiwooPreferences, callContext, handoffContext] = await Promise.all([
     standaloneJiwoo ? null : serverRpc<{reason?:string;until?:string}|null>("live_reply_work",{action:"activity",target_character:character.id}),
     relatedSampleContext(sampleMessages, character.id, character.name, realtime ? "voice" : "chat"),
     memoryContext(character.id),
@@ -412,6 +413,7 @@ export async function POST(request: NextRequest) {
     liveModelOverrides(request.signal),
     standaloneJiwoo ? readJiwooPreferences(request.signal) : null,
     standaloneJiwoo && !openingCallId ? incomingCallContext() : "",
+    standaloneJiwoo ? jiwooHandoffContext() : "",
   ]);
   timings.contextReadyMs = elapsed();
   const currentPhoto = callPhotos?.some(photo => photo.id === callPhoto && (!jiwooCall || photoSupports(photo, "call"))) ? callPhoto : null;
@@ -438,7 +440,7 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 연결되자마자 네가 먼저 짧게 인사하고 왜 전화했는지 자연스럽게 한마디 해. 통화가 연결됐다는 시스템 문구는 읽지 마.\n" : "";
-  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;

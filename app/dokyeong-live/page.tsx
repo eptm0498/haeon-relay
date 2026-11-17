@@ -171,6 +171,8 @@ export default function DokyeongLive() {
   const [callHistory, setCallHistory] = useState<string[]>([]);
   const [chatPreviews, setChatPreviews] = useState<Record<string, ChatPreview>>({});
   const [messages, setMessages] = useState<Message[]>([]);
+  const [handoffNotice, setHandoffNotice] = useState("");
+  const handoffPending = useRef(false);
   const [photoPreview, setPhotoPreview] = useState<{ image: ChatImage; alt: string; filename: string } | null>(null);
   const photoViewerRef = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState("");
@@ -1152,7 +1154,40 @@ export default function DokyeongLive() {
     // Clear synchronously: a later synthetic click cannot send this turn twice.
     if (draftInputRef.current) draftInputRef.current.value = "";
     setDraft("");
+    if (standaloneJiwoo && value.trim() === "이어가기") {
+      void continueJiwoo();
+      return;
+    }
+    if (standaloneJiwoo && handoffPending.current) {
+      setDraft(value);
+      return;
+    }
+    setHandoffNotice("");
     void reply(value);
+  }
+
+  async function continueJiwoo() {
+    if (handoffPending.current) return;
+    handoffPending.current = true;
+    setHandoffNotice("이어갈 내용을 확인하고 있어.");
+    try {
+      await sharedHistory.synchronize();
+      const response = await fetch(API + "/handoff", { method: "POST", cache: "no-store" });
+      const { status, error } = await response.json();
+      if (!response.ok) throw new Error(error || "이어가기 연결을 확인해 줘.");
+      const notices: Record<string, string> = {
+        received: "한지우 프로젝트의 대화를 이어왔어. 여기서 계속 말하면 돼.",
+        sent: "이어갈 내용을 넘겼어. 한지우 프로젝트에서 ‘이어가기’라고 보내.",
+        ready: "이미 불러왔어. 여기서 계속 말하면 돼.",
+        empty: "아직 이어갈 대화가 없어.",
+        retry: "방금 이어갈 내용이 바뀌었어. ‘이어가기’를 한 번 더 보내 줘.",
+      };
+      setHandoffNotice(notices[status] || "이어가기 상태를 확인하지 못했어.");
+    } catch (cause) {
+      setHandoffNotice(cause instanceof Error ? cause.message : "이어가기를 다시 시도해 줘.");
+    } finally {
+      handoffPending.current = false;
+    }
   }
 
   const activeCharacter = characters.find((item) => item.id === characterId) || characters.find((item) => item.is_default) || characters[0] || null;
@@ -1321,6 +1356,7 @@ export default function DokyeongLive() {
         </section>
       </div>}
 
+      {standaloneJiwoo && handoffNotice && <div className={styles.systemBubble} role="status">{handoffNotice}</div>}
       <div className={styles.chatViewport}>
       <section className={styles.chatArea} ref={chatScroll.scrollRef} onScroll={chatScroll.onScroll} aria-live="polite">
         <div ref={chatScroll.contentRef} className={styles.chatContent}>

@@ -38,6 +38,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/jiwoo-album':jiwooAlbum,
   '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
   '@/lib/dokyeong/incoming-call':{incomingCallContext:async()=>callContext,incomingCallWork:async(action,id)=>{assert.equal(action,'greet');assert.equal(id,openingCallId);return answered?{id}:null;},isIncomingCallId:value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)},
+  '@/lib/dokyeong/jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(standaloneJiwoo);return '넘겨온 통화 맥락';}},
   '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:standaloneJiwoo?characterModes.STANDALONE_JIWOO_ID:'fixture-character',name:standaloneJiwoo?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
