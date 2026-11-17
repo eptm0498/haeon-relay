@@ -8,7 +8,7 @@ import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-se
 import { isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
-import { callScenePrompt, callSceneReader, isCallPhotoId, type CallVideoScene } from "@/lib/dokyeong/call-scenes";
+import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
 import { matchingAlbumPhotos, photoSupports, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
@@ -378,7 +378,6 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "지우 채팅방에서는 사진을 첨부할 수 없어." }, { status: 400, headers: noStore });
   }
   const jiwooCall = standaloneJiwoo && realtime;
-  const selectVideo = jiwooCall && videoCall && !openingCallId;
   if (openingCallId) {
     const accepted = jiwooCall && await incomingCallWork("greet", openingCallId).catch(() => null);
     if (!accepted) return Response.json({ error: "연결된 수신 전화를 확인하지 못했어." }, { status: 409, headers: noStore });
@@ -432,7 +431,7 @@ export async function POST(request: NextRequest) {
   const sceneOptions = jiwooCall
     ? matchingAlbumPhotos(callPhotos ?? [], messages, "call", { current: currentPhoto, scheduled: scheduledCallPhotos(callPhotos ?? [], responseTime) })
     : callPhotos ?? [];
-  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall, selectVideo);
+  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
       ? "\n[현재 대화 모드: 영상 통화] 형은 LIVE에서 지우의 배경 영상을 보며 음성으로 대화하고 있어. 영상은 미리 등록된 반복 영상이고, 형의 카메라나 영상은 네게 전달되지 않아. 형의 모습이나 행동을 실시간으로 본 것처럼 말하지 마. 방금 들은 말과 목소리에 자연스럽게 반응하고, 형이 화면에 대해 먼저 말하면 그 말에 이어서 답해.\n"
@@ -475,7 +474,6 @@ export async function POST(request: NextRequest) {
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
       let linkedOutput = "";
-      let videoScene: CallVideoScene = "default";
       let photoPlan: {scene:string;waitMessage:string}|null=null;
       let sentenceCount = 0, inTerminalRun = false, limitReached = false;
 
@@ -537,7 +535,6 @@ export async function POST(request: NextRequest) {
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
         text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
-        selectVideo ? scene => { videoScene = scene; } : undefined,
       );
       const processGeminiFrame = (frame: string) => {
         const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
@@ -591,7 +588,6 @@ export async function POST(request: NextRequest) {
         if (standaloneJiwoo && !lastError) {
           const clean = jiwooCall ? spokenDialogue(linkedOutput) : dialogueOnly(linkedOutput);
           if (!clean) throw Error("Empty Jiwoo dialogue");
-          if (selectVideo) send({ type: "jiwoo_video", scene: videoScene });
           emitText(clean);
         }
 

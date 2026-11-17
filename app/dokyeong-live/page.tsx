@@ -13,7 +13,7 @@ import IncomingCallScreen from "./IncomingCallScreen";
 import { resolveIncomingCall, useIncomingCall } from "./useIncomingCall";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
 import { isStandaloneJiwoo, STANDALONE_JIWOO_ID } from "@/lib/dokyeong/character-modes";
-import { callPhotoUrl, isCallPhotoId, isCallVideoScene, type CallPhoto, type CallVideoScene } from "@/lib/dokyeong/call-scenes";
+import { callPhotoUrl, isCallPhotoId, type CallPhoto } from "@/lib/dokyeong/call-scenes";
 import { pickJiwooCallPhoto } from "@/lib/dokyeong/jiwoo-bedtime";
 import { useChatScroll } from "./useChatScroll";
 import { useBackSwipe } from "./useBackSwipe";
@@ -216,8 +216,6 @@ export default function DokyeongLive() {
   const [needsTap, setNeedsTap] = useState(false);
   const [videoOn, setVideoOn] = useState(false);
   const videoOnRef = useRef(false);
-  const videoSession = useRef(0);
-  const [videoScene, setVideoScene] = useState<CallVideoScene>("default");
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const [acceptedCall, setAcceptedCall] = useState<{ id: string; context: AudioContext | null } | null>(null);
@@ -420,7 +418,6 @@ export default function DokyeongLive() {
   const endCall = useCallback(() => {
     callAttempt.current++;
     videoOnRef.current = false; setVideoOn(false);
-    setVideoScene("default");
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     setMode("off"); setNeedsTap(false);
@@ -570,9 +567,6 @@ export default function DokyeongLive() {
     let firstAudio = true;
     let pcmNextAt = 0;
     let lastPcmEnd: Promise<void> = Promise.resolve();
-    const requestedVideoSession = realtime && videoOnRef.current ? videoSession.current : null;
-    const currentVideoTurn = () => requestedVideoSession !== null && requestedVideoSession === videoSession.current &&
-      videoOnRef.current && running.current && requestCharacterId === characterIdRef.current && isStandaloneJiwoo(requestCharacterId);
 
     const commitText = (value?: string) => {
       const completed = (value || full).trim();
@@ -643,7 +637,7 @@ export default function DokyeongLive() {
           }),
           voice: realtime && voice,
           realtime,
-          videoCall: currentVideoTurn(),
+          videoCall: realtime && videoOnRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
           openingCallId,
@@ -693,7 +687,6 @@ export default function DokyeongLive() {
           }
           if (event.type === "jiwoo_photo" && standaloneJiwoo && running.current &&
               requestCharacterId === characterIdRef.current && isCallPhotoId(event.id)) changeJiwooPhoto(event.id);
-          if (event.type === "jiwoo_video" && currentVideoTurn() && isCallVideoScene(event.scene)) setVideoScene(event.scene);
           if(event.type==="queued"){setPartial("");return;}
           if(event.type==="photo" && typeof event.scene==="string") {photoPlan={scene:event.scene,waitMessage:event.waitMessage||"잠깐만, 사진 찍어서 보내줄게."};setPartial("");}
           if (event.type === "delta" && typeof event.text === "string") {
@@ -759,7 +752,6 @@ export default function DokyeongLive() {
       }
     } catch (err) {
       if (!controller.signal.aborted && turn === generation.current) {
-        if (currentVideoTurn()) setVideoScene("default");
         if (full.trim()) {
           commitText(full);
         } else {
@@ -988,8 +980,6 @@ export default function DokyeongLive() {
   useEffect(() => {
     const recover = () => {
       if (document.hidden && running.current) {
-        videoSession.current++;
-        setVideoScene("default");
         releaseWakeLock(); interrupt(); closeMic(); setMode("paused"); setNeedsTap(true);
       } else if (!document.hidden && running.current && phaseRef.current !== "paused") {
         void keepAwake();
@@ -1515,13 +1505,8 @@ export default function DokyeongLive() {
       {status?.authenticated && callOpen && <CallStage key={characterId}
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
-        contextualVideoSource={standaloneJiwoo && videoScene === "intimate" ? `${API}/call-video?scene=intimate` : undefined}
-        videoOn={videoOn} onVideoChange={on => {
-          videoSession.current++;
-          videoOnRef.current = on;
-          setVideoOn(on);
-          setVideoScene("default");
-        }}
+        alternateVideoSource={standaloneJiwoo ? `${API}/call-video?scene=intimate` : undefined}
+        videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         responseDelayMs={latency}
         voice={voice}

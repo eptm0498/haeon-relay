@@ -10,7 +10,7 @@ type Props = {
   avatar?: string | null;
   scene?: string | null;
   videoSource?: string;
-  contextualVideoSource?: string;
+  alternateVideoSource?: string;
   videoOn: boolean;
   onVideoChange: (on: boolean) => void;
   status: string;
@@ -24,16 +24,11 @@ type Props = {
   onToggleVoice: () => void;
 };
 
-function ContextualCallVideo({ source }: { source: string }) {
-  const [ready, setReady] = useState(false);
-  return <video className={styles.callStageVideo} data-ready={ready} src={source} autoPlay loop muted playsInline
-    disablePictureInPicture onLoadedData={event => { void event.currentTarget.play().catch(() => {}); }}
-    onPlaying={() => setReady(true)} onError={() => setReady(false)} />;
-}
-
 export default function CallStage(props: Props) {
   const { videoOn, onVideoChange } = props;
-  const [videoError, setVideoError] = useState(false);
+  const [useAlternateVideo, setUseAlternateVideo] = useState(false);
+  const [videoError, setVideoError] = useState<"default" | "alternate" | null>(null);
+  const videoSource = useAlternateVideo ? props.alternateVideoSource : props.videoSource;
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [{ loaded, previous }, setLayers] = useState<{ loaded: string | null; previous: string | null }>({ loaded: null, previous: null });
@@ -49,6 +44,12 @@ export default function CallStage(props: Props) {
     return () => window.clearTimeout(timer);
   }, [loaded, previous]);
   const layers = props.scene ? [...new Set([previous, loaded, props.scene].filter((src): src is string => !!src))] : [];
+
+  function selectVideo(alternate: boolean) {
+    setUseAlternateVideo(alternate);
+    setVideoError(null);
+  }
+
   return <dialog ref={dialog} className={styles.callStage} aria-label={`${props.name} ${videoOn ? "영상" : "음성"} 통화`}
     onCancel={event => { event.preventDefault(); props.onEnd(); }}>
     <div className={styles.callStagePhoto} aria-hidden="true">
@@ -60,11 +61,13 @@ export default function CallStage(props: Props) {
             if (src === props.scene) setLayers(state => state.loaded === src ? state : { loaded: src, previous: state.loaded });
           }} />
       ))}
-      {videoOn && !videoError && props.videoSource && <video
-        className={styles.callStageVideo} src={props.videoSource} autoPlay loop muted playsInline
-        disablePictureInPicture onError={() => setVideoError(true)} />}
-      {videoOn && !props.paused && props.contextualVideoSource && <ContextualCallVideo
-        key={props.contextualVideoSource} source={props.contextualVideoSource} />}
+      {videoOn && videoSource && videoError !== "default" && <video key={videoSource}
+        className={styles.callStageVideo} src={videoSource} autoPlay loop muted playsInline disablePictureInPicture
+        onLoadedData={event => { void event.currentTarget.play().catch(() => {}); }}
+        onError={() => {
+          setVideoError(useAlternateVideo ? "alternate" : "default");
+          setUseAlternateVideo(false);
+        }} />}
     </div>
     <div className={styles.callStageContent}>
       <header className={styles.callStageHeader}>
@@ -73,15 +76,21 @@ export default function CallStage(props: Props) {
         {props.responseDelayMs !== null && !props.paused && <span>응답 음성 {(props.responseDelayMs / 1000).toFixed(1)}초</span>}
       </header>
       <div className={styles.callStageBottom}>
-        {videoOn && videoError && <p className={styles.callStageNotice} role="status">배경 영상을 불러오지 못했어. 통화는 계속돼.</p>}
+        {videoOn && videoError && <p className={styles.callStageNotice} role="status">
+          {videoError === "alternate" ? "첨부 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : "배경 영상을 불러오지 못했어. 통화는 계속돼."}
+        </p>}
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
         {props.paused && <p className={styles.callStageNotice}>이어서 통화하려면 마이크 버튼을 눌러 줘.</p>}
+        {videoOn && props.alternateVideoSource && <div className={styles.callVideoSwitch} role="group" aria-label="재생 영상 선택">
+          <button type="button" aria-pressed={!useAlternateVideo} onClick={() => selectVideo(false)}>기본 영상</button>
+          <button type="button" aria-pressed={useAlternateVideo} onClick={() => selectVideo(true)}>첨부 영상</button>
+        </div>}
         <div className={styles.callStageActions}>
           <button type="button" className={styles.callStageControl} onClick={props.onToggleVoice} aria-pressed={props.voice} aria-label="상대 음성">
             <span>{props.voice ? <Volume2 /> : <VolumeX />}</span><small>음성</small>
           </button>
           {props.videoSource && <button type="button" className={styles.callStageControl}
-            onClick={() => { setVideoError(false); onVideoChange(!videoOn); }}
+            onClick={() => { selectVideo(false); onVideoChange(!videoOn); }}
             aria-label={videoOn ? "음성 통화로 전환" : "영상 통화로 전환"}>
             <span>{videoOn ? <VideoOff /> : <Video />}</span><small>{videoOn ? "영상 끄기" : "영상"}</small>
           </button>}

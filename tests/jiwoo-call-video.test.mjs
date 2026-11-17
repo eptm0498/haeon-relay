@@ -3,32 +3,63 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { NextRequest } from "next/server.js";
+import * as jsxRuntime from "react/jsx-runtime";
 import ts from "typescript";
-import { callScenePrompt, callSceneReader, isCallVideoScene } from "../lib/dokyeong/call-scenes.ts";
+import { isCallVideoScene } from "../lib/dokyeong/call-scenes.ts";
 
-test("video selection and photo selection can share a streamed header without reaching the dialogue", () => {
-  const photos = [{ id: "album-id", situation: "쉬는 중" }];
-  const selections = [];
-  let dialogue = "";
-  const reader = callSceneReader(photos, id => selections.push(id), text => { dialogue += text; }, video => selections.push(video));
-  for (const chunk of [" ", "[CALL_", "SCENE:1;VIDEO:", "intimate]", "\n여기 있어."]) reader.push(chunk);
-  reader.finish();
-  assert.deepEqual(selections, ["album-id", "intimate"]);
-  assert.equal(dialogue.trim(), "여기 있어.");
-});
+test("the call controls switch clips on demand, preserve the choice across replies, and recover from a failed clip", () => {
+  const source = readFileSync(new URL("../app/dokyeong-live/CallStage.tsx", import.meta.url), "utf8");
+  const exports = {};
+  const state = [];
+  let cursor = 0;
+  const mocks = {
+    "react/jsx-runtime": jsxRuntime,
+    react: {
+      useState: initial => {
+        const index = cursor++;
+        if (!(index in state)) state[index] = initial;
+        return [state[index], value => { state[index] = value; }];
+      },
+      useRef: () => ({ current: null }), useEffect: () => {},
+    },
+    "lucide-react": {}, "./CharacterAvatar": { default: () => null }, "./live.module.css": { default: {} },
+  };
+  vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText, { exports, require: name => mocks[name] });
 
-test("video selection works without photos and a legacy or invalid marker never selects the alternate clip", () => {
-  assert.match(callScenePrompt([], null, true, true), /\[CALL_SCENE:번호;VIDEO:intimate\]/);
-  assert.doesNotMatch(callScenePrompt([{ id: "photo", situation: "일상" }], null, true), /VIDEO:/);
-  for (const [header, expected] of [["0;VIDEO:default", ["default"]], ["0", []], ["0;VIDEO:unknown", []], ["0;VIDEO:intimate;VIDEO:default", []]]) {
-    const selections = [];
-    let dialogue = "";
-    const reader = callSceneReader([], () => {}, text => { dialogue += text; }, video => selections.push(video));
-    reader.push(`[CALL_SCENE:${header}]\n오늘 뭐 했어?`);
-    reader.finish();
-    assert.deepEqual(selections, expected);
-    assert.equal(dialogue, "오늘 뭐 했어?");
+  let videoOn = true;
+  function* elements(node) {
+    if (!node?.props) return;
+    yield node;
+    for (const child of [node.props.children].flat(Infinity)) yield* elements(child);
   }
+  const render = status => {
+    cursor = 0;
+    return [...elements(exports.default({ name: "지우", videoSource: "/base", alternateVideoSource: "/attached", status,
+      videoOn, onVideoChange: on => { videoOn = on; } }))];
+  };
+  const button = (nodes, label) => nodes.find(node => node.type === "button" &&
+    (node.props.children === label || node.props["aria-label"] === label)).props;
+  const video = nodes => nodes.find(node => node.type === "video")?.props;
+
+  assert.equal(video(render()).src, "/base");
+  button(render(), "첨부 영상").onClick();
+  const duringReply = render("말하는 중");
+  assert.equal(button(duringReply, "첨부 영상")["aria-pressed"], true);
+  assert.equal(video(duringReply).src, "/attached");
+  assert.equal(video(duringReply).muted, true);
+  button(render(), "기본 영상").onClick();
+  assert.equal(video(render()).src, "/base");
+  button(render(), "첨부 영상").onClick();
+  video(render()).onError();
+  assert.equal(video(render()).src, "/base");
+  button(render(), "첨부 영상").onClick();
+  button(render(), "음성 통화로 전환").onClick();
+  assert.equal(video(render()), undefined);
+  assert.equal(render().some(node => node.props.role === "group"), false);
+  button(render(), "영상 통화로 전환").onClick();
+  assert.equal(video(render()).src, "/base");
 });
 
 test("both clips require a session and support independent byte ranges and retries", async () => {
