@@ -10,6 +10,7 @@ type Props = {
   avatar?: string | null;
   scene?: string | null;
   videoSource?: string;
+  contextualVideoSource?: string;
   videoOn: boolean;
   onVideoChange: (on: boolean) => void;
   status: string;
@@ -22,6 +23,13 @@ type Props = {
   onResume: () => void;
   onToggleVoice: () => void;
 };
+
+function ContextualCallVideo({ source }: { source: string }) {
+  const [ready, setReady] = useState(false);
+  return <video className={styles.callStageVideo} data-ready={ready} src={source} autoPlay loop muted playsInline
+    disablePictureInPicture onLoadedData={event => { void event.currentTarget.play().catch(() => {}); }}
+    onPlaying={() => setReady(true)} onError={() => setReady(false)} />;
+}
 
 export default function CallStage(props: Props) {
   const { videoOn, onVideoChange } = props;
@@ -55,6 +63,8 @@ export default function CallStage(props: Props) {
       {videoOn && !videoError && props.videoSource && <video
         className={styles.callStageVideo} src={props.videoSource} autoPlay loop muted playsInline
         disablePictureInPicture onError={() => setVideoError(true)} />}
+      {videoOn && !props.paused && props.contextualVideoSource && <ContextualCallVideo
+        key={props.contextualVideoSource} source={props.contextualVideoSource} />}
     </div>
     <div className={styles.callStageContent}>
       <header className={styles.callStageHeader}>

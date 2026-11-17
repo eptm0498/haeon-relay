@@ -202,6 +202,7 @@
 .callStagePhoto,.callStagePhoto>img,.callStageVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 43%}
 .callStagePhoto>img[data-visible]{opacity:0;transition:opacity .25s ease-out}
 .callStagePhoto>img[data-visible="true"]{opacity:1}
+.callStageVideo[data-ready="false"]{opacity:0}
 .callStageContent{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;align-items:center;gap:12px;overflow:auto;padding:max(25px,calc(env(safe-area-inset-top) + 16px)) max(16px,env(safe-area-inset-right)) max(22px,calc(env(safe-area-inset-bottom) + 12px)) max(16px,env(safe-area-inset-left));background:linear-gradient(180deg,#000a 0%,transparent 27%,transparent 51%,#000c 100%)}
 .callStageHeader{text-align:center;text-shadow:0 1px 8px #000}
 .callStageHeader h1{font-size:clamp(23px,4vw,36px);margin:0 0 3px;line-height:1.2}
