@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { noStore, validAccessCode } from "@/lib/dokyeong/auth";
+import type { NextRequest } from "next/server";
+import { authenticated, noStore, validAccessCode } from "@/lib/dokyeong/auth";
 import {
   accessSeconds, clientId, digest, handoffForm, issuer, newHandoffAccessToken, oauthPath, oauthResponse,
   opaqueToken, redirectUri, resource, scope,
 } from "@/lib/dokyeong/handoff-auth";
 import { handoffRpc } from "@/lib/dokyeong/jiwoo-handoff";
+import { redeemPairingCode } from "@/lib/dokyeong/handoff-pairing";
 
 type Params = { params: Promise<{ operation: string }> };
 
@@ -22,18 +24,29 @@ function escape(value: string) {
   return value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 }
 
-function authorizePage(state: string, challenge: string, invalid = false) {
+function authorizePage(state: string, challenge: string, error = "") {
   const fields = {
     state, code_challenge: challenge, client_id: clientId, redirect_uri: redirectUri,
     resource, response_type: "code", scope, code_challenge_method: "S256",
   };
   const inputs = Object.entries(fields).map(([name,value]) => `<input type="hidden" name="${name}" value="${escape(value)}">`).join("");
-  return new Response(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>지우 이어가기 연결</title><style>body{font:17px system-ui,sans-serif;background:#171717;color:#fff;margin:0;padding:24px}main{max-width:440px;margin:12vh auto}label{display:grid;gap:8px}input,button{font:inherit;padding:12px;border-radius:8px}button{margin-top:16px;background:#fee500;color:#181818;border:0;cursor:pointer}p{line-height:1.6}</style><main><h1>지우 이어가기 연결</h1><p>ChatGPT와 캐릭터라이브가 지우의 이어가기 메모를 저장하고 불러올 수 있게 연결해.</p><form method="post" action="${oauthPath}/authorize">${inputs}<label>캐릭터라이브 접속 코드<input name="access_code" type="password" autocomplete="current-password" maxlength="200" required></label>${invalid ? '<p role="alert">접속 코드가 맞지 않아.</p>' : ''}<button type="submit">연결 허용</button></form></main></html>`, {
-    status: invalid ? 401 : 200,
+  const form = (method: string) => `<form method="post" action="${oauthPath}/authorize">${inputs}<input type="hidden" name="method" value="${method}">`;
+  return new Response(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>지우 이어가기 연결</title>
+<style>body{font:17px system-ui,sans-serif;background:#171717;color:#fff;margin:0;padding:24px}main{max-width:440px;margin:6vh auto}label{display:grid;gap:8px}input,button{font:inherit;padding:12px;border-radius:8px}button{background:#fee500;color:#181818;border:0;cursor:pointer}label+button{margin-top:12px}p{line-height:1.6}section,details{margin-top:22px;border-top:1px solid #555;padding-top:18px}summary{cursor:pointer}details form{margin-top:12px}[role=alert]{color:#ffb1a9}</style>
+<main><h1>지우 이어가기 연결</h1><p>ChatGPT와 캐릭터라이브가 지우의 이어가기 메모를 저장하고 불러올 수 있게 연결해.</p>
+${error ? `<p role="alert">${escape(error)}</p>` : ""}
+${form("session")}<button type="submit">로그인된 캐릭터라이브로 연결</button></form>
+<section><p>다른 기기나 홈 화면 앱에서 로그인했다면, 지우 채팅의 대화 설정에서 ChatGPT 연결 코드를 만들어 줘.</p>
+${form("pairing")}<label>일회용 연결 코드<input name="pairing_code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" required></label><button type="submit">연결 코드로 허용</button></form></section>
+<details${error === accessError ? " open" : ""}><summary>기존 캐릭터라이브 접속 코드로 연결</summary>
+${form("access")}<label>캐릭터라이브 접속 코드<input name="access_code" type="password" autocomplete="current-password" maxlength="200" required></label><button type="submit">접속 코드로 허용</button></form></details></main></html>`, {
+    status: error ? 401 : 200,
     headers: { ...noStore, "Content-Type": "text/html; charset=utf-8", "Referrer-Policy": "no-referrer",
       "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'" },
   });
 }
+
+const accessError = "캐릭터라이브 접속 코드가 맞지 않아. 앱에 로그인돼 있다면 일회용 연결 코드를 사용할 수 있어.";
 
 export async function GET(request: Request, { params }: Params) {
   if ((await params).operation !== "authorize") return oauthResponse({ error: "invalid_request" }, 400);
@@ -41,7 +54,7 @@ export async function GET(request: Request, { params }: Params) {
   return fields ? authorizePage(fields.state, fields.challenge) : oauthResponse({ error: "invalid_request" }, 400);
 }
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: NextRequest, { params }: Params) {
   const operation = (await params).operation;
   const form = await handoffForm(request);
   if (!form) return oauthResponse({ error: "invalid_request" }, 400);
@@ -50,10 +63,23 @@ export async function POST(request: Request, { params }: Params) {
       if (request.headers.get("origin") !== issuer) return oauthResponse({ error: "invalid_request" }, 403);
       const fields = requestFields(form);
       if (!fields) return oauthResponse({ error: "invalid_request" }, 400);
-      if (!validAccessCode(form.get("access_code") ?? "")) return authorizePage(fields.state, fields.challenge, true);
+      const method = form.get("method") ?? "access";
+      if (method === "session" && !authenticated(request)) {
+        return authorizePage(fields.state, fields.challenge, "이 브라우저에 로그인된 캐릭터라이브 세션이 없어. 앱에서 일회용 연결 코드를 만들어 줘.");
+      }
+      if (method === "access" && !validAccessCode((form.get("access_code") ?? "").trim())) {
+        return authorizePage(fields.state, fields.challenge, accessError);
+      }
       const code = opaqueToken();
-      const saved = await handoffRpc<boolean>("issue_code", { digest: digest(code), challenge: fields.challenge });
-      if (!saved) return oauthResponse({ error: "server_error" }, 503);
+      if (method === "pairing") {
+        if (!await redeemPairingCode(form.get("pairing_code") ?? "", code, fields.challenge)) {
+          return authorizePage(fields.state, fields.challenge, "일회용 연결 코드가 맞지 않거나 만료됐어. 앱에서 새 코드를 만들어 줘.");
+        }
+      } else if (method === "access" || method === "session") {
+        if (!await handoffRpc<boolean>("issue_code", { digest: digest(code), challenge: fields.challenge })) {
+          return oauthResponse({ error: "server_error" }, 503);
+        }
+      } else return oauthResponse({ error: "invalid_request" }, 400);
       const callback = new URL(redirectUri);
       callback.search = new URLSearchParams({ code, state: fields.state, iss: issuer }).toString();
       return new Response(null, { status: 303, headers: { ...noStore, Location: callback.href, "Referrer-Policy": "no-referrer" } });

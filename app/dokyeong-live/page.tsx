@@ -81,6 +81,38 @@ function loadJiwooPhotoCounts(): Record<string, number> {
 const API = "/api/dokyeong";
 const labels: Record<Phase, string> = { off: "대기 중", listening: "듣고 있어", thinking: "답장 쓰는 중", speaking: "말하는 중", paused: "잠시 멈춤" };
 
+function ChatGPTPairing() {
+  const [pending, setPending] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+
+  async function generateCode() {
+    setPending(true);
+    setError("");
+    setCode("");
+    try {
+      const response = await fetch(API + "/handoff/pairing", { method: "POST", cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok || typeof result.code !== "string") throw new Error(result.error);
+      setCode(result.code);
+    } catch {
+      setError("연결 코드를 만들지 못했어. 로그인 상태를 확인하고 다시 시도해 줘.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return <>
+    <button type="button" className={styles.newChatButton} disabled={pending} onClick={() => void generateCode()}>
+      {pending ? "연결 코드 만드는 중…" : "ChatGPT 연결 코드 만들기"}
+    </button>
+    {code && <p role="status" className={styles.notificationHint}>
+      <strong><code>{code}</code></strong><br />ChatGPT 연결 화면에 입력해 줘. 5분 동안 한 번 쓸 수 있어.
+    </p>}
+    {error && <p role="alert" className={styles.notificationHint}>{error}</p>}
+  </>;
+}
+
 function formatMessageTime(ts?: number) {
   if (!ts) return "";
   const date = new Date(ts);
@@ -1345,6 +1377,7 @@ export default function DokyeongLive() {
         {companion.error&&<p role="alert" className={styles.notificationHint}>{companion.error}</p>}
         </>}
         {standaloneJiwoo && <>
+          <ChatGPTPairing />
           <button type="button" className={styles.newChatButton} disabled={companion.registering}
             onClick={() => void (companion.state.subscribed ? companion.stopNotifications() : companion.notifications())}>
             {companion.registering ? "알림 등록 중…" : companion.state.subscribed ? "이 기기 앱 알림 끄기" : "앱을 닫아도 선톡·통화 알림 받기"}
