@@ -9,7 +9,7 @@ import { formatJiwooUserMessage, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROM
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { matchingAlbumPhotos, photoSupports, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
+import { homeAlbumPhotos, matchingAlbumPhotos, photoSupports, pickAlbumPhoto, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
 import { incomingCallContext, incomingCallWork, isIncomingCallId } from "@/lib/dokyeong/incoming-call";
@@ -433,7 +433,10 @@ export async function POST(request: NextRequest) {
   const sceneOptions = jiwooCall
     ? matchingAlbumPhotos(callPhotos ?? [], messages, "call", { current: currentPhoto, scheduled: scheduledCallPhotos(callPhotos ?? [], responseTime) })
     : callPhotos ?? [];
-  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall);
+  const homePhoto = jiwooCall
+    ? pickAlbumPhoto(homeAlbumPhotos(callPhotos ?? [], "call"), currentPhoto ? [currentPhoto] : [])
+    : undefined;
+  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall, homePhoto);
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
       ? "\n[현재 대화 모드: 영상 통화] 형은 LIVE에서 지우의 배경 영상을 보며 음성으로 대화하고 있어. 영상은 미리 등록된 반복 영상이고, 형의 카메라나 영상은 네게 전달되지 않아. 형의 모습이나 행동을 실시간으로 본 것처럼 말하지 마. 방금 들은 말과 목소리에 자연스럽게 반응하고, 형이 화면에 대해 먼저 말하면 그 말에 이어서 답해.\n"
@@ -547,6 +550,7 @@ export async function POST(request: NextRequest) {
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
         text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
+        homePhoto,
       );
       const processGeminiFrame = (frame: string) => {
         const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
