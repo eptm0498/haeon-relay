@@ -219,18 +219,32 @@ test('Jiwoo direct text chat uses its text model and keeps chat reactions withou
  assert.ok(!events.some(e=>e.type==='jiwoo_scene'||e.type==='audio'||e.type==='photo'));
 });
 
-test('only an answered Jiwoo call can trigger the opening greeting', { timeout: 3000 }, async () => {
+test('only an answered Jiwoo call starts with one 여보세요 before the contextual dialogue', { timeout: 3000 }, async () => {
  const openingCallId = 'aabbccdd-1234-4321-aaaa-abcdef123456';
  const unanswered = fixture({standaloneJiwoo:true,openingCallId,messages:[]});
  assert.equal((await unanswered.pending).status,409);
  assert.equal(unanswered.fetchCalled,false);
  assert.equal(unanswered.sockets.length,0);
  const answered = fixture({standaloneJiwoo:true,openingCallId,answered:true,messages:[]});
- await tick();answered.contextReady();await tick();
- assert.match(answered.modelBody.systemInstruction.parts[0].text,/네가 먼저 짧게 인사/);
+ await tick();answered.contextReady();await tick();answered.sockets[0].open();
+ assert.match(answered.modelBody.systemInstruction.parts[0].text,/여보세요\?/);
  assert.equal(answered.modelBody.contents[0].parts[0].text,'[수신 통화가 연결됨]');
- answered.gates.headers.resolve(new Response(null,{status:500}));
- assert.equal((await answered.pending).status,502);
+ answered.gates.headers.resolve(new Response(answered.upstream));
+ const response = await answered.pending;
+ assert.equal(response.status,200);
+ const reader = response.body.getReader();
+ const readEvent = async () => {
+  const { value, done } = await reader.read();
+  return done ? null : JSON.parse(new TextDecoder().decode(value));
+ };
+ assert.deepEqual(await readEvent(), { type:'delta', text:'여보세요?' });
+ assert.equal((await readEvent()).type,'audio');
+ answered.frame('여보세요? 형, 목소리 듣고 싶어서 전화했어.');answered.input.close();
+ const events = [];
+ for (let event; (event = await readEvent());) events.push(event);
+ assert.equal(events.at(-1).text,'여보세요? 형, 목소리 듣고 싶어서 전화했어.');
+ const spoken = answered.sockets[0].sent.flatMap(frame => frame.inputs ?? []).map(input => input.text).join(' ');
+ assert.equal(spoken,'여보세요? 형, 목소리 듣고 싶어서 전화했어.');
 });
 
 test('Jiwoo sends the hangup signal after the farewell audio and keeps the marker out of the conversation', { timeout: 3000 }, async () => {

@@ -905,12 +905,17 @@ export default function DokyeongLive() {
         try { localStorage.setItem(callHistoryKey, JSON.stringify(next)); } catch {}
       }
       if (!callPhotoRef.current) void showScheduledJiwooPhoto();
+      // Give the caller the first turn before microphone input can interrupt playback.
+      let greetingPending = Boolean(openingCallId);
+      if (openingCallId) {
+        void reply("", undefined, openingCallId).finally(() => { greetingPending = false; });
+      }
 
       if (worklet) {
         micWorkletRef.current = worklet;
         const capture = new SpeechTurnBuffer(context.sampleRate);
         worklet.port.onmessage = ({data}: MessageEvent<Float32Array>) => {
-          if (!running.current || attempt !== callAttempt.current || idle()) return;
+          if (!running.current || attempt !== callAttempt.current || greetingPending || idle()) return;
           const event = capture.push(data, phaseRef.current === "speaking");
           recordingRef.current = capture.recording;
           if (event.started) onSpeechStart();
@@ -921,7 +926,6 @@ export default function DokyeongLive() {
         };
         // The processor emits silence; the destination keeps the capture graph running.
         micInput.connect(worklet).connect(context.destination);
-        if (openingCallId) void reply("", undefined, openingCallId);
         return true;
       }
 
@@ -965,6 +969,7 @@ export default function DokyeongLive() {
       const loop = (time: number) => {
         if (!running.current || attempt !== callAttempt.current || idle()) return;
         timerRef.current = requestAnimationFrame(loop);
+        if (greetingPending) return;
         if (time - lastFrame < 40) return; lastFrame = time;
         analyser.getFloatTimeDomainData(data);
         const rms = speechRms(data);
@@ -984,7 +989,6 @@ export default function DokyeongLive() {
         }
       };
       timerRef.current = requestAnimationFrame(loop);
-      if (openingCallId) void reply("", undefined, openingCallId);
       return true;
     } catch {
       if (attempt === callAttempt.current) { endCall(); setError("마이크 권한을 확인하고 다시 눌러줘."); }

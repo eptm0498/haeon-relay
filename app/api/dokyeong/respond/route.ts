@@ -439,7 +439,7 @@ export async function POST(request: NextRequest) {
     : "\n[현재 대화 모드: 문자 채팅] 형과 글로 대화 중이야.\n";
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
-  const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 연결되자마자 네가 먼저 짧게 인사하고 왜 전화했는지 자연스럽게 한마디 해. 통화가 연결됐다는 시스템 문구는 읽지 마.\n" : "";
+  const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
   const hangupPrompt = canEndCall ? `
 [통화 마무리]
@@ -565,6 +565,7 @@ export async function POST(request: NextRequest) {
       };
 
       try {
+        if (openingCallId) emitText("여보세요?");
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -595,8 +596,13 @@ export async function POST(request: NextRequest) {
           endCall = canEndCall && /(?:^|\n)[ \t]*\[CALL_END\]\s*$/.test(linkedOutput);
           const dialogueText = linkedOutput.replace(/\[CALL_END\]/g, "");
           const clean = jiwooCall ? spokenDialogue(dialogueText) : dialogueOnly(dialogueText);
-          if (!clean) throw Error("Empty Jiwoo dialogue");
-          emitText(clean);
+          if (openingCallId) {
+            const continuation = clean.replace(/^여보세요(?=$|[\s,.!?…。？！~～])[\s,.!?…。？！~～]*/u, "");
+            if (continuation) emitText(` ${continuation}`);
+          } else {
+            if (!clean) throw Error("Empty Jiwoo dialogue");
+            emitText(clean);
+          }
         }
 
         if(!standaloneJiwoo && !photoPlan && !lastError && photoFallbackAllowed(messages.at(-1)?.content||"",full,photoIntentContext(messages))) {
