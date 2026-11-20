@@ -5,7 +5,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { formatJiwooUserMessage, isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { formatJiwooUserMessage, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -326,6 +326,7 @@ export async function POST(request: NextRequest) {
   let messages: Message[];
   let wantVoice = true;
   let realtime=false;
+  let speechTranscript = false;
   let videoCall = false;
   let callPhoto: string | null | undefined;
   let requestId:string|undefined;
@@ -340,6 +341,7 @@ export async function POST(request: NextRequest) {
     messages = parsed.messages;
     wantVoice = parsed.voice !== false;
     realtime=parsed.realtime===true;
+    speechTranscript = parsed.speechTranscript === true;
     videoCall = realtime && parsed.videoCall === true;
     if (parsed.openingCallId !== undefined) {
       if (!realtime || !isIncomingCallId(parsed.openingCallId)) throw Error();
@@ -439,6 +441,7 @@ export async function POST(request: NextRequest) {
     : "\n[현재 대화 모드: 문자 채팅] 형과 글로 대화 중이야.\n";
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
+  const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? JIWOO_SPEECH_TRANSCRIPT_PROMPT : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
   const hangupPrompt = canEndCall ? `
@@ -448,7 +451,7 @@ export async function POST(request: NextRequest) {
   const modelMessages = standaloneJiwoo ? messages.map(message =>
     message.role === "user" ? { ...message, content: formatJiwooUserMessage(message.content) } : message
   ) : messages;
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + transcriptPrompt + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
