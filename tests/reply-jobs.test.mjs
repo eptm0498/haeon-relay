@@ -151,11 +151,30 @@ test('Jiwoo schedules a chat-enabled album photo through the ordinary reply with
 });
 
 test('random album selection is bounded to valid, distinct scene choices and prefers unseen photos',()=>{
- const photos=[{id:'office-a'},{id:'office-b'},{id:'irrelevant'}];
+ const photos={scenes:[{id:'office-a'},{id:'office-b'},{id:'irrelevant'}],home:[]};
  assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2, 2, 9',[],()=>0),'office-a');
  assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2, 2, 9',[],()=>0.8),'office-b');
  assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'1, 2',['office-a'],()=>0),'office-b');
  assert.equal(jiwooAlbum.chooseAlbumPhoto(photos,'99',[],()=>0),undefined);
+});
+
+test('Jiwoo can share any of the ten home photos and prefers photos absent from recent chat',async()=>{
+ const home=Array.from({length:10},(_,index)=>({
+  id:`home-${index+1}`,situation:'집에서 찍은 셀카',tags:[jiwooAlbum.JIWOO_HOME_ALBUM_TAG],useFor:'both',
+ }));
+ const photos=[{id:'office',situation:'시청',tags:['회사'],useFor:'both'},...home];
+ const candidates={scenes:[],home:jiwooAlbum.homeAlbumPhotos(photos,'chat')};
+ for(let index=0;index<10;index++){
+  assert.equal(jiwooAlbum.chooseAlbumPhoto(candidates,'home',[],()=>(index+0.5)/10),home[index].id);
+ }
+ assert.equal(jiwooAlbum.chooseAlbumPhoto(candidates,'home',home.slice(0,9).map(photo=>photo.id),()=>0),home[9].id);
+ const draft={kind:'album',scene:'home',text:'형, 집에서 이러고 지내.'};
+ const preceding=[{role:'assistant',content:'나 지금 집에서 쉬는데.',ts:Date.parse('2026-11-14T01:59:00+09:00')}];
+ const outcome=await prepare(null,null,true,draft,'사진 한 장 보내줘',undefined,photos,preceding);
+ assert.match(outcome.prompts[0],/지우가 지금 자기 집에 있는 게 분명하고/);
+ assert.ok(home.some(photo=>photo.id===outcome.calls.at(-1).data.albumPhotoId));
+ const declined=await prepare(null,null,true,draft,'사진은 보내지 마',undefined,photos,preceding);
+ assert.equal(declined.calls.at(-1).data.albumPhotoId,undefined);
 });
 
 test('organic album matching recognizes conversational tags and requires a concrete subject',()=>{

@@ -1,6 +1,6 @@
 import { formatJiwooUserMessage, JIWOO_STYLE_PROMPT, STANDALONE_JIWOO_ID } from "./character-modes";
 import { readCallPhotos } from "./call-photos";
-import { albumReplyPrompt, chooseAlbumPhoto, matchingAlbumPhotos, recentAlbumContext } from "./jiwoo-album";
+import { albumReplyPrompt, chooseAlbumPhoto, homeAlbumPhotos, matchingAlbumPhotos, recentAlbumContext } from "./jiwoo-album";
 import { declinesPhoto, photoReplyDeclines } from "./photo-intent";
 import { geminiJson } from "./gemini-json";
 import { promisesIncomingCall } from "./incoming-call-intent";
@@ -80,14 +80,17 @@ export async function runJiwooProactive() {
       liveModelOverrides(),
       canSendAlbum ? readCallPhotos(STANDALONE_JIWOO_ID).catch(() => []) : [],
     ]);
-    const album = matchingAlbumPhotos(photos, recentMessages, "chat", { recentlySent: recentPhotos, contextualOnly: true });
+    const album = {
+      scenes: matchingAlbumPhotos(photos, recentMessages, "chat", { recentlySent: recentPhotos, contextualOnly: true }),
+      home: homeAlbumPhotos(photos, "chat"),
+    };
     const choice = await geminiJson<{ action: ContactAction; text: string; albumScenes?: string }>(
       contactPrompt(claim) + albumReplyPrompt(album, recentPhotos, false, true), {
       type: "OBJECT",
       properties: {
         action: { type: "STRING", enum: ["none", ...(claim.canCall ? ["call"] : []), ...(claim.canText ? ["text"] : [])] },
         text: { type: "STRING" },
-        ...(album.length ? { albumScenes: { type: "STRING" } } : {}),
+        ...(album.scenes.length || album.home.length ? { albumScenes: { type: "STRING" } } : {}),
       },
       required: ["action", "text"],
     }, AbortSignal.timeout(45_000), undefined, { model });

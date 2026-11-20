@@ -160,6 +160,26 @@ test('Jiwoo gets conversational context and keeps its scene marker out of spoken
  assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
 });
 
+test('a generic home call scene selects from the home album without reading the marker aloud',{timeout:3000},async()=>{
+ const id='aabbccdd-1234-4321-aaaa-abcdef123456';
+ const photos=[
+  {id,situation:'잠옷을 입고 소파에 앉아 있는 사진',tags:[jiwooAlbum.JIWOO_HOME_ALBUM_TAG],useFor:'both'},
+  {id:'chat-only',situation:'침대 옆 사진',tags:[jiwooAlbum.JIWOO_HOME_ALBUM_TAG],useFor:'chat'},
+  {id:'office',situation:'사무실 사진',tags:['회사'],useFor:'both'},
+ ];
+ const messages=[{role:'assistant',content:'나 집에 있어.'},{role:'user',content:'그래? 편히 쉬고 있어.'}];
+ const f=fixture({standaloneJiwoo:true,photos,messages});
+ await tick();f.contextReady();await tick();f.sockets[0].open();
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/\[CALL_SCENE:HOME\]/);
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('[CALL_SCENE:');f.frame('HOME]');f.frame('\n응, 형도 이제 좀 쉬어.');f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(events[0],{type:'jiwoo_photo',id});
+ assert.equal(events.find(e=>e.type==='done').text,'응, 형도 이제 좀 쉬어.');
+ assert.ok(!f.sockets[0].sent.some(m=>m.inputs?.some(i=>i.text.includes('CALL_SCENE'))));
+});
+
 
 test('text, muted calls and spoken calls use their saved Gemini and ElevenLabs selections',{timeout:3000},async()=>{
  const models={textModel:'gemini-3.7-flash',voiceModel:'gemini-3.5-flash-lite',speechModel:'eleven_v4_turbo'};
