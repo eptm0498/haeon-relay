@@ -641,6 +641,7 @@ export default function DokyeongLive() {
           }),
           voice: realtime && voice,
           realtime,
+          speechTranscript: speechEndedAt !== undefined,
           videoCall: realtime && videoOnRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,

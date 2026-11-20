@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,requestId,openingCallId,videoCall=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -62,7 +62,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,requestId,openingCallId,videoCall,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -246,6 +246,28 @@ test('plain text, unmatched markup, bullets and multiplication are kept as dialo
  }
 });
 
+test('Jiwoo interprets recognition errors only for transcribed call turns',{timeout:3000},async()=>{
+ const messages=[
+  {role:'assistant',content:'오늘 뭐 했어?'},
+  {role:'user',content:'치우야, 책상 좀 치우고 왔어. 시우가 내일 온대.'},
+ ];
+ for(const {options,expectsGuidance} of [
+  {options:{speechTranscript:true},expectsGuidance:true},
+  {options:{speechTranscript:true,videoCall:true,wantVoice:false},expectsGuidance:true},
+  {options:{speechTranscript:false,videoCall:true},expectsGuidance:false},
+  {options:{speechTranscript:true,realtime:false},expectsGuidance:false},
+  {options:{speechTranscript:true,standaloneJiwoo:false},expectsGuidance:false},
+ ]){
+  const f=fixture({standaloneJiwoo:true,realtime:true,messages,...options});
+  f.contextReady();await tick();
+  const systemPrompt=f.modelBody.systemInstruction.parts[0].text;
+  assert.equal(systemPrompt.includes(characterModes.JIWOO_SPEECH_TRANSCRIPT_PROMPT),expectsGuidance);
+  assert.equal(f.modelBody.contents.at(-1).parts[0].text,messages[1].content);
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+ }
+});
+
 test('only an answered Jiwoo call starts with one 여보세요 before the contextual dialogue', { timeout: 3000 }, async () => {
  const openingCallId = 'aabbccdd-1234-4321-aaaa-abcdef123456';
  const unanswered = fixture({standaloneJiwoo:true,openingCallId,messages:[]});
@@ -255,6 +277,7 @@ test('only an answered Jiwoo call starts with one 여보세요 before the contex
  const answered = fixture({standaloneJiwoo:true,openingCallId,answered:true,messages:[]});
  await tick();answered.contextReady();await tick();answered.sockets[0].open();
  assert.match(answered.modelBody.systemInstruction.parts[0].text,/여보세요\?/);
+ assert.doesNotMatch(answered.modelBody.systemInstruction.parts[0].text,/\[음성인식 문맥\]/);
  assert.equal(answered.modelBody.contents[0].parts[0].text,'[수신 통화가 연결됨]');
  answered.gates.headers.resolve(new Response(answered.upstream));
  const response = await answered.pending;
