@@ -1,4 +1,4 @@
-import { JIWOO_STYLE_PROMPT, STANDALONE_JIWOO_ID } from "./character-modes";
+import { formatJiwooUserMessage, JIWOO_STYLE_PROMPT, STANDALONE_JIWOO_ID } from "./character-modes";
 import { readCallPhotos } from "./call-photos";
 import { albumReplyPrompt, chooseAlbumPhoto, matchingAlbumPhotos, recentAlbumContext } from "./jiwoo-album";
 import { declinesPhoto, photoReplyDeclines } from "./photo-intent";
@@ -36,7 +36,9 @@ function contactPrompt(claim: Claim) {
   const now = new Date(claim.now);
   const messages = claim.messages.map(message => {
     const speaker = message.role === "user" ? "도혁" : message.proactive ? "지우가 먼저 보낸 톡" : "지우";
-    return `[${koreaTime(new Date(message.ts))}] ${speaker}: ${message.content.slice(0, 1500)}`;
+    const content = message.content.slice(0, 1500);
+    const text = message.role === "user" ? formatJiwooUserMessage(content) : content;
+    return `[${koreaTime(new Date(message.ts))}] ${speaker}: ${text}`;
   }).join("\n");
   const calls = claim.calls.map(call => `${koreaTime(new Date(call.at))} ${callResult[call.status] || call.status}`).join("\n");
 

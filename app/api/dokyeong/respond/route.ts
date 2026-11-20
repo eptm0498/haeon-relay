@@ -5,7 +5,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { formatJiwooUserMessage, isStandaloneJiwoo, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -445,7 +445,10 @@ export async function POST(request: NextRequest) {
 [통화 마무리]
 지금 통화에서 형이 끊자고 했거나, 할 이야기가 끝나고 서로 인사하는 흐름이거나, 실제로 대화에 나온 사정 때문에 네가 먼저 마무리할 때라면 지우답게 짧게 인사해. 네 인사가 끝난 다음 앱이 통화를 종료하도록 대사 뒤 새 줄에 [CALL_END]를 정확히 한 번 붙여. 형이 아직 묻거나 이야기하는 중이면 이어서 대답해. 과거 통화 이야기, 농담, 인용, 단어 하나나 단순한 맞장구만으로 끊지 마. 종료 이유나 일정을 지어내지 마. 계속 통화할 때는 대사만 쓰고 [CALL_END]는 쓰지 마.
 ` : "";
-  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const modelMessages = standaloneJiwoo ? messages.map(message =>
+    message.role === "user" ? { ...message, content: formatJiwooUserMessage(message.content) } : message
+  ) : messages;
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;

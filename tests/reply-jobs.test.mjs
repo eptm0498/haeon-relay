@@ -10,6 +10,13 @@ import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 
+const memoryExports={};
+const memorySource=fs.readFileSync(new URL('../lib/dokyeong/memory.ts',import.meta.url),'utf8');
+vm.runInNewContext(ts.transpileModule(memorySource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
+ exports:memoryExports,
+ require:name=>name==='./character-modes'?characterModes:name==='./time-context'?{koreaTime:date=>date.toISOString()}:{},
+});
+
 async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[]){
  const calls=[],prompts=[],models=[],warnings=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
@@ -24,7 +31,7 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
-  './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:()=> '대화',updateMemory:async()=>0},
+  './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:memoryExports.transcript,updateMemory:async()=>0},
   './characters':{readLiveCharacter:async()=>({id:characterId,name:jiwoo?'지우':'온유',prompt:'저장된 설정'})},
   './model-settings':{liveModelOverrides:async()=>({textModel:model})},
   './gemini-json':{geminiJson:async(prompt,_schema,_signal,_image,options)=>{prompts.push(prompt);models.push(options?.model);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
@@ -63,6 +70,13 @@ test('queued text replies use the global text model',async()=>{
  assert.equal(outcome.calls.at(-1).action,'schedule');
 });
 
+test('Jiwoo queued replies recognize a direction about Jiwoo as a scene without user speech',async()=>{
+ const text='지우가 탁자 위 조명을 켠다';
+ const outcome=await prepare(null,null,true,{},'*'+text+'*');
+ assert.ok(outcome.prompts[0].includes('[사용자 메시지 구분] '+JSON.stringify([{kind:'지문',text}])));
+ assert.match(outcome.prompts[0],/해당 가상 장면에서 일어난 일로 받아들이고 그 직후부터 대화를 이어가/);
+ assert.equal(outcome.calls.at(-1).action,'schedule');
+});
 
 test('Jiwoo queued text retains saved settings and chat reactions without creating photo jobs',async()=>{
  const outcome=await prepare(null,'gemini-3.5-flash-lite',true);
