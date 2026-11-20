@@ -219,6 +219,33 @@ test('Jiwoo direct text chat uses its text model and keeps chat reactions withou
  assert.ok(!events.some(e=>e.type==='jiwoo_scene'||e.type==='audio'||e.type==='photo'));
 });
 
+test('Jiwoo sends ordered stage directions and speech to the model in text, voice and video',{timeout:3000},async()=>{
+ const messages=[
+  {role:'assistant',content:'이리 와.'},
+  {role:'user',content:'*지우가 조명을 켠다* 여기 앉을까? **도혁이 의자를 당긴다**'},
+ ];
+ for(const [realtime,videoCall] of [[false,false],[true,false],[true,true]]){
+  const f=fixture({standaloneJiwoo:true,realtime,videoCall,messages});
+  await tick();f.contextReady();await tick();
+  assert.equal(f.modelBody.contents[0].parts[0].text,messages[0].content);
+  const input=f.modelBody.contents.at(-1).parts[0].text;
+  assert.ok(input.startsWith('[사용자 메시지 구분] '));
+  assert.deepEqual(JSON.parse(input.slice('[사용자 메시지 구분] '.length)),[
+   {kind:'지문',text:'지우가 조명을 켠다'},
+   {kind:'대사',text:'여기 앉을까?'},
+   {kind:'지문',text:'도혁이 의자를 당긴다'},
+  ]);
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+ }
+});
+
+test('plain text, unmatched markup, bullets and multiplication are kept as dialogue',()=>{
+ for(const text of ['그래', '*문을 연다', '**문을 연다*', '* 하나\n* 둘', '3*4*5', '별표 \\*야\\*']){
+  assert.equal(characterModes.formatJiwooUserMessage(text),text);
+ }
+});
+
 test('only an answered Jiwoo call starts with one 여보세요 before the contextual dialogue', { timeout: 3000 }, async () => {
  const openingCallId = 'aabbccdd-1234-4321-aaaa-abcdef123456';
  const unanswered = fixture({standaloneJiwoo:true,openingCallId,messages:[]});
