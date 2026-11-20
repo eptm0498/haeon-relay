@@ -440,7 +440,12 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 연결되자마자 네가 먼저 짧게 인사하고 왜 전화했는지 자연스럽게 한마디 해. 통화가 연결됐다는 시스템 문구는 읽지 마.\n" : "";
-  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const canEndCall = jiwooCall && !openingCallId;
+  const hangupPrompt = canEndCall ? `
+[통화 마무리]
+지금 통화에서 형이 끊자고 했거나, 할 이야기가 끝나고 서로 인사하는 흐름이거나, 실제로 대화에 나온 사정 때문에 네가 먼저 마무리할 때라면 지우답게 짧게 인사해. 네 인사가 끝난 다음 앱이 통화를 종료하도록 대사 뒤 새 줄에 [CALL_END]를 정확히 한 번 붙여. 형이 아직 묻거나 이야기하는 중이면 이어서 대답해. 과거 통화 이야기, 농담, 인용, 단어 하나나 단순한 맞장구만으로 끊지 마. 종료 이유나 일정을 지어내지 마. 계속 통화할 때는 대사만 쓰고 [CALL_END]는 쓰지 마.
+` : "";
+  const result = await requestGemini(messages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -474,6 +479,7 @@ export async function POST(request: NextRequest) {
       const decoder = new TextDecoder();
       let pending = "", spoken = "", full = "", lastError = false;
       let linkedOutput = "";
+      let endCall = false;
       let photoPlan: {scene:string;waitMessage:string}|null=null;
       let sentenceCount = 0, inTerminalRun = false, limitReached = false;
 
@@ -586,7 +592,9 @@ export async function POST(request: NextRequest) {
         }
 
         if (standaloneJiwoo && !lastError) {
-          const clean = jiwooCall ? spokenDialogue(linkedOutput) : dialogueOnly(linkedOutput);
+          endCall = canEndCall && /(?:^|\n)[ \t]*\[CALL_END\]\s*$/.test(linkedOutput);
+          const dialogueText = linkedOutput.replace(/\[CALL_END\]/g, "");
+          const clean = jiwooCall ? spokenDialogue(dialogueText) : dialogueOnly(dialogueText);
           if (!clean) throw Error("Empty Jiwoo dialogue");
           emitText(clean);
         }
@@ -622,6 +630,7 @@ export async function POST(request: NextRequest) {
             send({
               type: "done",
               text: completedText,
+              ...(endCall ? { endCall: true } : {}),
               provider: "gemini",
               model: activeModel,
               audioModel: audioStatus.completed ? speechModel : null,

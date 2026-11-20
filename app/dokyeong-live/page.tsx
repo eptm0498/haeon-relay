@@ -23,7 +23,7 @@ import { useSharedHistory, type Message, type ChatImage } from "./useSharedHisto
 type ChatMode = "text" | "voice";
 type AppView = "list" | "chat";
 type ChatFilter = "all" | "unread" | "calls";
-type ReplyEvent = { type?: string; id?: unknown; scene?: unknown; waitMessage?: string; text?: unknown; data?: unknown; message?: string };
+type ReplyEvent = { type?: string; id?: unknown; scene?: unknown; waitMessage?: string; text?: unknown; data?: unknown; message?: string; endCall?: boolean };
 type ChatPreview = { text: string; ts?: number };
 type Phase = "off" | "listening" | "thinking" | "speaking" | "paused";
 type Status = { configured: boolean; authenticated: boolean; ready: boolean; missing: string[]; providers?: { openai: boolean; gemini: boolean; elevenlabs: boolean } };
@@ -213,11 +213,12 @@ export default function DokyeongLive() {
   const [voice, setVoice] = useState(true);
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
-  const [needsTap, setNeedsTap] = useState(false);
+  const [callEndedBy, setCallEndedBy] = useState<string | null>(null);
   const [videoOn, setVideoOn] = useState(false);
   const videoOnRef = useRef(false);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
+  const startingCallRef = useRef(false);
   const [acceptedCall, setAcceptedCall] = useState<{ id: string; context: AudioContext | null } | null>(null);
   const incomingCall = useIncomingCall(!!status?.authenticated);
   const callPhotoRef = useRef<string | null>(null);
@@ -417,10 +418,12 @@ export default function DokyeongLive() {
   }, []);
   const endCall = useCallback(() => {
     callAttempt.current++;
+    startingCallRef.current = false;
     videoOnRef.current = false; setVideoOn(false);
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
-    setMode("off"); setNeedsTap(false);
+    chatModeRef.current = "text"; setChatMode("text");
+    setMode("off");
   }, [interrupt, closeMic, releaseWakeLock]);
   const changeJiwooPhoto = useCallback((id: string | null) => {
     if (!running.current || !isStandaloneJiwoo(characterIdRef.current)) return;
@@ -492,7 +495,7 @@ export default function DokyeongLive() {
               buffer.addEventListener("updateend", () => resolve(), { once: true });
               try { buffer.appendBuffer(value); } catch (e) { reject(e); }
             });
-            if (!started) { started = true; await audio.play().catch(() => { setNeedsTap(true); throw Error("재생 버튼을 눌러줘."); }); onStart?.(); }
+            if (!started) { started = true; await audio.play().catch(() => { throw Error("음성 재생이 차단됐어. 통화를 다시 연결해 줘."); }); onStart?.(); }
           }
         }
         if (media.readyState === "open" && !buffer.updating) media.endOfStream();
@@ -564,6 +567,7 @@ export default function DokyeongLive() {
     let textCommitted = false;
     let gotStreamingAudio = false;
     let streamingAudioComplete = false;
+    let jiwooWillHangUp = false;
     let firstAudio = true;
     let pcmNextAt = 0;
     let lastPcmEnd: Promise<void> = Promise.resolve();
@@ -718,6 +722,7 @@ export default function DokyeongLive() {
             if (typeof event.text === "string" && event.text.trim()) full = event.text;
             commitText(full);
             complete = !!full.trim();
+            jiwooWillHangUp = realtime && isStandaloneJiwoo(requestCharacterId) && event.endCall === true;
           }
         }
       }
@@ -748,6 +753,14 @@ export default function DokyeongLive() {
         } else {
           queueSpeech(full.trim(), turn, recordAudioStart);
           await queuedRef.current;
+        }
+      }
+      if (jiwooWillHangUp) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        if (turn === generation.current && !controller.signal.aborted && running.current &&
+            !recordingRef.current && !pendingEndRef.current && !transcriptionRef.current) {
+          endCall();
+          setCallEndedBy(requestCharacterId);
         }
       }
     } catch (err) {
@@ -817,29 +830,30 @@ export default function DokyeongLive() {
   }
 
   async function startCall(preparedContext?: AudioContext | null, openingCallId?: string) {
-    if (startingCall || running.current) {
+    if (startingCallRef.current || running.current) {
       if (preparedContext) void preparedContext.close().catch(() => {});
       return;
     }
-    setError(""); setNeedsTap(false);
+    setError(""); setCallEndedBy(null);
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
       if (preparedContext) void preparedContext.close().catch(() => {});
       setError("이 브라우저는 마이크 녹음을 지원하지 않아.");
       return;
     }
     const attempt = ++callAttempt.current;
-    if (preparedContext) contextRef.current = preparedContext;
+    startingCallRef.current = true;
     setStartingCall(true);
     try {
+      const context = preparedContext ?? new AudioContext();
+      contextRef.current = context;
+      const audioReady = context.resume().then(() => true, () => false);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       if (attempt !== callAttempt.current) {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
       streamRef.current = stream;
-      const context = preparedContext ?? new AudioContext();
-      contextRef.current = context;
-      await context.resume();
+      if (!await audioReady) throw Error("Audio context unavailable");
       if (attempt !== callAttempt.current) return;
       const source = context.createMediaStreamSource(stream);
       const micInput = context.createBiquadFilter();
@@ -881,7 +895,9 @@ export default function DokyeongLive() {
       if (!worklet && typeof MediaRecorder === "undefined") {
         endCall(); setError("이 브라우저는 마이크 녹음을 지원하지 않아."); return;
       }
-      running.current = true; lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
+      running.current = true;
+      chatModeRef.current = "voice"; setChatMode("voice");
+      lastInputAtRef.current = performance.now(); setMode("listening"); void keepAwake();
       const calledId = characterIdRef.current;
       if (calledId && !callHistory.includes(calledId)) {
         const next = [...callHistory, calledId];
@@ -973,17 +989,20 @@ export default function DokyeongLive() {
     } catch {
       if (attempt === callAttempt.current) { endCall(); setError("마이크 권한을 확인하고 다시 눌러줘."); }
     } finally {
-      if (attempt === callAttempt.current) setStartingCall(false);
+      if (attempt === callAttempt.current) {
+        startingCallRef.current = false;
+        setStartingCall(false);
+      }
     }
   }
 
   useEffect(() => {
     const recover = () => {
       if (document.hidden && running.current) {
-        releaseWakeLock(); interrupt(); closeMic(); setMode("paused"); setNeedsTap(true);
+        releaseWakeLock(); interrupt(); closeMic(); setMode("paused");
       } else if (!document.hidden && running.current && phaseRef.current !== "paused") {
         void keepAwake();
-      } else if (!document.hidden && phaseRef.current === "paused") setNeedsTap(true);
+      }
     };
     document.addEventListener("visibilitychange", recover);
     return () => document.removeEventListener("visibilitychange", recover);
@@ -1008,7 +1027,6 @@ export default function DokyeongLive() {
     chatModeRef.current = next;
     setChatMode(next);
     setError("");
-    setNeedsTap(false);
   }
   function switchCharacter(nextId: string) {
     const next = characters.find((item) => item.id === nextId);
@@ -1043,7 +1061,7 @@ export default function DokyeongLive() {
   }
   function answerIncomingCall(id: string, context: AudioContext | null) {
     incomingCall.dismiss(id);
-    if (running.current || document.hidden) {
+    if (running.current || startingCallRef.current || document.hidden) {
       if (context) void context.close().catch(() => {});
       void resolveIncomingCall(id, "failed").catch(() => {});
       return;
@@ -1161,9 +1179,6 @@ export default function DokyeongLive() {
     return()=>{window.removeEventListener("popstate",pop);};
   },[characters,sharedHistory.histories,endCall,loadCharacterVoice]);
 
-  function closeVoicePanel() {
-    if (chatModeRef.current === "voice") switchChatMode("text");
-  }
   async function sendPickedImage(file?: File) {
     if (!file) return;
     try {
@@ -1234,6 +1249,13 @@ export default function DokyeongLive() {
 
   const activeVoiceName = availableVoices.find((item) => item.voice_id === voiceId)?.name || activeCharacter?.voice_name || "목소리";
   const callOpen = chatMode === "voice" && (running.current || phase === "paused");
+  const canStartCall = !!status?.ready && historyReady && !resetting && !startingCall && !callOpen;
+  function startOutgoingCall() {
+    if (!canStartCall || startingCallRef.current) return;
+    interrupt();
+    setMode("off");
+    void startCall();
+  }
   const showMessages = !callOpen;
   const avatarFor = (item: LiveCharacter) => item.avatar_url;
   const ringing = incomingCall.ringing;
@@ -1341,7 +1363,7 @@ export default function DokyeongLive() {
           <button className={styles.headerTool} onClick={()=>setSettingsOpen(true)} aria-label="대화 검색">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
           </button>
-          <button className={styles.headerTool} onClick={() => switchChatMode(chatMode === "voice" ? "text" : "voice")} aria-label={chatMode === "voice" ? "문자 채팅으로 전환" : "음성 채팅으로 전환"}>
+          <button className={styles.headerTool} onClick={startOutgoingCall} disabled={!canStartCall} aria-label="음성 통화 시작">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.1 3.8 4.8 6.1c-.8.8-.8 2 0 2.8l2.2 2.2a15.4 15.4 0 0 0 5.9 5.9l2.2 2.2c.8.8 2 .8 2.8 0l2.3-2.3-4-4-2 2c-2.1-1-4.1-3-5.1-5.1l2-2-4-4Z"/></svg>
           </button>
           <button className={styles.headerTool} onClick={() => setSettingsOpen(!settingsOpen)} aria-label="대화 설정">
@@ -1457,13 +1479,15 @@ export default function DokyeongLive() {
         {status?.authenticated && historyReady && showMessages && !messages.length && !partial && phase !== "thinking" && <div className={styles.emptyChat}>
           <div className={styles.emptyAvatar}><CharacterAvatar name={activeName} src={activeAvatar}/></div>
           <strong>{activeName}</strong>
-          <span>{chatMode === "voice" ? "아래 통화 버튼을 누르면 바로 이야기할 수 있어." : "메시지를 보내서 대화를 시작해."}</span>
+          <span>메시지를 보내서 대화를 시작해.</span>
         </div>}
 
         {status?.authenticated && !historyReady && <div className={styles.systemBubble}>대화 기록을 동기화하고 있어.</div>}
         {!standaloneJiwoo && <ImageJobTray state={imageJobs}/>}
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
+        {startingCall && !callOpen && <div className={styles.systemBubble} role="status">마이크를 연결하는 중…</div>}
+        {!callOpen && callEndedBy === characterId && <div className={styles.systemBubble} role="status">지우가 통화를 종료했어.</div>}
         <div className={styles.chatSpacer} />
         </div>
       </section>
@@ -1486,7 +1510,7 @@ export default function DokyeongLive() {
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M8.5 14c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/></svg>
             </button>
             <button type="button" className={styles.composerHash} aria-label="샵">#</button>
-            <button type="button" className={styles.composerVoice} onClick={() => switchChatMode("voice")} aria-label="음성 채팅으로 전환">
+            <button type="button" className={styles.composerVoice} onClick={startOutgoingCall} disabled={!canStartCall} aria-label="음성 통화 시작">
               <span/><span/><span/><span/><span/>
             </button>
           </>}
@@ -1510,27 +1534,10 @@ export default function DokyeongLive() {
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         responseDelayMs={latency}
         voice={voice}
-        onEnd={closeVoicePanel} onResume={() => { if (startingCall) return; closeMic(); running.current = false; void startCall(); }}
+        onEnd={() => { endCall(); setError(""); }} onResume={() => { if (startingCallRef.current) return; closeMic(); running.current = false; void startCall(); }}
         onToggleVoice={() => { setVoice(!voice); if (voice) stopAudio(); }}
       />}
 
-      {status?.authenticated && chatMode === "voice" && !callOpen && <>
-        <button className={styles.voiceBackdrop} onClick={closeVoicePanel} aria-label="음성 창 닫기" />
-        <section className={styles.voiceDock}>
-        <button className={styles.voiceClose} onClick={closeVoicePanel} aria-label="음성 창 닫기">×</button>
-        <div className={styles.voiceStatus}>
-          <span className={[styles.voiceDot, running.current && phase !== "paused" ? styles.voiceDotOn : ""].filter(Boolean).join(" ")} />
-          <div><strong>{running.current && phase !== "paused" ? labels[phase] : "음성 채팅 준비"}</strong><small>{startingCall ? "마이크를 연결하는 중…" : needsTap ? "가운데 버튼을 다시 눌러줘" : (running.current ? "말을 멈추면 " + activeName + "이 대답해" : activeVoiceName + " 목소리")}</small></div>
-          {latency !== null && <em>{(latency / 1000).toFixed(1)}s</em>}
-        </div>
-        {error&&<div className={styles.errorBubble} role="alert">{error}</div>}
-        <div className={styles.voiceActions}>
-          <button className={styles.voiceSideButton} onClick={() => { setVoice(!voice); if (voice) stopAudio(); }} aria-pressed={voice}><span>{voice ? "🔊" : "🔇"}</span><small>음성</small></button>
-          <button className={[styles.callButton, running.current && phase !== "paused" ? styles.endButton : ""].filter(Boolean).join(" ")} onClick={() => { if (running.current && phase !== "paused") endCall(); else { if (phase === "paused") { closeMic(); running.current = false; } void startCall(); } }} disabled={!status.ready || !historyReady || resetting || startingCall} aria-label={running.current && phase !== "paused" ? "통화 종료" : "통화 시작"}>{running.current && phase !== "paused" ? "■" : "●"}</button>
-        </div>
-        {phase === "speaking" && <button className={styles.interruptButton} onClick={interrupt}>말 끊기</button>}
-      </section>
-      </>}
     </div>
     <dialog ref={photoViewerRef} className={styles.photoViewer} aria-label="채팅 사진"
       onClose={(event) => { if (!event.currentTarget.open) setPhotoPreview(null); }}>

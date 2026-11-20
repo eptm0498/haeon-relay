@@ -233,6 +233,42 @@ test('only an answered Jiwoo call can trigger the opening greeting', { timeout: 
  assert.equal((await answered.pending).status,502);
 });
 
+test('Jiwoo sends the hangup signal after the farewell audio and keeps the marker out of the conversation', { timeout: 3000 }, async () => {
+ for (const videoCall of [false, true]) {
+  const f=fixture({standaloneJiwoo:true,videoCall,messages:[{role:'user',content:'나 이제 자러 갈게. 잘 자.'}]});
+  await tick();f.contextReady();await tick();f.sockets[0].open();
+  assert.match(f.modelBody.systemInstruction.parts[0].text,/\[통화 마무리\]/);
+  f.gates.headers.resolve(new Response(f.upstream));
+  const response=await f.pending;
+  f.frame('응, 잘 자 형.\n[CALL_');f.frame('END]');f.input.close();
+  const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(events.at(-1).endCall,true);
+  assert.equal(events.at(-1).text,'응, 잘 자 형.');
+  assert.equal(events.at(-2).type,'audio_done');
+  assert.ok(events.some(event=>event.type==='audio'));
+  assert.doesNotMatch(JSON.stringify(events),/CALL_END/);
+  assert.doesNotMatch(JSON.stringify(f.sockets[0].sent),/CALL_END/);
+ }
+});
+
+test('a marker inside dialogue, a text reply, and an incoming greeting cannot end the call', { timeout: 3000 }, async () => {
+ for (const [options, text] of [
+  [{}, '응.\n[CALL_END]\n그래서 어디까지 얘기했지?'],
+  [{realtime:false}, '응.\n[CALL_END]'],
+  [{openingCallId:'aabbccdd-1234-4321-aaaa-abcdef123456', answered:true, messages:[]}, '여보세요.\n[CALL_END]'],
+ ]) {
+  const f=fixture({standaloneJiwoo:true,wantVoice:false,...options});
+  await tick();f.contextReady();await tick();
+  f.gates.headers.resolve(new Response(f.upstream));
+  const response=await f.pending;
+  f.frame(text);f.input.close();
+  const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(events.at(-1).type,'done');
+  assert.equal(events.at(-1).endCall,undefined);
+  assert.doesNotMatch(JSON.stringify(events),/CALL_END/);
+ }
+});
+
 test('Jiwoo receives the real missed-call context in regular voice and text replies', { timeout: 3000 }, async () => {
  const callContext = '[실제 최근 수신 전화 기록] 형이 제한 시간 안에 받지 못했어.';
  for (const realtime of [true,false]) {

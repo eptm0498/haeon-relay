@@ -53,21 +53,17 @@
 .composer:focus-within{padding-top:4px;padding-bottom:2px}
 .composer:focus-within .composerPill{height:46px}
 
-.voiceDock{position:absolute;left:12px;right:12px;bottom:max(10px,env(safe-area-inset-bottom));z-index:61;background:#151515;padding:16px 14px 14px;border:1px solid #303030;border-radius:20px;box-shadow:0 18px 60px #000d}.voiceStatus{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;gap:8px;padding:2px 1px 7px}.voiceDot{width:6px;height:6px;border-radius:50%;background:#555}.voiceDotOn{background:#4bc26b}.voiceStatus div{display:flex;flex-direction:column;gap:1px}.voiceStatus strong{font-size:11.5px;color:#eee}.voiceStatus small{font-size:9.5px;color:#7f7f7f}.voiceStatus em{font-size:9.5px;color:#777;font-style:normal}.voiceActions{display:flex;align-items:center;justify-content:center;gap:34px}.voiceSideButton{width:50px;border:0;background:transparent;color:#999;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;cursor:pointer}.voiceSideButton span{width:38px;height:38px;border-radius:50%;background:#262626;display:grid;place-items:center;font-size:15px}.voiceSideButton[aria-pressed="false"]{opacity:.45}.callButton{width:58px;height:58px;border:0;border-radius:50%;background:#fee500;color:#242000;font-size:21px;display:grid;place-items:center;cursor:pointer}.callButton:disabled{opacity:.35}.endButton{background:#ef5a5a;color:white}.interruptButton{display:block;margin:7px auto 0;border:0;border-radius:999px;background:#272727;color:#ddd;padding:6px 12px;font-size:9.5px;cursor:pointer}
 
 .loginCard{width:min(90%,330px);margin:13vh auto 0;background:#181818;border:1px solid #2b2b2b;border-radius:18px;padding:20px;text-align:center}.loginAvatar{width:56px;height:56px;border-radius:19px;background:#242424;margin:0 auto 9px;overflow:hidden;display:grid;place-items:center;font-weight:700;color:#aaa}.loginCard>strong{font-size:15px;color:#eee}.loginCard>p{font-size:10.5px;color:#888;margin:5px 0 13px}.login{display:flex;gap:6px}.login input{flex:1;min-width:0;border:1px solid #333;background:#242424;color:#f3f3f3;border-radius:10px;padding:10px 11px;font-size:16px;outline:none}.login button{border:0;border-radius:10px;background:#fee500;color:#302b00;font-weight:700;padding:0 14px;cursor:pointer}
 
 @supports (-webkit-touch-callout:none){.composerPill input,.login input,.settingRow select{font-size:16px}}
-@media(min-width:600px){.shell{padding:18px 0}.phone{height:100%;max-height:900px;border-radius:22px}.chatHeader{border-radius:22px 22px 0 0}.composer,.voiceDock{border-radius:0 0 22px 22px}}
+@media(min-width:600px){.shell{padding:18px 0}.phone{height:100%;max-height:900px;border-radius:22px}.chatHeader{border-radius:22px 22px 0 0}.composer{border-radius:0 0 22px 22px}}
 @media(max-width:380px){.chatHeader{padding-left:10px;padding-right:10px}.headerCapsule{padding:0 2px}.headerTool{width:34px}.assistantRow{max-width:91%}.bubble{max-width:74vw;font-size:13.5px}.composer{padding-left:10px;padding-right:10px}}
 
 .panelBackdrop{position:absolute;inset:0;z-index:49;background:#0005}
 .panelClose{position:absolute;top:8px;right:10px;width:30px;height:30px;border:0;border-radius:50%;background:#2a2a2a;color:#ddd;font-size:22px;line-height:1;display:grid;place-items:center;cursor:pointer}
 .settingsPanel{padding-top:44px}
 
-.voiceBackdrop{position:absolute;inset:0;z-index:60;border:0;background:#0007;padding:0}
-.voiceClose{position:absolute;top:8px;right:10px;width:30px;height:30px;border:0;border-radius:50%;background:#292929;color:#ddd;font-size:21px;display:grid;place-items:center;cursor:pointer}
-.voiceStatus{padding-right:34px}
 
 .hiddenFile{display:none!important}
 .userStack{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:0}
