@@ -17,6 +17,6 @@ export function useImageJobs(characterId:string,enabled:boolean,onChange:()=>voi
  async function retry(id:string){setError('');try{const r=await fetch('/api/dokyeong/images',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'retry',id})});const result=await r.json();if(!r.ok)throw Error(result.error);setSnapshot(current=>({...current,jobs:current.jobs.map(j=>j.id===id?{...j,status:'queued'}:j)}));}catch(e){setError((e as Error).message);}}
  return {jobs,error,retry,dismiss};
 }
-export function ImageJobTray({state}:{state:ReturnType<typeof useImageJobs>}){
- return <>{state.jobs.filter(j=>j.status!=='complete').map(j=><div key={j.id} className={styles.jobCard} role="status">{j.status==='failed'?<><span>{j.error||'사진 생성이 중단됐어.'}</span>{j.attempts<3&&<button onClick={()=>void state.retry(j.id)}>같은 사진 다시 시도</button>}<button onClick={()=>state.dismiss(j.id)} aria-label="사진 생성 실패 안내 닫기">닫기</button></>:<span>사진을 만들고 있어… 앱을 닫아도 이어서 진행해.</span>}</div>)}{state.error&&<p role="alert">{state.error}</p>}</>;
+export function ImageJobTray({state,hideFailures=false}:{state:ReturnType<typeof useImageJobs>;hideFailures?:boolean}){
+ return <>{state.jobs.filter(j=>j.status!=='complete'&&(!hideFailures||j.status!=='failed')).map(j=><div key={j.id} className={styles.jobCard} role="status">{j.status==='failed'?<><span>{j.error||'사진 생성이 중단됐어.'}</span>{j.attempts<3&&<button onClick={()=>void state.retry(j.id)}>같은 사진 다시 시도</button>}<button onClick={()=>state.dismiss(j.id)} aria-label="사진 생성 실패 안내 닫기">닫기</button></>:<span>사진을 만들고 있어… 앱을 닫아도 이어서 진행해.</span>}</div>)}{state.error&&<p role="alert">{state.error}</p>}</>;
 }

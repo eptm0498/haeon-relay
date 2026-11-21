@@ -67,3 +67,21 @@ test("Jiwoo's text request saves and rings in one RPC without generating a text 
     assert.deepEqual(fixture.pushCalls, [task]);
   }
 });
+
+test("Jiwoo's attachment can be sent alone or with a caption and enqueues a reply", async () => {
+  const id = "aabbccdd-1234-4321-aaaa-abcdef123456";
+  const epoch = "aabbccdd-1234-4321-aaaa-abcdef123457";
+  const image = { mimeType: "image/jpeg", dataUrl: "data:image/jpeg;base64,YWJj" };
+  for (const content of ["", "이 사진 어디 같아?", "전화 걸어줘"]) {
+    const fixture = routeFixture();
+    const response = await fixture.post(new Request("https://app.test/api/dokyeong/history", {
+      method: "POST", body: JSON.stringify({ action: "append", characterId: STANDALONE_JIWOO_ID, epoch, replyTo: id,
+        messages: [{ id, role: "user", ts: 1, content, image }] }),
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).messages[0].image, image);
+    assert.deepEqual(fixture.rpcCalls.map(call => call.name), ["live_append_jiwoo_text"]);
+    await Promise.all(fixture.tasks.map(run => run()));
+    assert.deepEqual(fixture.pushCalls, ["reply"]);
+  }
+});

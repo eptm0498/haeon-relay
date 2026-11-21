@@ -208,6 +208,7 @@ export default function DokyeongLive() {
   const [photoPreview, setPhotoPreview] = useState<{ image: ChatImage; alt: string; filename: string } | null>(null);
   const photoViewerRef = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState("");
+  const [draftPhoto, setDraftPhoto] = useState<{ characterId: string; image: ChatImage } | null>(null);
   const [partial, setPartial] = useState("");
   const [generatingPhoto, setGeneratingPhoto] = useState(false);
   const [voice, setVoice] = useState(true);
@@ -227,6 +228,7 @@ export default function DokyeongLive() {
   const callAttempt = useRef(0);
   const [characters, setCharacters] = useState<LiveCharacter[]>([]);
   const [characterId, setCharacterId] = useState("");
+  const attachedImage = draftPhoto?.characterId === characterId ? draftPhoto.image : undefined;
   const standaloneJiwoo = isStandaloneJiwoo(characterId);
   const [resetting, setResetting] = useState(false);
   const companion=useCompanion(!!status?.authenticated,characterId,view,phase!=="off"||startingCall||!!acceptedCall,()=>{void sharedHistory.synchronize().catch(()=>{});},messages.at(-1)?.ts||0);
@@ -235,7 +237,7 @@ export default function DokyeongLive() {
   const waitingForJiwoo = standaloneJiwoo && view === "chat" && chatMode === "text" &&
     lastChatMessage?.role === "user" && Date.now() - (lastChatMessage.ts ?? 0) < 90_000;
   const sharedHistory = useSharedHistory(characters, !!status?.authenticated,hasMessageSession?1000:waitingForJiwoo?1250:5000);
-  const imageJobs=useImageJobs(characterId,!!status?.authenticated && view === "chat" && !standaloneJiwoo,()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
+  const imageJobs=useImageJobs(characterId,!!status?.authenticated && view === "chat",()=>{void sharedHistory.synchronize().catch(()=>{});},(sharedHistory.histories[characterId]||[]).reduce((latest,message)=>message.role==='user'?Math.max(latest,message.ts||0):latest,0));
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
   const [notificationVisible, setNotificationVisible] = useState(true);
   const latestNotificationTap = useRef({ id: "", time: 0 });
@@ -545,7 +547,6 @@ export default function DokyeongLive() {
     const requestCharacterId = characterIdRef.current;
     const realtime = chatModeRef.current === "voice";
     const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
-    if (image && isStandaloneJiwoo(requestCharacterId)) return;
     const text = userText.trim().slice(0, 1500);
     if (!text && !image && !openingCallId) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
@@ -1015,7 +1016,7 @@ export default function DokyeongLive() {
 
   async function restart(keepMemory=true) {
     if (resetting || !historyReady) return;
-    endCall(); setResetting(true);
+    endCall(); setResetting(true); setDraftPhoto(null);
     const id = characterIdRef.current;
     try {
       await sharedHistory.reset(id,keepMemory);
@@ -1184,16 +1185,16 @@ export default function DokyeongLive() {
     return()=>{window.removeEventListener("popstate",pop);};
   },[characters,sharedHistory.histories,endCall,loadCharacterVoice]);
 
-  async function sendPickedImage(file?: File) {
+  async function attachPickedImage(file?: File) {
     if (!file) return;
+    const owner = characterIdRef.current;
+    if (imagePickerRef.current) imagePickerRef.current.value = "";
     try {
       setError("");
       const image = await prepareChatImage(file);
-      await reply("", image);
+      if (owner === characterIdRef.current) setDraftPhoto({ characterId: owner, image });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "사진을 보내지 못했어.");
-    } finally {
-      if (imagePickerRef.current) imagePickerRef.current.value = "";
+      if (owner === characterIdRef.current) setError(cause instanceof Error ? cause.message : "사진을 첨부하지 못했어.");
     }
   }
   function submitText(event: FormEvent) {
@@ -1201,21 +1202,19 @@ export default function DokyeongLive() {
     if (!historyReady || resetting) return;
     // Read the DOM value so the final Korean IME syllable is included.
     const value = draftInputRef.current?.value ?? draft;
-    if (!value.trim()) return;
+    if (!value.trim() && !attachedImage) return;
+    if (standaloneJiwoo && handoffPending.current) return;
     if (running.current) lastInputAtRef.current = performance.now();
     // Clear synchronously: a later synthetic click cannot send this turn twice.
     if (draftInputRef.current) draftInputRef.current.value = "";
     setDraft("");
-    if (standaloneJiwoo && value.trim() === "이어가기") {
+    setDraftPhoto(null);
+    if (standaloneJiwoo && !attachedImage && value.trim() === "이어가기") {
       void continueJiwoo();
       return;
     }
-    if (standaloneJiwoo && handoffPending.current) {
-      setDraft(value);
-      return;
-    }
     setHandoffNotice("");
-    void reply(value);
+    void reply(value, attachedImage);
   }
 
   async function continueJiwoo() {
@@ -1444,7 +1443,7 @@ export default function DokyeongLive() {
                   <div className={styles.userStack}>
                     {message.image && <div className={styles.imageBubble}>
                       {photoThumbnail(message.image, activeName + "이 보낸 사진", activeName + "-사진")}
-                      <span className={styles.imageLabel}>{standaloneJiwoo ? "지우의 앨범" : "AI 생성 사진"}</span>
+                      <span className={styles.imageLabel}>{message.albumPhotoId ? "지우의 앨범" : "AI 생성 사진"}</span>
                       {!standaloneJiwoo && <button className={styles.imageEdit} onClick={()=>{editImageRef.current=message.id;setDraft("이 사진에서 ");draftInputRef.current?.focus();}}>이 사진 이어서 수정</button>}
                     </div>}
                     {message.content && <div className={[styles.bubble, styles.assistantBubble].join(" ")}>{message.content}</div>}
@@ -1488,7 +1487,7 @@ export default function DokyeongLive() {
         </div>}
 
         {status?.authenticated && !historyReady && <div className={styles.systemBubble}>대화 기록을 동기화하고 있어.</div>}
-        {!standaloneJiwoo && <ImageJobTray state={imageJobs}/>}
+        <ImageJobTray state={imageJobs} hideFailures={standaloneJiwoo}/>
         {sharedHistory.error && <div className={styles.errorBubble} role="alert">{sharedHistory.error}</div>}
         {error && <div className={styles.errorBubble} role="alert">{error}</div>}
         {startingCall && !callOpen && <div className={styles.systemBubble} role="status">마이크를 연결하는 중…</div>}
@@ -1502,15 +1501,18 @@ export default function DokyeongLive() {
       </div>
 
       {status?.authenticated && chatMode === "text" && <form onSubmit={submitText} className={styles.composer}>
+        {attachedImage && <div className={styles.attachmentPreview}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={attachedImage.dataUrl} alt="첨부할 사진" />
+          <button type="button" onClick={() => setDraftPhoto(null)} aria-label="첨부 사진 제거">×</button>
+        </div>}
         <div className={styles.composerPill}>
-          {!standaloneJiwoo && <>
-            <input ref={imagePickerRef} className={styles.hiddenFile} type="file" accept="image/*" onChange={(event) => void sendPickedImage(event.target.files?.[0])} />
-            <button type="button" className={styles.plusButton} disabled={!historyReady || resetting} onClick={() => imagePickerRef.current?.click()} aria-label="이미지 보내기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
-          </>}
+          <input ref={imagePickerRef} className={styles.hiddenFile} type="file" accept="image/*" onChange={(event) => void attachPickedImage(event.target.files?.[0])} />
+          <button type="button" className={styles.plusButton} disabled={!historyReady || resetting} onClick={() => imagePickerRef.current?.click()} aria-label="사진 첨부">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
           <input ref={draftInputRef} aria-label="메시지" placeholder="메시지 입력" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1500} autoComplete="off" />
-          {!draft.trim() && <>
+          {!draft.trim() && !attachedImage && <>
             <button type="button" className={styles.composerIcon} aria-label="이모티콘">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M8.5 14c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/></svg>
             </button>
@@ -1519,7 +1521,7 @@ export default function DokyeongLive() {
               <span/><span/><span/><span/><span/>
             </button>
           </>}
-          {draft.trim() && <button type="submit" className={styles.sendButton} disabled={!historyReady || resetting} aria-label="전송"
+          {(draft.trim() || attachedImage) && <button type="submit" className={styles.sendButton} disabled={!historyReady || resetting} aria-label="전송"
             onPointerDown={(event) => {
               if (!event.isPrimary || event.button !== 0) return;
               // Submit before iOS can blur the input and move the keyboard/layout.

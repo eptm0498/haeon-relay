@@ -376,9 +376,6 @@ export async function POST(request: NextRequest) {
   if (!character) return Response.json({ error: "캐릭터 설정을 찾지 못했어." }, { status: 404 });
   timings.characterReadyMs = elapsed();
   const standaloneJiwoo = isStandaloneJiwoo(character.id);
-  if (standaloneJiwoo && messages.some(message => message.image)) {
-    return Response.json({ error: "지우 채팅방에서는 사진을 첨부할 수 없어." }, { status: 400, headers: noStore });
-  }
   const jiwooCall = standaloneJiwoo && realtime;
   if (openingCallId) {
     const accepted = jiwooCall && await incomingCallWork("greet", openingCallId).catch(() => null);
@@ -445,6 +442,9 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? JIWOO_SPEECH_TRANSCRIPT_PROMPT : "";
+  const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
+    ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
+    : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
   const hangupPrompt = canEndCall ? `
@@ -454,7 +454,7 @@ export async function POST(request: NextRequest) {
   const modelMessages = standaloneJiwoo ? messages.map(message =>
     message.role === "user" ? { ...message, content: formatJiwooUserMessage(message.content) } : message
   ) : messages;
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + transcriptPrompt + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;

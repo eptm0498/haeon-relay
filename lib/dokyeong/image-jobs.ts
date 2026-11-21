@@ -6,7 +6,7 @@ import {deliverPushJobs} from './push';
 import {currentTimeContext} from './time-context';
 import {geminiJson} from './gemini-json';
 import {photoScenePrompt,photoSceneSchema,parsePhotoScene,type PhotoScene} from './image-scene';
-export type ImageJob={id:string;character_id:string;epoch:string;status:'queued'|'running'|'complete'|'failed';attempts:number;error:string;message_id?:string;payload:{text:string;scene:string;context?:string;sourceMessageId?:string};lease:string};
+export type ImageJob={id:string;character_id:string;epoch:string;status:'queued'|'running'|'complete'|'failed';attempts:number;error:string;message_id?:string;payload:{text:string;scene:string;context?:string;sourceMessageId?:string;fallbackText?:string};lease:string};
 export async function runImageJob(id?:string){
  const job=await serverRpc<ImageJob|null>('live_image_work',{action:'claim',target_job:id||null});if(!job)return false;
  try{
@@ -21,6 +21,7 @@ export async function runImageJob(id?:string){
   await Promise.all([updateMemory(character.id,1).catch(()=>{}),deliverPushJobs().catch(()=>0)]);return true;
  }catch(error){
   await serverRpc('live_image_work',{action:'fail',target_job:job.id,data:{lease:job.lease,error:error instanceof ImageGenerationError?error.message:'사진 생성이 중단됐어. 같은 요청으로 다시 시도할 수 있어.'}});
+  if(job.payload.fallbackText)await Promise.all([updateMemory(job.character_id,1).catch(()=>{}),deliverPushJobs().catch(()=>0)]);
   console.warn('LIVE_IMAGE_JOB_FAILED',job.id);return false;
  }
 }
