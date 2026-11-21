@@ -17,10 +17,10 @@ vm.runInNewContext(ts.transpileModule(memorySource,{compilerOptions:{module:ts.M
  require:name=>name==='./character-modes'?characterModes:name==='./time-context'?{koreaTime:date=>date.toISOString()}:{},
 });
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[]){
- const calls=[],prompts=[],models=[],warnings=[];
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[], attachment=null){
+ const calls=[],prompts=[],models=[],warnings=[],images=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
- const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}]},context:{messages:[...preceding,{id:'pending',role:'user',content:latest,ts:Date.parse(now)}],memory:''},activity};
+ const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}],attachedPhotoId:attachment?'pending':undefined},context:{messages:[...preceding,{id:'pending',role:'user',content:latest,ts:Date.parse(now)}],memory:''},activity};
  const mocks={
   './project-reply':{projectReply:async text=>text},
   './character-modes':characterModes,
@@ -31,10 +31,10 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
-  './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:{};},transcript:memoryExports.transcript,updateMemory:async()=>0},
+  './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:body.action==='media'?attachment:{};},transcript:memoryExports.transcript,updateMemory:async()=>0},
   './characters':{readLiveCharacter:async()=>({id:characterId,name:jiwoo?'지우':'온유',prompt:'저장된 설정'})},
   './model-settings':{liveModelOverrides:async()=>({textModel:model})},
-  './gemini-json':{geminiJson:async(prompt,_schema,_signal,_image,options)=>{prompts.push(prompt);models.push(options?.model);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
+  './gemini-json':{geminiJson:async(prompt,_schema,_signal,image,options)=>{prompts.push(prompt);models.push(options?.model);images.push(image);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
   './time-context':{currentTimeContext:()=>''},'./samples':{relatedSampleContext:async()=>''},
   './photo-intent':photoIntent,
   './jiwoo-album':jiwooAlbum,
@@ -46,7 +46,7 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
  class FixedDate extends Date { constructor(...args){ super(...(args.length ? args : [now])); } }
  const source=fs.readFileSync(new URL('../lib/dokyeong/reply-jobs.ts',import.meta.url),'utf8');
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>{assert.ok(mocks[name],name);return mocks[name];},console:{warn:(...args)=>warnings.push(args)},Date:FixedDate,setTimeout});
- const result=await exports.prepareReply('pending');return {result,calls,prompts,models,warnings};
+ const result=await exports.prepareReply('pending');return {result,calls,prompts,models,warnings,images};
 }
 
 test('idle characters with null or missing activity still generate and schedule replies',async()=>{
@@ -148,6 +148,32 @@ test('Jiwoo schedules a chat-enabled album photo through the ordinary reply with
  const afterPhoto=[{role:'assistant',content:'아까 찍어둔 거야.',ts:Date.parse('2026-11-14T01:59:00+09:00'),albumPhotoId:'office-chat'}];
  const repeated=await prepare(null,null,true,draft,'지금도 사무실이야?',undefined,photos,afterPhoto);
  assert.equal(repeated.calls.at(-1).data.albumPhotoId,undefined);
+});
+
+test('Jiwoo sends the stored attachment to Gemini with the caption and does not generate for a photo question',async()=>{
+ const question='이 사진에 뭐가 보여?';
+ const outcome=await prepare(null,null,true,{kind:'reply',text:'창가에 화분이 보이네.'},question,undefined,[],[],{
+  dataUrl:'data:image/jpeg;base64,YWJj',
+ });
+ assert.deepEqual(JSON.parse(JSON.stringify(outcome.images[0])),{mimeType:'image/jpeg',data:'YWJj'});
+ assert.equal(outcome.calls.find(call=>call.action==='media').data.messageId,'pending');
+ assert.match(outcome.prompts[0],new RegExp(question.replace('?','\\?')));
+ assert.match(outcome.prompts[0],/첨부한 사진을 직접 봐/);
+ assert.equal(outcome.calls.at(-1).data.photo,null);
+});
+
+test('unmatched photo requests can queue GPT generation with a contextual text fallback',async()=>{
+ const request='서점에서 책 고르는 사진 보내줘';
+ const reply='형은 서점 가면 어느 코너부터 봐?';
+ const draft={kind:'photo',text:reply,scene:'서점에서 책을 고르는 지우'};
+ const outcome=await prepare(null,null,true,draft,request);
+ assert.match(outcome.prompts[0],/사진첩에 맞는 사진이 없으면 kind=photo/);
+ assert.equal(outcome.calls.at(-1).data.albumPhotoId,undefined);
+ assert.equal(outcome.calls.at(-1).data.photo.text,request);
+ assert.equal(outcome.calls.at(-1).data.photo.scene,draft.scene);
+ assert.equal(outcome.calls.at(-1).data.photo.fallbackText,reply);
+ const declined=await prepare(null,null,true,draft,'사진은 보내지 마');
+ assert.equal(declined.calls.at(-1).data.photo,null);
 });
 
 test('random album selection is bounded to valid, distinct scene choices and prefers unseen photos',()=>{

@@ -163,12 +163,14 @@ export function homeAlbumPhotos(photos: CallPhoto[], use: "call" | "chat") {
 
 type AlbumCandidates = { scenes: CallPhoto[]; home: CallPhoto[] };
 
-export function albumReplyPrompt({ scenes, home }: AlbumCandidates, recentlySent: string[], requested: boolean, proactive = false) {
+export function albumReplyPrompt({ scenes, home }: AlbumCandidates, recentlySent: string[], requested: boolean, proactive = false, generateMissing = false) {
   if (!scenes.length && !home.length) return requested
-    ? "\n[지우 사진첩] 지금 요청에 보낼 수 있는 앨범 사진이 없어. 사진이 없다고 짧게 말해."
+    ? generateMissing
+      ? "\n[지우 사진첩] 이번 요청과 맞는 앨범 후보가 없어."
+      : "\n[지우 사진첩] 지금 요청에 보낼 수 있는 앨범 사진이 없어. 사진이 없다고 짧게 말해."
     : "\n새 사진을 찍거나 첨부한다고 말하지 마.";
   const onMatch = requested
-    ? "사용자가 요청한 장소·옷·행동을 이어받아 확인되는 사진을 골라. 정확히 같은 장면이 없다면 사진을 첨부하지 말고 없다고 답해. 그냥 셀카를 달라면 일상 셀카를 고를 수 있어."
+    ? `사용자가 요청한 장소·옷·행동을 이어받아 확인되는 사진을 우선 골라. ${generateMissing ? "맞는 장면이 없으면 번호를 선택하지 말고 GPT 생성 분기로 넘어가." : "정확히 같은 장면이 없다면 사진을 첨부하지 말고 없다고 답해."} 그냥 셀카를 달라면 일상 셀카를 고를 수 있어.`
     : "형이 직접 요청하지 않아도 지우가 하고 있는 일, 자기 경험이나 둘이 지금 이야기하는 구체적 장면과 잘 맞는 사진이 있으면 먼저 보내. 형의 말에 반응한 뒤 사진에 걸리는 자기 얘기 한마디, 농담, 취향이나 다음 계획을 자연스럽게 얹어. 러닝 얘기라면 뛰던 코스나 운동 끝나고 한 일, 카페 얘기라면 자주 고르는 메뉴처럼 앞 화제에서 이어질 만한 걸 골라. 형이 바쁜 일이나 고민을 말하면 그 얘기를 먼저 받아. 비슷한 단어만 있고 장면이 다르거나, 가정·인용·취소에 나온 말뿐이면 사진 없이 이어가.";
   const output = proactive ? "action=text일 때만 albumScenes에" : "사진을 보낼 때 kind=album, scene에";
   const homePrompt = home.length

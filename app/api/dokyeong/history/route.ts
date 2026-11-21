@@ -61,12 +61,14 @@ export async function POST(request: NextRequest) {
     }));
     if (body.replyTo !== undefined) {
       const reply = messages.find((message: {id:string}) => message.id === body.replyTo);
+      const hasAttachment = reply?.image?.dataUrl.startsWith("data:") === true;
       if (body.action !== "append" || !isStandaloneJiwoo(body.characterId) ||
           typeof body.replyTo !== "string" || !uuid.test(body.replyTo) || reply?.role !== "user" ||
-          reply.image || !reply.content.trim() || reply.content.length > 1500) {
+          (reply.image && !hasAttachment) ||
+          (!reply.content.trim() && !hasAttachment) || reply.content.length > 1500) {
         return Response.json({ error: "문자 답장 요청을 확인해 줘." }, { status: 400, headers: noStore });
       }
-      if (requestsIncomingCall(reply.content)) {
+      if (!hasAttachment && requestsIncomingCall(reply.content)) {
         const { incoming_call_id: callId, ...saved } = await rpc<Record<string, unknown> & {incoming_call_id?: string}>("live_request_jiwoo_call", {
           server_token: process.env.CHARACTER_HISTORY_KEY,
           expected_epoch: body.epoch,
