@@ -55,12 +55,15 @@ test('sleep cues distinguish past events and denial from current intent',()=>{
  for(const value of ['이제 잘게','수면제 먹었어','지금 자려고 누웠어'])assert.equal(sleepIntent(value),true,value);
 });
 
-import {parseJiwooUserMessage,formatJiwooUserMessage,jiwooSceneSystemPrompt} from '../lib/dokyeong/character-modes.ts';
+import {parseJiwooUserMessage,formatJiwooUserMessage,jiwooSceneSystemPrompt,jiwooSpokenText} from '../lib/dokyeong/character-modes.ts';
 test('asterisk scenes are canonical scene events and never spoken dialogue',()=>{
  const parts=parseJiwooUserMessage('*지우가 침대에서 일어나 옆자리에 앉는다* 오늘 일찍 왔네? *도혁이 말없이 고개를 끄덕인다*');
  assert.deepEqual(parts,[{kind:'지문',text:'지우가 침대에서 일어나 옆자리에 앉는다'},{kind:'대사',text:'오늘 일찍 왔네?'},{kind:'지문',text:'도혁이 말없이 고개를 끄덕인다'}]);
  assert.deepEqual(parseJiwooUserMessage('*말없이 지우를 안는다*'),[{kind:'지문',text:'말없이 지우를 안는다'}]);
  assert.equal(formatJiwooUserMessage('오늘 어때?'),'오늘 어때?');
+ assert.equal(jiwooSpokenText('*지우가 새 사진을 찍어서 보낸다*'),'');
+ assert.equal(wantsPhoto(jiwooSpokenText('*지우가 새 사진을 찍어서 보낸다*')),false);
+ assert.equal(jiwooSpokenText('*지우가 앉는다* 셀카 새로 찍어서 보내줘'),'셀카 새로 찍어서 보내줘');
  assert.equal(formatJiwooUserMessage('4*5는 20'), '4*5는 20');
  const scene=jiwooSceneSystemPrompt([{role:'assistant',content:'왜?'},{role:'user',content:'*지우가 침대에서 일어난다*'}]);
  assert.match(scene,/장면 상태/);assert.match(scene,/이미 성립한/);assert.match(scene,/지우가 침대에서 일어난다/);
