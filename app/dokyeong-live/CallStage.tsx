@@ -112,7 +112,7 @@ export default function CallStage(props: Props) {
           <button type="button" aria-pressed={videoChoice === "default"} onClick={() => selectVideo("default")}>기본 영상</button>
           {props.alternateVideoSource && <button type="button" aria-pressed={videoChoice === "alternate"} onClick={() => selectVideo("alternate")}>첨부 영상</button>}
           {props.completedVideoSource && <button type="button" aria-pressed={videoChoice === "complete"} onClick={() => selectVideo("complete")}>영통완성</button>}
-        </div>
+        </div>}
         <div className={styles.callStageActions}>
           <button type="button" className={styles.callStageControl} onClick={props.onToggleVoice} aria-pressed={props.voice} aria-label="상대 음성">
             <span>{props.voice ? <Volume2 /> : <VolumeX />}</span><small>지우 소리</small>
