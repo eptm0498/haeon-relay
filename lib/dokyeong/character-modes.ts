@@ -27,6 +27,10 @@ export function parseJiwooUserMessage(content: string) {
   return parts;
 }
 
+export function jiwooSpokenText(content: string) {
+  return parseJiwooUserMessage(content).filter(part => part.kind === "대사").map(part => part.text).join(" ");
+}
+
 export function formatJiwooUserMessage(content: string) {
   const parts = parseJiwooUserMessage(content);
   return parts.some(part => part.kind === "지문")
