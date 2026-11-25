@@ -70,9 +70,9 @@ test('asterisk scenes are canonical scene events and never spoken dialogue',()=>
  assert.equal(jiwooSceneSystemPrompt([{role:'user',content:'*지우가 일어난다*'},{role:'assistant',content:'응'}]),'');
 });
 test('fresh photo is generated while ordinary album requests stay eligible for reuse',()=>{
- for(const value of ['지금 새로 셀카 찍어서 보내줘','사진 생성해서 보내줘','지금 찍어서 보내줘','방금처럼 다시 찍어줘']){
+ for(const value of ['지금 새로 셀카 찍어서 보내줘','사진 찍어줘','셀카 찍어줘','한 장 찍어줘','사진 생성해서 보내줘','지금 찍어서 보내줘','방금처럼 다시 찍어줘']){
   assert.equal(wantsFreshPhoto(value),true,value);assert.equal(wantsPhoto(value),true,value);
  }
- for(const value of ['사진 보여줘','예전에 찍은 사진 보여줘','그 사진 다시 보여줘','사진 찍지 마','사진 얘기한 거야'])assert.equal(wantsFreshPhoto(value),false,value);
+ for(const value of ['사진 보여줘','예전에 찍은 사진 보여줘','지금 예전에 찍은 사진 보내줘','그 사진 다시 보여줘','사진 찍지 마','사진 얘기한 거야'])assert.equal(wantsFreshPhoto(value),false,value);
  assert.equal(wantsPhoto('지금 찍어서 보내줘'),true);
 });
