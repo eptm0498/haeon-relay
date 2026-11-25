@@ -421,6 +421,38 @@ test('Jiwoo continues the previous visual monologue while the caller remains sil
   assert.equal((await f.pending).status,502);
 });
 
+test('Jiwoo video calls deliver exactly one short sentence; audio-only calls retain natural length', { timeout: 3000 }, async () => {
+  const answer='형, 방금 손 흔들었지? 나도 봤어. 오늘 기분 좋은가 보네!';
+  for (const videoCall of [true, false]) {
+    const f=fixture({standaloneJiwoo:true,realtime:true,videoCall,wantVoice:false});
+    await tick();f.contextReady();await tick();
+    const prompt=f.modelBody.systemInstruction.parts[0].text;
+    if (videoCall) assert.match(prompt,/답변은 반드시 짧은 한 문장만/);
+    else assert.doesNotMatch(prompt,/답변은 반드시 짧은 한 문장만/);
+    f.gates.headers.resolve(new Response(f.upstream));
+    const response=await f.pending;
+    f.frame(answer);f.input.close();
+    const events=(await response.text()).trim().split('\n').map(JSON.parse);
+    const spoken=events.find(e=>e.type==='done').text;
+    assert.equal(spoken,videoCall?'형, 방금 손 흔들었지?':answer);
+    assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),spoken);
+  }
+});
+
+test('Jiwoo video calls clip an unusually long unpunctuated model line', { timeout: 3000 }, async () => {
+  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,wantVoice:false});
+  await tick();f.contextReady();await tick();
+  f.gates.headers.resolve(new Response(f.upstream));
+  const response=await f.pending;
+  f.frame('형이 이렇게 가만히 있고 웃는 걸 보니까 나도 한참 얘기하고 싶어서 자꾸 더 길게 얘기하게 되는데 그래도 한마디씩만 할게 그리고 이건 너무 길어서 안 들려줘야 하는 부분이야');
+  f.input.close();
+  const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  const spoken=events.find(e=>e.type==='done').text;
+  assert.ok(Array.from(spoken).length<=55,spoken);
+  assert.ok(spoken.endsWith('…'),spoken);
+  assert.doesNotMatch(spoken,/안 들려줘야 하는 부분/);
+});
+
 test('Jiwoo call options exclude chat-only photos, and no scene selection keeps the displayed photo', { timeout: 3000 }, async () => {
  const photos=[
   {id:'chat',situation:'앨범 전용 계곡',tags:['계곡'],useFor:'chat'},
