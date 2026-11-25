@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
-execFileSync(process.execPath,['--test','tests/companion.test.mjs','tests/jiwoo-photo-route.test.mjs'],{stdio:'inherit'});
+execFileSync(process.execPath,['--test','tests/companion.test.mjs','tests/jiwoo-photo-route.test.mjs','tests/visual-monologue.test.mjs'],{stdio:'inherit'});
 
 // Verify the real text-to-photo decision without generating images or writing
 // synthetic messages, leases or notifications into any user's conversation.
