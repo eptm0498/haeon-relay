@@ -256,3 +256,11 @@
 .modelTable small{display:block}
 .modelSources{display:flex;flex-wrap:wrap;gap:8px 16px}
 .modelSources a{color:#e8da83;text-underline-offset:2px}
+
+/* Local camera is explicitly opt-in. Keep Jiwoo's existing video as the main view. */
+.callSelfPreview{position:absolute;z-index:3;right:max(12px,env(safe-area-inset-right));top:max(86px,calc(env(safe-area-inset-top) + 62px));width:clamp(83px,24vw,112px);aspect-ratio:3 / 4;overflow:hidden;border-radius:13px;border:1px solid #ffffff88;background:#10151b;box-shadow:0 3px 16px #0009;pointer-events:none}
+.callSelfPreview video{display:block;width:100%;height:100%;object-fit:cover}
+.callSelfPreview video[data-facing="user"]{transform:scaleX(-1)}
+.callSelfPreview span{position:absolute;bottom:0;left:0;right:0;background:#10151bc7;padding:5px 2px;font-size:9px;text-align:center;color:#fff}
+.callStageActions{flex-wrap:wrap;row-gap:12px;max-width:100%}
+@media(max-width:390px){.callStageActions{gap:8px}.callStageControl{min-width:44px}.callStageControl span{width:44px;height:44px}.callStageControl small{font-size:10px}}

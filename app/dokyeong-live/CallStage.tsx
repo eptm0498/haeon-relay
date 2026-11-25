@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Mic, PhoneOff, Video, VideoOff, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { Camera, CameraOff, SwitchCamera, Mic, PhoneOff, Video, VideoOff, Volume2, VolumeX } from "lucide-react";
 import CharacterAvatar from "./CharacterAvatar";
 import styles from "./live.module.css";
 
@@ -13,6 +13,13 @@ type Props = {
   alternateVideoSource?: string;
   videoOn: boolean;
   onVideoChange: (on: boolean) => void;
+  cameraStream?: MediaStream | null;
+  cameraPreviewRef?: RefObject<HTMLVideoElement | null>;
+  cameraFacing?: "user" | "environment";
+  cameraBusy?: boolean;
+  cameraError?: string;
+  onCameraToggle?: () => void;
+  onCameraFlip?: () => void;
   status: string;
   responseDelayMs: number | null;
   error: string;
@@ -45,6 +52,13 @@ export default function CallStage(props: Props) {
   }, [loaded, previous]);
   const layers = props.scene ? [...new Set([previous, loaded, props.scene].filter((src): src is string => !!src))] : [];
 
+  useEffect(() => {
+    const preview = props.cameraPreviewRef?.current;
+    if (!preview) return;
+    preview.srcObject = props.cameraStream ?? null;
+    if (props.cameraStream) void preview.play().catch(() => {});
+  }, [props.cameraStream, props.cameraPreviewRef]);
+
   function selectVideo(alternate: boolean) {
     setUseAlternateVideo(alternate);
     setVideoError(null);
@@ -68,6 +82,10 @@ export default function CallStage(props: Props) {
           setVideoError(useAlternateVideo ? "alternate" : "default");
           setUseAlternateVideo(false);
         }} />}
+      {props.cameraStream && <div className={styles.callSelfPreview} aria-label="내 카메라 미리보기">
+        <video ref={props.cameraPreviewRef} autoPlay muted playsInline data-facing={props.cameraFacing ?? "user"} />
+        <span>내 카메라 · AI 인식 중</span>
+      </div>}
     </div>
     <div className={styles.callStageContent}>
       <header className={styles.callStageHeader}>
@@ -79,6 +97,7 @@ export default function CallStage(props: Props) {
         {videoOn && videoError && <p className={styles.callStageNotice} role="status">
           {videoError === "alternate" ? "첨부 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : "배경 영상을 불러오지 못했어. 통화는 계속돼."}
         </p>}
+        {props.cameraError && <p className={styles.callStageNotice} role="alert">{props.cameraError}</p>}
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
         {props.paused && <p className={styles.callStageNotice}>이어서 통화하려면 마이크 버튼을 눌러 줘.</p>}
         {videoOn && props.alternateVideoSource && <div className={styles.callVideoSwitch} role="group" aria-label="재생 영상 선택">
@@ -93,6 +112,16 @@ export default function CallStage(props: Props) {
             onClick={() => { selectVideo(false); onVideoChange(!videoOn); }}
             aria-label={videoOn ? "음성 통화로 전환" : "영상 통화로 전환"}>
             <span>{videoOn ? <VideoOff /> : <Video />}</span><small>{videoOn ? "영상 끄기" : "영상"}</small>
+          </button>}
+          {props.onCameraToggle && <button type="button" className={styles.callStageControl}
+            onClick={props.onCameraToggle} disabled={props.cameraBusy || props.paused}
+            aria-pressed={!!props.cameraStream} aria-label={props.cameraStream ? "내 카메라 끄기" : "내 카메라 켜기"}>
+            <span>{props.cameraStream ? <Camera /> : <CameraOff />}</span>
+            <small>{props.cameraBusy ? "연결 중" : props.cameraStream ? "내 카메라 끄기" : "내 카메라"}</small>
+          </button>}
+          {props.cameraStream && props.onCameraFlip && <button type="button" className={styles.callStageControl}
+            onClick={props.onCameraFlip} disabled={props.cameraBusy || props.paused} aria-label="전후면 카메라 전환">
+            <span><SwitchCamera /></span><small>전후면</small>
           </button>}
           {props.paused && <button type="button" className={styles.callStageControl} onClick={props.onResume} disabled={props.reconnecting} aria-label="통화 재개">
             <span><Mic /></span><small>{props.reconnecting ? "연결 중" : "재개"}</small>

@@ -9,6 +9,7 @@ import LiveModelEditor from "./LiveModelEditor";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
+import { useCallCamera } from "./useCallCamera";
 import IncomingCallScreen from "./IncomingCallScreen";
 import { resolveIncomingCall, useIncomingCall } from "./useIncomingCall";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
@@ -217,6 +218,9 @@ export default function DokyeongLive() {
   const [callEndedBy, setCallEndedBy] = useState<string | null>(null);
   const [videoOn, setVideoOn] = useState(false);
   const videoOnRef = useRef(false);
+  const camera = useCallCamera();
+  const lastVisualSignature = useRef<number[] | null>(null);
+  const lastVisualRequestAt = useRef(0);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const startingCallRef = useRef(false);
@@ -422,11 +426,13 @@ export default function DokyeongLive() {
     callAttempt.current++;
     startingCallRef.current = false;
     videoOnRef.current = false; setVideoOn(false);
+    camera.stop();
+    lastVisualSignature.current = null;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     chatModeRef.current = "text"; setChatMode("text");
     setMode("off");
-  }, [interrupt, closeMic, releaseWakeLock]);
+  }, [interrupt, closeMic, releaseWakeLock, camera.stop]);
   const changeJiwooPhoto = useCallback((id: string | null) => {
     if (!running.current || !isStandaloneJiwoo(characterIdRef.current)) return;
     if (id && callPhotoRef.current === id) return;
@@ -543,12 +549,12 @@ export default function DokyeongLive() {
     });
   }
 
-  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number) {
+  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number, visualOnly = false) {
     const requestCharacterId = characterIdRef.current;
     const realtime = chatModeRef.current === "voice";
     const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
     const text = userText.trim().slice(0, 1500);
-    if (!text && !image && !openingCallId) { if (running.current) setMode("listening"); return; }
+    if (!text && !image && !openingCallId && !visualOnly) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
     const editSource=editImageRef.current;editImageRef.current=undefined;
     interrupt(); const turn = generation.current;
@@ -557,8 +563,8 @@ export default function DokyeongLive() {
       if (turn === generation.current) setLatency(Math.round(performance.now() - start + bufferDelayMs));
     };
     const incoming = { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image };
-    const conversation = openingCallId ? [...messageRef.current] : [...messageRef.current, incoming];
-    if (!openingCallId) setHistory(conversation, jiwooText ? incoming.id : undefined);
+    const conversation = openingCallId || visualOnly ? [...messageRef.current] : [...messageRef.current, incoming];
+    if (!openingCallId && !visualOnly) setHistory(conversation, jiwooText ? incoming.id : undefined);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -624,14 +630,20 @@ export default function DokyeongLive() {
     };
 
     try {
-      if (!openingCallId) await sharedHistory.synchronize();
+      if (!openingCallId && !visualOnly) await sharedHistory.synchronize();
       if (jiwooText || controller.signal.aborted) return;
+      const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) ? camera.getFrames() : [];
+      if (visualOnly && !cameraFrames.length) return;
+      if (cameraFrames.length) {
+        lastVisualSignature.current = camera.getSignature();
+        lastVisualRequestAt.current = Date.now();
+      }
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: conversation.slice(-24).map((m, index, arr) => {
+          messages: conversation.slice(visualOnly ? -23 : -24).map((m, index, arr) => {
             return {
               role: m.role,
               content: m.content || (m.image ? "[사진을 보냈어]" : ""),
@@ -643,7 +655,9 @@ export default function DokyeongLive() {
           voice: realtime && voice,
           realtime,
           speechTranscript: speechEndedAt !== undefined,
-          videoCall: realtime && videoOnRef.current,
+          videoCall: realtime && (videoOnRef.current || cameraFrames.length > 0),
+          cameraFrames,
+          visualOnly,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
           openingCallId,
@@ -786,6 +800,34 @@ export default function DokyeongLive() {
       }
     }
   }
+
+  // A large camera scene change can prompt Jiwoo to comment without waiting for speech.
+  // Visual observations are ephemeral and never inserted as fake user chat messages.
+  useEffect(() => {
+    if (!camera.stream || !standaloneJiwoo) {
+      lastVisualSignature.current = null;
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (!running.current || document.hidden || !historyReady || phaseRef.current !== "listening" ||
+          recordingRef.current || pendingEndRef.current || transcriptionRef.current) return;
+      const next = camera.getSignature();
+      if (!next) return;
+      const previous = lastVisualSignature.current;
+      if (!previous || previous.length !== next.length) {
+        lastVisualSignature.current = next.slice();
+        return;
+      }
+      if (Date.now() - lastVisualRequestAt.current < 45_000 ||
+          performance.now() - lastInputAtRef.current < 14_000) return;
+      const difference = next.reduce((total, value, index) => total + Math.abs(value - previous[index]), 0) / next.length;
+      if (difference < 30 || !camera.getFrames().length) return;
+      lastVisualSignature.current = next.slice();
+      lastVisualRequestAt.current = Date.now();
+      void reply("", undefined, undefined, undefined, true);
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, [camera.stream, camera.getSignature, camera.getFrames, standaloneJiwoo, historyReady]);
 
   async function onSpeech(blob: Blob) {
     if (!running.current || blob.size < 1000) return;
@@ -1538,6 +1580,11 @@ export default function DokyeongLive() {
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
         alternateVideoSource={standaloneJiwoo ? `${API}/call-video?scene=intimate` : undefined}
         videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
+        cameraStream={standaloneJiwoo ? camera.stream : null}
+        cameraPreviewRef={camera.previewRef} cameraFacing={camera.facing}
+        cameraBusy={camera.busy} cameraError={camera.error}
+        onCameraToggle={standaloneJiwoo ? camera.toggle : undefined}
+        onCameraFlip={standaloneJiwoo ? camera.flip : undefined}
         status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         responseDelayMs={latency}
         voice={voice}
