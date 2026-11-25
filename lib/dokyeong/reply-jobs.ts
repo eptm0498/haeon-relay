@@ -1,7 +1,7 @@
 import {projectReply} from './project-reply';
 import {projectContext} from './project-context';
 import {dialogueOnly,isProjectCharacter} from './project-dialogue';
-import {isStandaloneJiwoo,JIWOO_STYLE_PROMPT,JIWOO_TEXT_CHAT_PROMPT} from './character-modes';
+import {isStandaloneJiwoo,JIWOO_STYLE_PROMPT,JIWOO_TEXT_CHAT_PROMPT,jiwooSceneSystemPrompt} from './character-modes';
 import {serverRpc,transcript,updateMemory,type StoredMessage} from './memory';
 import {readLiveCharacter} from './characters';
 import {geminiJson} from './gemini-json';
@@ -12,7 +12,7 @@ import {incomingCallContext} from './incoming-call';
 import {readJiwooPreferences} from './jiwoo-settings';
 import {currentTimeContext} from './time-context';
 import {relatedSampleContext} from './samples';
-import {declinesPhoto,photoIntentContext,photoFallbackAllowed,photoReplyDeclines,photoRequestPrompt,wantsPhoto} from './photo-intent';
+import {declinesPhoto,photoIntentContext,photoFallbackAllowed,photoReplyDeclines,photoRequestPrompt,wantsPhoto,wantsFreshPhoto} from './photo-intent';
 import {readCallPhotos} from './call-photos';
 import {albumReplyPrompt,chooseAlbumPhoto,homeAlbumPhotos,matchingAlbumPhotos,recentAlbumContext} from './jiwoo-album';
 import {jiwooHandoffContext} from './jiwoo-handoff';
@@ -39,8 +39,10 @@ export async function prepareReply(id?:string){
   const { recentPhotos, consecutivePhoto, recentMessages }=recentAlbumContext(messages,now);
   const hasAttachment=!!(job.payload.attachedPhotoId||job.payload.messages?.at(-1)?.image);
   const asksForAnotherImage=!hasAttachment||/(?:만들어|생성해|그려|수정해|바꿔|(?:보내|보여)\s*(?:줘|주라|줄래|주세요))/u.test(latest);
-  const photoRequested=jiwoo&&job.kind==='reply'&&asksForAnotherImage&&wantsPhoto(latest,photoIntentContext(messages));
-  const canSendAlbum=jiwoo&&job.kind==='reply'&&(photoRequested||
+  const photoContext=photoIntentContext(messages);
+  const photoRequested=jiwoo&&job.kind==='reply'&&asksForAnotherImage&&wantsPhoto(latest,photoContext);
+  const freshPhotoRequested=photoRequested&&wantsFreshPhoto(latest,photoContext);
+  const canSendAlbum=jiwoo&&job.kind==='reply'&&!freshPhotoRequested&&(photoRequested||
     (!hasAttachment&&!consecutivePhoto&&recentMessages.length>0&&!declinesPhoto(latest)&&!urgentMessage(latest)));
   const [samples, preferences, callContext, photos, handoffContext, attachment]=await Promise.all([
     relatedSampleContext(messages.slice(-16),character.id,character.name),
@@ -74,7 +76,7 @@ export async function prepareReply(id?:string){
   const generationPrompt = canGenerate ? photoRequestPrompt(character.name)+
     "\n[GPT 이미지 생성] 형이 실제로 사진을 요청했고 사진첩에 맞는 사진이 없으면 kind=photo, scene에 확정된 장소·인물·복장·구도를 적어. 장면의 본래 의미를 유지해. 이때 text에는 생성 처리가 끝나지 않을 때만 보낼 일반 대사를 써. 사진 전송이나 기다리라는 약속 없이 현재 화제의 다른 면에 짧게 답해. 이미지 요청을 처리할 수 없는 경우에는 kind=reply로 자연스럽게 현재 대화를 이어가.\n" : "";
   const jiwooContext=preferences?JIWOO_TEXT_CHAT_PROMPT+jiwooScheduleContext(now,preferences)+(preferences.chatPrompt?`\n[지우 문자 채팅 추가 지침]\n${preferences.chatPrompt}\n`:''):'';
-  const prompt=character.prompt+sleep+samples+project+(jiwoo?"":photoRequestPrompt(character.name))+(linked?"":currentTimeContext(now,job.character_id))+jiwooContext+callContext+(jiwoo?JIWOO_STYLE_PROMPT:"")+(jiwoo&&job.kind==='reply' ? "\n문자 답장은 지금 보내. delaySeconds는 0으로 해.\n" : timingPrompt)+`\n[누적 기억]\n${job.context.memory||'(없음)'}\n[최근 대화의 실제 시각]\n${transcript(messages,job.character_id)}\n[캐릭터의 행동]\n${job.activity?.reason||'(정해진 행동 없음)'}; 완료 예정 ${job.activity?.until||'(없음)'}\n[이번 연락 종류]\n${job.kind==='return'?'약속한 행동이 끝나서 돌아오는 연락':'사용자가 보낸 최근 메시지들에 답장'}\n${photoPrompt} 보통 반말 1~3문장, 500자 이내.`;
+  const prompt=character.prompt+sleep+samples+project+(jiwoo?"":photoRequestPrompt(character.name))+(linked?"":currentTimeContext(now,job.character_id))+jiwooContext+callContext+(jiwoo?JIWOO_STYLE_PROMPT:"")+(jiwoo&&job.kind==='reply' ? "\n문자 답장은 지금 보내. delaySeconds는 0으로 해.\n" : timingPrompt)+`\n[누적 기억]\n${job.context.memory||'(없음)'}\n[최근 대화의 실제 시각]\n${transcript(messages,job.character_id)}\n[캐릭터의 행동]\n${job.activity?.reason||'(정해진 행동 없음)'}; 완료 예정 ${job.activity?.until||'(없음)'}\n[이번 연락 종류]\n${job.kind==='return'?'약속한 행동이 끝나서 돌아오는 연락':'사용자가 보낸 최근 메시지들에 답장'}\n${photoPrompt}${jiwoo?jiwooSceneSystemPrompt(messages):''}${freshPhotoRequested?'\n[새 사진 우선] 형이 새로 찍거나 생성한 사진을 명시적으로 요청했어. 기존 사진첩 선택(kind=album)을 하지 말고, 가능한 사진이면 GPT 생성용 kind=photo를 반환해.\n':''} 보통 반말 1~3문장, 500자 이내.`;
   const {textModel:model}=await liveModelOverrides();
   const kinds=jiwoo?['reply','skip',...(canCall?['call']:[]),...(album.scenes.length||album.home.length?['album']:[]),...(canGenerate?['photo']:[])]:['reply','photo','skip'];
   const result=await geminiJson<Draft>(prompt+handoffContext+attachmentPrompt+generationPrompt,{type:'OBJECT',properties:{kind:{type:'STRING',enum:kinds},text:{type:'STRING'},scene:{type:'STRING'},delaySeconds:{type:'INTEGER'},awaySeconds:{type:'INTEGER'},activity:{type:'STRING'}},required:['kind','text','scene','delaySeconds','awaySeconds','activity']},undefined,incomingImage,{model,temperature:samples?0.85:undefined});
@@ -85,6 +87,7 @@ export async function prepareReply(id?:string){
   }
   if(typeof result.text!=='string'||!result.text.trim())throw Error('Invalid reply');
   if(declinesPhoto(latest)||(!(jiwoo&&result.kind==='photo')&&photoReplyDeclines(result.text)))result.kind='reply';
+  if(freshPhotoRequested&&result.kind==='album')result.kind='photo';
   if(!jiwoo&&job.kind==='reply'&&result.kind!=='photo'&&photoFallbackAllowed(latest,result.text,photoIntentContext(messages))){
    result.kind='photo';
    result.text=character.name==='온유'?'도혁아, 잠깐만 기다려. 사진 찍어서 보내줄게.':'잠깐만, 사진 찍어서 보내줄게.';
