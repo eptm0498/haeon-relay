@@ -1,7 +1,7 @@
 import {projectReply} from './project-reply';
 import {projectContext} from './project-context';
 import {dialogueOnly,isProjectCharacter} from './project-dialogue';
-import {isStandaloneJiwoo,JIWOO_STYLE_PROMPT,JIWOO_TEXT_CHAT_PROMPT,jiwooSceneSystemPrompt} from './character-modes';
+import {isStandaloneJiwoo,JIWOO_STYLE_PROMPT,JIWOO_TEXT_CHAT_PROMPT,jiwooSceneSystemPrompt,jiwooSpokenText} from './character-modes';
 import {serverRpc,transcript,updateMemory,type StoredMessage} from './memory';
 import {readLiveCharacter} from './characters';
 import {geminiJson} from './gemini-json';
@@ -40,8 +40,9 @@ export async function prepareReply(id?:string){
   const hasAttachment=!!(job.payload.attachedPhotoId||job.payload.messages?.at(-1)?.image);
   const asksForAnotherImage=!hasAttachment||/(?:만들어|생성해|그려|수정해|바꿔|(?:보내|보여)\s*(?:줘|주라|줄래|주세요))/u.test(latest);
   const photoContext=photoIntentContext(messages);
-  const photoRequested=jiwoo&&job.kind==='reply'&&asksForAnotherImage&&wantsPhoto(latest,photoContext);
-  const freshPhotoRequested=photoRequested&&wantsFreshPhoto(latest,photoContext);
+  const spokenLatest=jiwoo?jiwooSpokenText(latest):latest;
+  const photoRequested=jiwoo&&job.kind==='reply'&&asksForAnotherImage&&wantsPhoto(spokenLatest,photoContext);
+  const freshPhotoRequested=photoRequested&&wantsFreshPhoto(spokenLatest,photoContext);
   const canSendAlbum=jiwoo&&job.kind==='reply'&&!freshPhotoRequested&&(photoRequested||
     (!hasAttachment&&!consecutivePhoto&&recentMessages.length>0&&!declinesPhoto(latest)&&!urgentMessage(latest)));
   const [samples, preferences, callContext, photos, handoffContext, attachment]=await Promise.all([
@@ -88,6 +89,7 @@ export async function prepareReply(id?:string){
   if(typeof result.text!=='string'||!result.text.trim())throw Error('Invalid reply');
   if(declinesPhoto(latest)||(!(jiwoo&&result.kind==='photo')&&photoReplyDeclines(result.text)))result.kind='reply';
   if(freshPhotoRequested&&result.kind==='album')result.kind='photo';
+  if(freshPhotoRequested&&result.kind==='reply'&&photoFallbackAllowed(spokenLatest,result.text,photoContext)) result.kind='photo';
   if(!jiwoo&&job.kind==='reply'&&result.kind!=='photo'&&photoFallbackAllowed(latest,result.text,photoIntentContext(messages))){
    result.kind='photo';
    result.text=character.name==='온유'?'도혁아, 잠깐만 기다려. 사진 찍어서 보내줄게.':'잠깐만, 사진 찍어서 보내줄게.';
