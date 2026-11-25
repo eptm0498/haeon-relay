@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed,photoRequestPrompt,DURI_ORDINARY_PHOTO_PREFERENCE} from '../lib/dokyeong/photo-intent.ts';
+import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed,photoRequestPrompt,DURI_ORDINARY_PHOTO_PREFERENCE,wantsFreshPhoto} from '../lib/dokyeong/photo-intent.ts';
 import {parsePhotoCall} from '../lib/dokyeong/photo-tool.ts';
 import {koreaTime} from '../lib/dokyeong/time-context.ts';
 import {validSubscription} from '../lib/dokyeong/push-subscription.ts';
@@ -53,4 +53,23 @@ test('a first or repeated request cannot force a photo over a current refusal',(
 test('sleep cues distinguish past events and denial from current intent',()=>{
  for(const value of ['어제 자려고 했는데 잠이 안 왔어','자려고 한 게 아니야','수면제 안 먹었어'])assert.equal(sleepIntent(value),false,value);
  for(const value of ['이제 잘게','수면제 먹었어','지금 자려고 누웠어'])assert.equal(sleepIntent(value),true,value);
+});
+
+import {parseJiwooUserMessage,formatJiwooUserMessage,jiwooSceneSystemPrompt} from '../lib/dokyeong/character-modes.ts';
+test('asterisk scenes are canonical scene events and never spoken dialogue',()=>{
+ const parts=parseJiwooUserMessage('*지우가 침대에서 일어나 옆자리에 앉는다* 오늘 일찍 왔네? *도혁이 말없이 고개를 끄덕인다*');
+ assert.deepEqual(parts,[{kind:'지문',text:'지우가 침대에서 일어나 옆자리에 앉는다'},{kind:'대사',text:'오늘 일찍 왔네?'},{kind:'지문',text:'도혁이 말없이 고개를 끄덕인다'}]);
+ assert.deepEqual(parseJiwooUserMessage('*말없이 지우를 안는다*'),[{kind:'지문',text:'말없이 지우를 안는다'}]);
+ assert.equal(formatJiwooUserMessage('오늘 어때?'),'오늘 어때?');
+ assert.equal(formatJiwooUserMessage('4*5는 20'), '4*5는 20');
+ const scene=jiwooSceneSystemPrompt([{role:'assistant',content:'왜?'},{role:'user',content:'*지우가 침대에서 일어난다*'}]);
+ assert.match(scene,/장면 상태/);assert.match(scene,/이미 성립한/);assert.match(scene,/지우가 침대에서 일어난다/);
+ assert.equal(jiwooSceneSystemPrompt([{role:'user',content:'*지우가 일어난다*'},{role:'assistant',content:'응'}]),'');
+});
+test('fresh photo is generated while ordinary album requests stay eligible for reuse',()=>{
+ for(const value of ['지금 새로 셀카 찍어서 보내줘','사진 생성해서 보내줘','지금 찍어서 보내줘','방금처럼 다시 찍어줘']){
+  assert.equal(wantsFreshPhoto(value),true,value);assert.equal(wantsPhoto(value),true,value);
+ }
+ for(const value of ['사진 보여줘','예전에 찍은 사진 보여줘','그 사진 다시 보여줘','사진 찍지 마','사진 얘기한 거야'])assert.equal(wantsFreshPhoto(value),false,value);
+ assert.equal(wantsPhoto('지금 찍어서 보내줘'),true);
 });
