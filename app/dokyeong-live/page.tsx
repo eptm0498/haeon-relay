@@ -219,7 +219,7 @@ export default function DokyeongLive() {
   const [videoOn, setVideoOn] = useState(false);
   const videoOnRef = useRef(false);
   const camera = useCallCamera();
-  const lastVisualSignature = useRef<number[] | null>(null);
+  const lastVisualReactedMotionAt = useRef(0);
   const lastVisualRequestAt = useRef(0);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
@@ -427,7 +427,8 @@ export default function DokyeongLive() {
     startingCallRef.current = false;
     videoOnRef.current = false; setVideoOn(false);
     camera.stop();
-    lastVisualSignature.current = null;
+    lastVisualReactedMotionAt.current = 0;
+    lastVisualRequestAt.current = 0;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     chatModeRef.current = "text"; setChatMode("text");
@@ -635,7 +636,7 @@ export default function DokyeongLive() {
       const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) ? camera.getFrames() : [];
       if (visualOnly && !cameraFrames.length) return;
       if (cameraFrames.length) {
-        lastVisualSignature.current = camera.getSignature();
+        lastVisualReactedMotionAt.current = camera.getMotion()?.at ?? Date.now();
         lastVisualRequestAt.current = Date.now();
       }
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
@@ -801,33 +802,29 @@ export default function DokyeongLive() {
     }
   }
 
-  // A large camera scene change can prompt Jiwoo to comment without waiting for speech.
-  // Visual observations are ephemeral and never inserted as fake user chat messages.
+  // Track actual short-lived frame-to-frame motion, not just a major scene change.
+  // Responses respect the ongoing conversation and never store camera frames.
   useEffect(() => {
     if (!camera.stream || !standaloneJiwoo) {
-      lastVisualSignature.current = null;
+      lastVisualReactedMotionAt.current = 0;
+      lastVisualRequestAt.current = 0;
       return;
     }
     const timer = window.setInterval(() => {
       if (!running.current || document.hidden || !historyReady || phaseRef.current !== "listening" ||
           recordingRef.current || pendingEndRef.current || transcriptionRef.current) return;
-      const next = camera.getSignature();
-      if (!next) return;
-      const previous = lastVisualSignature.current;
-      if (!previous || previous.length !== next.length) {
-        lastVisualSignature.current = next.slice();
-        return;
-      }
-      if (Date.now() - lastVisualRequestAt.current < 45_000 ||
-          performance.now() - lastInputAtRef.current < 14_000) return;
-      const difference = next.reduce((total, value, index) => total + Math.abs(value - previous[index]), 0) / next.length;
-      if (difference < 30 || !camera.getFrames().length) return;
-      lastVisualSignature.current = next.slice();
+      const motion = camera.getMotion();
+      if (!motion || motion.at <= lastVisualReactedMotionAt.current) return;
+      // Prevent interruption and repetitive unsolicited talk during ordinary movement.
+      if (Date.now() - lastVisualRequestAt.current < 20_000 ||
+          performance.now() - lastInputAtRef.current < 5_000 ||
+          camera.getFrames().length < 2) return;
+      lastVisualReactedMotionAt.current = motion.at;
       lastVisualRequestAt.current = Date.now();
       void reply("", undefined, undefined, undefined, true);
-    }, 4500);
+    }, 2000);
     return () => window.clearInterval(timer);
-  }, [camera.stream, camera.getSignature, camera.getFrames, standaloneJiwoo, historyReady]);
+  }, [camera.stream, camera.getMotion, camera.getFrames, standaloneJiwoo, historyReady]);
 
   async function onSpeech(blob: Blob) {
     if (!running.current || blob.size < 1000) return;
