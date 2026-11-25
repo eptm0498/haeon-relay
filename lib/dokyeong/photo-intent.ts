@@ -38,10 +38,22 @@ export function photoRequestPrompt(characterName:string) {
  if(characterName!=='두리')return intent;
  return intent+DURI_ORDINARY_PHOTO_PREFERENCE;
 }
+// A request to take/generate a NEW picture overrides reuse of album pictures.
+// A mere photo mention, refusal, or a description of an old photo is not enough.
+export function wantsFreshPhoto(text: string, context = "") {
+ const value = text.replace(/\s+/g, " ").trim();
+ if (declinesPhoto(value)) return false;
+ const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서)\s*(?:한\s*번\s*)?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
+ const action = /(?:찍어|찍어서|촬영|생성|만들|그려|보내|보여|줘|줄래|주라|주세요)/u.test(value);
+ const picture = /(?:사진|셀카|이미지|포토|촬영|찍|생성)/u.test(value) || /(?:사진|셀카|이미지|찍)/u.test(context);
+ return fresh && action && picture;
+}
+
 // Shared by text and transcribed voice chat. Mentions alone are not requests.
 export function wantsPhoto(text: string, context = "") {
   const value = text.replace(/\s+/g, " ").trim();
   if (declinesPhoto(value)) return false;
+  if (wantsFreshPhoto(value, context)) return true;
   if (ordinaryBodyPhotoRequest(value)) return true;
   if (/(사진|셀카|이미지|그림|포토)/u.test(value) &&
       !/(보내지\s*마|보여주지\s*마|찍지\s*마|만들지\s*마|그리지\s*마|생성하지\s*마|필요\s*없|안\s*보내|안\s*찍|안\s*만들)/u.test(value)) {
