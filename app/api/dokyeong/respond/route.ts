@@ -67,7 +67,7 @@ function normalizeMessages(messages: Message[]) {
       parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
     }
     if (m.role === "user" && m.cameraFrames?.length) {
-      parts.push({ text: "[영상통화 중 형의 카메라에서 방금 캡처한 화면. 순서대로 오래된 프레임, 최신 프레임이야.]" });
+      parts.push({ text: "[형이 직접 켠 영상통화 카메라의 최근 장면들이야. 모든 사진은 시간순으로 이어져 있어. 순서대로 처음, 중간, 마지막 모습이므로 서로 비교해 확인되는 동작만 파악해.]" });
       for (const frame of m.cameraFrames) {
         parts.push({ inlineData: { mimeType: frame.mimeType, data: frame.data } });
       }
@@ -372,7 +372,7 @@ export async function POST(request: NextRequest) {
     };
     if (parsed.cameraFrames !== undefined) {
       if (!realtime || !videoCall || !Array.isArray(parsed.cameraFrames) ||
-          parsed.cameraFrames.length > 2 || !parsed.cameraFrames.every(validImage) ||
+          parsed.cameraFrames.length > 3 || !parsed.cameraFrames.every(validImage) ||
           parsed.cameraFrames.some((frame: MessageImage) => frame.data.length > 190_000)) throw Error();
       cameraFrames = parsed.cameraFrames;
     }
@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
   if (visualOnly) {
     messages = [...messages.slice(-23), {
       role: "user",
-      content: "[영상통화 중 형의 카메라 화면이 바뀌었어. 화면에서 실제로 보이는 변화가 있다면 지우답게 자연스럽게 먼저 말을 걸어.]",
+      content: "[영상통화 중 형의 카메라에서 움직임이 감지됐어. 전달된 연속 화면의 변화를 관찰하고 직전 대화 문맥에 맞는 경우에만 자연스럽게 먼저 말을 걸어.]",
     }];
   }
   if (openingCallId) {
@@ -463,7 +463,7 @@ export async function POST(request: NextRequest) {
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
       ? cameraFrames.length
-        ? "\n[현재 대화 모드: 양방향 영상 통화] 형은 지우의 미리 등록된 영상을 보고 있어. 너에게는 형이 명시적으로 켠 카메라에서 촬영한 최근 정지 프레임이 전달돼. 이미지를 실제로 관찰하고 보이는 옷·표정·자세·물건·주변 공간에 지우답게 반응해. 빠른 동작이나 프레임 사이 일어난 행동은 알 수 없으므로 지어내지 마. 화면을 볼 수 있다는 설명을 매번 반복하거나 무조건 외모를 언급하지 말고 자연스러운 통화에 녹여.\n"
+        ? "\n[현재 대화 모드: 양방향 영상 통화] 형은 지우의 미리 등록된 영상을 보고 있어. 너에게는 형이 직접 켠 카메라에서 시간순으로 촬영된 최근 정지 프레임이 전달돼. 앞·중간·뒤 프레임을 비교해 손짓, 고개 움직임, 자세 변화, 물건을 들어 보이는 행동 등 확인 가능한 움직임을 읽어. 지금 나누는 대화의 맥락과 연결되는 경우에만 지우답게 반응하고, 뜬금없이 외모를 평가하지 마. 프레임 사이의 동작이나 움직임의 의도는 확실히 보이지 않으면 지어내지 마. 카메라가 켜졌다는 설명을 반복하지 말고 실제 연인 통화처럼 자연스럽게 받아쳐.\n"
         : "\n[현재 대화 모드: 영상 통화] 형은 지우의 미리 등록된 반복 영상을 보며 통화 중이지만 형의 카메라 프레임은 전달되지 않았어. 실제로 본 것처럼 말하지 마.\n"
       : "\n[현재 대화 모드: 음성 통화] 형과 음성으로만 통화 중이야. 카메라가 연결되어 있다고 말하지 마. 소리 내어 듣기에 자연스러운 호흡으로 말하고 초성이나 웃음 자음을 읽지 마.\n"
     : "\n[현재 대화 모드: 문자 채팅] 형과 글로 대화 중이야.\n";
@@ -473,7 +473,7 @@ export async function POST(request: NextRequest) {
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
-  const visualPrompt = visualOnly ? "\n[카메라 변화에 대한 자발적 대화] 형이 말하지 않았지만 카메라 화면이 이전과 크게 달라졌어. 실제 보이는 특징이나 변화 하나만 집어서 평소 지우의 말투로 짧게 먼저 말을 걸어. 사진을 찍거나 보관했다고 말하지 마. 질문을 억지로 붙이지 마.\n" : "";
+  const visualPrompt = visualOnly ? "\n[움직임을 보고 먼저 반응] 형이 말하지 않았지만 카메라에서 움직임이 감지됐어. 시간순 화면을 보고 실제로 확인되는 몸짓·자세·물체 변화와 방금까지 이야기한 맥락을 연결해 한두 문장으로 자연스럽게 반응해. 확실히 보이지 않는 행동이나 마음은 단정하지 마. 변화가 불분명하면 특정 동작을 지어내지 말고 간단히 말을 걸어. 모든 움직임마다 기계적으로 질문하거나 외모를 평가하지 마. 사진을 저장했다고 말하지 마.\n" : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
   const hangupPrompt = canEndCall ? `
