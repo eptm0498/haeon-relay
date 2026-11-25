@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -62,7 +62,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -375,6 +375,35 @@ test('Jiwoo distinguishes text, voice and video while keeping the audio transpor
   f.gates.headers.resolve(new Response(null,{status:500}));
   assert.equal((await f.pending).status,502);
  }
+});
+
+test('Jiwoo reads opted-in camera frames without adding them to past chat messages', { timeout: 3000 }, async () => {
+ const cameraFrames = [
+  {mimeType:'image/jpeg',data:'A'.repeat(100)},
+  {mimeType:'image/jpeg',data:'B'.repeat(100)},
+ ];
+ const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames});
+ await tick();f.contextReady();await tick();
+ const prompt=f.modelBody.systemInstruction.parts[0].text;
+ assert.match(prompt,/최근 정지 프레임/);
+ const parts=f.modelBody.contents.at(-1).parts;
+ assert.deepEqual(parts.filter(part=>part.inlineData).map(part=>part.inlineData.data),cameraFrames.map(frame=>frame.data));
+ assert.equal(f.modelBody.contents[0].parts[0].text,'안녕');
+ f.gates.headers.resolve(new Response(null,{status:500}));
+ assert.equal((await f.pending).status,502);
+});
+
+test('Jiwoo can react to a camera scene change without a fabricated persistent user utterance', { timeout: 3000 }, async () => {
+ const cameraFrames=[{mimeType:'image/jpeg',data:'A'.repeat(100)}];
+ const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames,visualOnly:true,
+   messages:[{role:'assistant',content:'그래 형.'}]});
+ await tick();f.contextReady();await tick();
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/자발적 대화/);
+ assert.equal(f.modelBody.contents.at(-1).role,'user');
+ assert.match(f.modelBody.contents.at(-1).parts[0].text,/카메라 화면이 바뀌었어/);
+ assert.equal(f.modelBody.contents.at(-1).parts.filter(part=>part.inlineData).length,1);
+ f.gates.headers.resolve(new Response(null,{status:500}));
+ assert.equal((await f.pending).status,502);
 });
 
 test('Jiwoo call options exclude chat-only photos, and no scene selection keeps the displayed photo', { timeout: 3000 }, async () => {
