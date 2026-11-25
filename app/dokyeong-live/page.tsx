@@ -690,9 +690,9 @@ export default function DokyeongLive() {
     };
 
     try {
-      if (!openingCallId && !visualOnly) await sharedHistory.synchronize();
+      if (!openingCallId && !autonomous) await sharedHistory.synchronize();
       if (jiwooText || controller.signal.aborted) return;
-      const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) ? camera.getFrames() : [];
+      const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) && camera.stream ? camera.getFrames() : [];
       if (visualOnly && !cameraFrames.length) return;
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       // Retain the caller's latest real topic after many autonomous camera-only
@@ -718,8 +718,8 @@ export default function DokyeongLive() {
           voice: realtime && voice,
           realtime,
           speechTranscript: speechEndedAt !== undefined,
-          videoCall: realtime && (videoOnRef.current || cameraFrames.length > 0),
-          cameraFrames,
+          videoCall: realtime && (videoOnRef.current || !!camera.stream),
+          ...(cameraFrames.length ? { cameraFrames } : {}),
           visualOnly,
           visualFollowUp: visualOnly && visualFollowUp,
           audioOnlyMonologue,

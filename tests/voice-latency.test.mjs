@@ -583,3 +583,42 @@ test('normal unmuted voice calls still allow full-sentence multi-line answers', 
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.equal(events.find(e=>e.type==='done').text,'그래 형. 오늘은 좀 얘기해 보자. 알았지?');
 });
+ 
+test('muted audio-only Jiwoo accepts legacy empty cameraFrames and produces streamed speech', {timeout:3000},async()=>{
+  const f=fixture({
+    standaloneJiwoo:true,realtime:true,videoCall:false,
+    microphoneMuted:true,audioOnlyMonologue:true,wantVoice:true,
+    cameraFrames:[],messages:[{role:'assistant',content:'형, 앉아 봐.'}]
+  });
+  await tick();f.contextReady();await tick();
+  assert.equal(f.fetchCalled,true,'audio-only request must reach Gemini');
+  assert.equal(f.sockets.length,1,'TTS socket must be created for voice mode');
+  f.sockets[0].open();
+  f.gates.headers.resolve(new Response(f.upstream));
+  const response=await f.pending;
+  assert.equal(response.status,200);
+  f.frame('그래 형, 잘했어. 이번엔 조금 웃어 봐.');
+  f.input.close();
+  const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(events.find(e=>e.type==='done').text,'그래 형, 잘했어.');
+  assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'그래 형, 잘했어.');
+  assert.ok(events.some(e=>e.type==='audio'), 'ElevenLabs audio must be sent to caller');
+  assert.ok(events.some(e=>e.type==='audio_done'), 'audio stream must end cleanly');
+  assert.ok(f.sockets[0].sent.some(e=>e.inputs?.some(input=>input.text.includes('그래 형, 잘했어.'))),
+    'spoken audio must use the exact short response');
+});
+test('normal audio-only Jiwoo calls accept empty cameraFrames without muted mode', {timeout:3000},async()=>{
+  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,cameraFrames:[],
+    wantVoice:false,messages:[{role:'user',content:'지우야, 뭐해?'}]});
+  await tick();f.contextReady();await tick();
+  assert.equal(f.fetchCalled,true);
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+});
+test('actual unsolicited video frames are rejected outside video mode', {timeout:3000},async()=>{
+  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,
+    cameraFrames:[{mimeType:'image/jpeg',data:'A'.repeat(100)}],
+    wantVoice:false,messages:[{role:'user',content:'안녕'}]});
+  const response=await f.pending;
+  assert.equal(response.status,400);
+});

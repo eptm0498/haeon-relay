@@ -400,7 +400,11 @@ export async function POST(request: NextRequest) {
       return /^[A-Za-z0-9+/=]+$/.test(image.data);
     };
     if (parsed.cameraFrames !== undefined) {
-      if (!realtime || !videoCall || !Array.isArray(parsed.cameraFrames) ||
+      // Older clients send cameraFrames: [] even for audio-only calls.
+      // An empty frame list is not a camera stream and must not invalidate
+      // the voice request or prevent a muted Jiwoo monologue from speaking.
+      if (!Array.isArray(parsed.cameraFrames) ||
+          (parsed.cameraFrames.length > 0 && (!realtime || !videoCall)) ||
           parsed.cameraFrames.length > 3 || !parsed.cameraFrames.every(validImage) ||
           parsed.cameraFrames.some((frame: MessageImage) => frame.data.length > 190_000)) throw Error();
       cameraFrames = parsed.cameraFrames;
