@@ -105,7 +105,7 @@ export function useCallCamera() {
         signature.push(pixels[i], pixels[i + 1], pixels[i + 2]);
       }
       captured.current = [...captured.current, {
-        image: { mimeType: "image/jpeg", data: base64 },
+        image: { mimeType: "image/jpeg" as const, data: base64 },
         signature,
         capturedAt: Date.now(),
       }].slice(-5);
