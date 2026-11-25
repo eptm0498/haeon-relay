@@ -335,6 +335,7 @@ export async function POST(request: NextRequest) {
   let speechTranscript = false;
   let videoCall = false;
   let visualOnly = false;
+  let visualFollowUp = false;
   let cameraFrames: MessageImage[] = [];
   let callPhoto: string | null | undefined;
   let requestId:string|undefined;
@@ -352,6 +353,7 @@ export async function POST(request: NextRequest) {
     speechTranscript = parsed.speechTranscript === true;
     videoCall = realtime && parsed.videoCall === true;
     visualOnly = realtime && parsed.visualOnly === true;
+    visualFollowUp = visualOnly && parsed.visualFollowUp === true;
     if (parsed.openingCallId !== undefined) {
       if (!realtime || !isIncomingCallId(parsed.openingCallId)) throw Error();
       openingCallId = parsed.openingCallId;
@@ -400,7 +402,9 @@ export async function POST(request: NextRequest) {
   if (visualOnly) {
     messages = [...messages.slice(-23), {
       role: "user",
-      content: "[영상통화 중 형의 카메라에서 움직임이 감지됐어. 전달된 연속 화면의 변화를 관찰하고 직전 대화 문맥에 맞는 경우에만 자연스럽게 먼저 말을 걸어.]",
+      content: visualFollowUp
+        ? "[형이 말을 하지 않고 영상통화를 이어가는 중이야. 지우가 앞서 혼잣말을 시작했어. 실제로 확인되는 최근 화면과 직전 지우의 대사를 참고해 말을 자연스럽게 이어가. 새로운 움직임이 보이지 않으면 행동을 지어내지 마.]"
+        : "[영상통화 중 형의 카메라에서 움직임이 감지됐어. 최근 화면의 변화를 관찰해 형이 말하지 않는 동안 지우가 자연스럽게 먼저 말을 시작해.]",
     }];
   }
   if (openingCallId) {
@@ -475,7 +479,11 @@ export async function POST(request: NextRequest) {
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
-  const visualPrompt = visualOnly ? "\n[움직임을 보고 먼저 반응] 형이 말하지 않았지만 카메라에서 움직임이 감지됐어. 시간순 화면을 보고 실제로 확인되는 몸짓·자세·물체 변화와 방금까지 이야기한 맥락을 연결해 한두 문장으로 자연스럽게 반응해. 확실히 보이지 않는 행동이나 마음은 단정하지 마. 변화가 불분명하면 특정 동작을 지어내지 말고 간단히 말을 걸어. 모든 움직임마다 기계적으로 질문하거나 외모를 평가하지 마. 사진을 저장했다고 말하지 마.\n" : "";
+  const visualPrompt = visualOnly
+    ? visualFollowUp
+      ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 지우는 방금 하던 이야기를 자연스럽게 이어서 3~5문장 정도 말해. 앞선 대사를 반복하거나 같은 질문을 재차 던지지 말고, 상황과 관련된 생각·농담·일상 이야기를 지우답게 덧붙여. 형의 답변을 재촉하지 마. 최근 카메라 프레임에서 분명히 보이는 변화만 언급하고, 새 움직임이 없으면 이전 대화 내용을 중심으로 이어가. 말없이 있는 형의 의도나 속마음은 단정하지 마. 사진을 저장했다고 말하지 마.\n"
+      : "\n[움직임을 계기로 시작하는 혼잣말] 형이 말없이 움직였어. 시간순 카메라 장면에서 실제로 확인되는 행동만 자연스럽게 짚고, 방금까지 나눈 대화와 연결해 지우답게 3~5문장 정도 스스로 이야기를 이어가. 형이 대답하지 않아도 어색하게 재촉하지 말고 질문만 연달아 던지지 마. 행동이 불분명하면 특정 동작을 지어내지 말고 생각이나 일상 이야기로 이어가. 매번 외모를 평가하거나 카메라가 켜졌다는 설명을 반복하지 마. 사진을 저장했다고 말하지 마.\n"
+    : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
   const hangupPrompt = canEndCall ? `
