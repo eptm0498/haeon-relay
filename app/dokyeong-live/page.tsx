@@ -681,6 +681,13 @@ export default function DokyeongLive() {
       const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) ? camera.getFrames() : [];
       if (visualOnly && !cameraFrames.length) return;
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
+      // Retain the caller's latest real topic after many autonomous camera-only
+      // turns have pushed that message outside the model's rolling history.
+      const earlierUserCue = visualOnly
+        ? [...messageRef.current].reverse().find(m =>
+            m.role === "user" && m.content.trim() &&
+            typeof m.ts === "number" && Date.now() - m.ts <= 30 * 60 * 1000)?.content.trim().slice(0, 180)
+        : undefined;
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -701,6 +708,7 @@ export default function DokyeongLive() {
           cameraFrames,
           visualOnly,
           visualFollowUp: visualOnly && visualFollowUp,
+          recentUserCue: visualOnly ? earlierUserCue : undefined,
           microphoneMuted: realtime && micMutedRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,

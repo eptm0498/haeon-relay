@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,microphoneMuted=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,microphoneMuted=false,recentUserCue="",answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -62,7 +62,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,microphoneMuted,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,microphoneMuted,recentUserCue,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -451,6 +451,41 @@ test('Jiwoo video calls clip an unusually long unpunctuated model line', { timeo
   assert.ok(Array.from(spoken).length<=55,spoken);
   assert.ok(spoken.endsWith('…'),spoken);
   assert.doesNotMatch(spoken,/안 들려줘야 하는 부분/);
+});
+
+test('Jiwoo monologue remembers recent remarks and older user topic and encourages commanding initiative', { timeout: 3000 }, async () => {
+  const cameraFrames=[{mimeType:'image/jpeg',data:'A'.repeat(100)}];
+  const previous=[
+    {role:'user',content:'우리 저녁에 게임하기로 했잖아.'},
+    ...Array.from({length:20},(_,i)=>({role:'assistant',content:`지우가 했던 말 ${i+1}.`}))
+  ];
+  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames,visualOnly:true,visualFollowUp:true,microphoneMuted:true,
+    recentUserCue:'우리 저녁에 게임하기로 했잖아.',messages:previous.slice(-23)});
+  await tick();f.contextReady();await tick();
+  const prompt=f.modelBody.systemInstruction.parts[0].text;
+  assert.match(prompt,/캐릭터 설정\(character prompt\)/);
+  assert.match(prompt,/지우답게 상황에 맞춰/);
+  assert.match(prompt,/직접적인 명령/);
+  assert.match(prompt,/반드시 참고해/);
+  assert.match(prompt,/지우가 했던 말 20/);
+  assert.doesNotMatch(prompt,/지우가 했던 말 1[0-2]\./);
+  assert.match(prompt,/우리 저녁에 게임하기로 했잖아/);
+  assert.match(prompt,/현재 말하고 있는 게 아님/);
+  assert.match(prompt,/아주 짧은 한 문장만/);
+  assert.equal(f.modelBody.contents.at(-1).role,'user');
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
+});
+
+test('ordinary voice calls do not inherit video monologue commands or old silent-call context', {timeout:3000}, async () => {
+  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,recentUserCue:'old cue',
+    messages:[{role:'user',content:'오늘 어땠어?'}]});
+  await tick();f.contextReady();await tick();
+  const prompt=f.modelBody.systemInstruction.parts[0].text;
+  assert.doesNotMatch(prompt,/영상통화 혼잣말: 대화의 연속성과/);
+  assert.doesNotMatch(prompt,/old cue/);
+  f.gates.headers.resolve(new Response(null,{status:500}));
+  assert.equal((await f.pending).status,502);
 });
 
 test('Jiwoo call options exclude chat-only photos, and no scene selection keeps the displayed photo', { timeout: 3000 }, async () => {
