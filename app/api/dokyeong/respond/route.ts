@@ -5,7 +5,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { formatJiwooUserMessage, jiwooSceneSystemPrompt, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { formatJiwooUserMessage, jiwooSceneSystemPrompt, jiwooSpokenText, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -470,7 +470,7 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? JIWOO_SPEECH_TRANSCRIPT_PROMPT : "";
-  const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && wantsPhoto(messages.at(-1)?.content || "", photoIntentContext(messages));
+  const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && wantsPhoto(jiwooSpokenText(messages.at(-1)?.content || ""), photoIntentContext(messages));
   const jiwooPhotoPrompt = jiwooPhotoRequested ? "\n[사진 전송 기능] 형이 새 사진을 찍거나 생성해 달라고 했다면 send_character_photo 도구를 호출해. 도구의 scene에 실제 요청의 장소·복장·포즈를 담아. 기존 사진첩을 다시 보여달라는 요청은 사진첩에서 선택하고, 새로 촬영해 달라는 요청은 도구를 이용해 GPT 이미지 생성 작업을 시작해. 도구를 호출하면 이미지가 생성되기 전까지 보냈다고 말하지 마.\n" : "";
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
