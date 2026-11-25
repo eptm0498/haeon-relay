@@ -219,6 +219,8 @@ export default function DokyeongLive() {
   const [callEndedBy, setCallEndedBy] = useState<string | null>(null);
   const [videoOn, setVideoOn] = useState(false);
   const videoOnRef = useRef(false);
+  const [micMuted, setMicMuted] = useState(false);
+  const micMutedRef = useRef(false);
   const camera = useCallCamera();
   const lastVisualReactedMotionAt = useRef(0);
   const lastVisualObservedMotionAt = useRef(0);
@@ -278,6 +280,7 @@ export default function DokyeongLive() {
   const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const queuedRef = useRef<Promise<void>>(Promise.resolve());
   const micWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const speechBufferRef = useRef<SpeechTurnBuffer | null>(null);
   const transcriptionRef = useRef<AbortController | null>(null);
   const speechQueueRef = useRef<Blob[]>([]);
   const recognizedRef = useRef<string[]>([]);
@@ -414,9 +417,43 @@ export default function DokyeongLive() {
     if (running.current) setMode("listening");
   }, [stopAudio]);
 
+  function changeMicrophoneMuted(muted: boolean) {
+    if (micMutedRef.current === muted) return;
+    micMutedRef.current = muted;
+    setMicMuted(muted);
+    streamRef.current?.getAudioTracks().forEach(track => { track.enabled = !muted; });
+    const wasTranscribing = !!transcriptionRef.current;
+    transcriptionRef.current?.abort();
+    transcriptionRef.current = null;
+    speechQueueRef.current = [];
+    recognizedRef.current = [];
+    speechBufferRef.current?.reset();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder?.state === "recording") recorder.stop();
+    recordingRef.current = false;
+    pendingEndRef.current = false;
+    loudRef.current = 0;
+    lastInputAtRef.current = performance.now();
+    if (wasTranscribing) setMode("listening");
+    if (muted) {
+      lastUserSpeechAt.current = 0;
+      lastVisualReactedMotionAt.current = 0;
+      lastVisualObservedMotionAt.current = 0;
+      lastVisualRequestAt.current = 0;
+      visualMonologueStarted.current = false;
+    } else {
+      lastUserSpeechAt.current = Date.now();
+      lastVisualRequestAt.current = Date.now();
+      visualMonologueStarted.current = false;
+    }
+  }
+
   const closeMic = useCallback(() => {
     if (timerRef.current) cancelAnimationFrame(timerRef.current); timerRef.current = null;
     const worklet = micWorkletRef.current; micWorkletRef.current = null;
+    speechBufferRef.current?.reset();
+    speechBufferRef.current = null;
     if (worklet) { worklet.port.onmessage = null; worklet.port.close(); worklet.disconnect(); }
     transcriptionRef.current?.abort(); transcriptionRef.current = null;
     speechQueueRef.current = []; recognizedRef.current = [];
@@ -430,6 +467,7 @@ export default function DokyeongLive() {
     callAttempt.current++;
     startingCallRef.current = false;
     videoOnRef.current = false; setVideoOn(false);
+    micMutedRef.current = false; setMicMuted(false);
     camera.stop();
     lastVisualReactedMotionAt.current = 0;
     lastVisualObservedMotionAt.current = 0;
@@ -663,6 +701,7 @@ export default function DokyeongLive() {
           cameraFrames,
           visualOnly,
           visualFollowUp: visualOnly && visualFollowUp,
+          microphoneMuted: realtime && micMutedRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
           openingCallId,
@@ -823,7 +862,7 @@ export default function DokyeongLive() {
         lastVisualObservedMotionAt.current = motion.at;
       }
       if (!running.current || !voice || document.hidden || !historyReady || phaseRef.current !== "listening" ||
-          recordingRef.current || pendingEndRef.current || transcriptionRef.current) return;
+          (!micMutedRef.current && (recordingRef.current || pendingEndRef.current || transcriptionRef.current))) return;
       if (camera.getFrames().length < 2) return;
       const now = Date.now();
       const turn = selectVisualMonologueTurn({
@@ -833,6 +872,7 @@ export default function DokyeongLive() {
         lastRequestAt: lastVisualRequestAt.current,
         lastSpeechAt: lastUserSpeechAt.current,
         hasStarted: visualMonologueStarted.current,
+        microphoneMuted: micMutedRef.current,
       });
       if (!turn) return;
       lastVisualReactedMotionAt.current = lastVisualObservedMotionAt.current;
@@ -844,7 +884,7 @@ export default function DokyeongLive() {
   }, [camera.stream, camera.getMotion, camera.getFrames, standaloneJiwoo, historyReady, voice]);
 
   async function onSpeech(blob: Blob) {
-    if (!running.current || blob.size < 1000) return;
+    if (!running.current || micMutedRef.current || blob.size < 1000) return;
     lastUserSpeechAt.current = Date.now();
     lastVisualObservedMotionAt.current = 0;
     lastVisualReactedMotionAt.current = 0;
@@ -865,21 +905,21 @@ export default function DokyeongLive() {
         try {
           const response = await fetch(`${API}/transcribe`, { method: "POST", body: form, signal: controller.signal });
           const result = await response.json();
-          if (controller.signal.aborted || !running.current) return;
+          if (controller.signal.aborted || !running.current || micMutedRef.current) return;
           if (!response.ok) { setError(result.error || "못 들었어."); continue; }
           if (hasMeaningfulTranscript(result.text)) {
             lastInputAtRef.current = performance.now();
             recognizedRef.current.push(String(result.text));
           }
         } catch {
-          if (controller.signal.aborted || !running.current) return;
+          if (controller.signal.aborted || !running.current || micMutedRef.current) return;
           setError("음성을 받아쓰는 중에 연결이 끊겼어.");
         }
       }
     } finally {
       if (transcriptionRef.current === controller) transcriptionRef.current = null;
     }
-    if (controller.signal.aborted || !running.current || recordingRef.current || pendingEndRef.current) return;
+    if (controller.signal.aborted || !running.current || micMutedRef.current || recordingRef.current || pendingEndRef.current) return;
     const text = recognizedRef.current.join(" ");
     recognizedRef.current = [];
     if (text) {
@@ -914,6 +954,7 @@ export default function DokyeongLive() {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
+      stream.getAudioTracks().forEach(track => { track.enabled = !micMutedRef.current; });
       streamRef.current = stream;
       if (!await audioReady) throw Error("Audio context unavailable");
       if (attempt !== callAttempt.current) return;
@@ -922,6 +963,7 @@ export default function DokyeongLive() {
       micInput.type = "highpass"; micInput.frequency.value = 70;
       source.connect(micInput);
       const onSpeechStart = () => {
+        if (micMutedRef.current) return;
         lastUserSpeechAt.current = Date.now();
         lastVisualObservedMotionAt.current = 0;
         lastVisualReactedMotionAt.current = 0;
@@ -931,6 +973,7 @@ export default function DokyeongLive() {
         setMode("listening");
       };
       const idle = () => {
+        if (micMutedRef.current) return false;
         if (phaseRef.current !== "listening" || recordingRef.current || pendingEndRef.current || transcriptionRef.current ||
             performance.now() - lastInputAtRef.current < 60_000) return false;
         endCall();
@@ -980,8 +1023,9 @@ export default function DokyeongLive() {
       if (worklet) {
         micWorkletRef.current = worklet;
         const capture = new SpeechTurnBuffer(context.sampleRate);
+        speechBufferRef.current = capture;
         worklet.port.onmessage = ({data}: MessageEvent<Float32Array>) => {
-          if (!running.current || attempt !== callAttempt.current || greetingPending || idle()) return;
+          if (!running.current || attempt !== callAttempt.current || greetingPending || micMutedRef.current || idle()) return;
           const event = capture.push(data, phaseRef.current === "speaking");
           recordingRef.current = capture.recording;
           if (event.started) onSpeechStart();
@@ -999,7 +1043,7 @@ export default function DokyeongLive() {
       const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(type => MediaRecorder.isTypeSupported(type));
 
       const beginUtterance = (time: number) => {
-        if (!running.current || recordingRef.current || pendingEndRef.current) return;
+        if (!running.current || micMutedRef.current || recordingRef.current || pendingEndRef.current) return;
         const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
         const chunks: Blob[] = [];
         recorderRef.current = recorder;
@@ -1033,9 +1077,9 @@ export default function DokyeongLive() {
 
       const data = new Float32Array(analyser.fftSize); let lastFrame = 0; let noise = 0.0025;
       const loop = (time: number) => {
-        if (!running.current || attempt !== callAttempt.current || idle()) return;
+        if (!running.current || attempt !== callAttempt.current) return;
         timerRef.current = requestAnimationFrame(loop);
-        if (greetingPending) return;
+        if (greetingPending || micMutedRef.current || idle()) return;
         if (time - lastFrame < 40) return; lastFrame = time;
         analyser.getFloatTimeDomainData(data);
         const rms = speechRms(data);
@@ -1602,12 +1646,13 @@ export default function DokyeongLive() {
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
         alternateVideoSource={standaloneJiwoo ? `${API}/call-video?scene=intimate` : undefined}
         videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
+        micMuted={micMuted} onToggleMic={standaloneJiwoo ? () => changeMicrophoneMuted(!micMutedRef.current) : undefined}
         cameraStream={standaloneJiwoo ? camera.stream : null}
         cameraPreviewRef={camera.previewRef} cameraFacing={camera.facing}
         cameraBusy={camera.busy} cameraError={camera.error}
         onCameraToggle={standaloneJiwoo ? camera.toggle : undefined}
         onCameraFlip={standaloneJiwoo ? camera.flip : undefined}
-        status={phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
+        status={micMuted && phase === "listening" ? (camera.stream ? "카메라 보고 있어" : "내 마이크 꺼짐") : phase === "thinking" ? "생각 중" : labels[phase]} error={error} paused={phase === "paused"} reconnecting={startingCall}
         responseDelayMs={latency}
         voice={voice}
         onEnd={() => { endCall(); setError(""); }} onResume={() => { if (startingCallRef.current) return; closeMic(); running.current = false; void startCall(); }}

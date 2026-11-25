@@ -31,6 +31,14 @@ export class SpeechTurnBuffer {
 
   get recording() { return this.frames.length > 0; }
 
+  reset() {
+    this.noise = 0.0025;
+    this.preRoll = [];
+    this.frames = [];
+    this.onset = this.elapsed = this.quiet = 0;
+    this.playing = false;
+  }
+
   push(frame: Float32Array, playing: boolean): { started?: true; completed?: Float32Array[] } {
     if (!frame.length) return {};
     const ms = frame.length / this.sampleRate * 1000;

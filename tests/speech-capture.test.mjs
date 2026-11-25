@@ -114,3 +114,13 @@ test('Scribe v2 selection is sent to the same Korean transcription endpoint',asy
  }});
  assert.deepEqual(await (await call()).json(),{text:'안녕',model:'scribe_v2'});
 });
+
+test('reset discards speech pre-roll and recordings after muting', () => {
+  const capture=new SpeechTurnBuffer(24000);
+  const loud=Float32Array.from({length:240},(_,i)=>i%2?.5:-.5);
+  for(let i=0;i<20;i++)capture.push(loud,false);
+  assert.equal(capture.recording,true);
+  capture.reset();
+  assert.equal(capture.recording,false);
+  assert.equal(capture.push(new Float32Array(240),false).completed,undefined);
+});

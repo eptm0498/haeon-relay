@@ -7,6 +7,7 @@ export type VisualMonologueInput = {
   lastRequestAt: number;
   lastSpeechAt: number;
   hasStarted: boolean;
+  microphoneMuted?: boolean;
 };
 
 /**
@@ -15,7 +16,12 @@ export type VisualMonologueInput = {
  * while; a new spoken turn always has priority.
  */
 export function selectVisualMonologueTurn(input: VisualMonologueInput): VisualMonologueKind | null {
-  const { now, lastMotionAt, reactedMotionAt, lastRequestAt, lastSpeechAt, hasStarted } = input;
+  const { now, lastMotionAt, reactedMotionAt, lastRequestAt, lastSpeechAt, hasStarted, microphoneMuted = false } = input;
+  if (microphoneMuted) {
+    // With fresh camera frames, keep reacting even while the scene is still.
+    if (lastRequestAt && now - lastRequestAt < 8_000) return null;
+    return hasStarted ? "followup" : "motion";
+  }
   if (!lastMotionAt || lastMotionAt > now || now - lastMotionAt > 24_000) return null;
   if (lastSpeechAt && now - lastSpeechAt < 4_000) return null;
   if (lastRequestAt && now - lastRequestAt < 4_000) return null;

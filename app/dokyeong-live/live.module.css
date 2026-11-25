@@ -218,6 +218,7 @@
 .callStageControl svg{width:21px;height:21px}
 .callStageControl small{font-size:12px;text-shadow:0 1px 4px #000}
 .callStageControl[aria-pressed="false"] span{color:#a6a6a6}
+.callStageControl[data-muted="true"] span{background:#9c2f40;color:#fff}
 .callStageControl:disabled{opacity:.65;cursor:default}
 .callStageHangup span{background:#ce303f;width:60px;height:60px}
 .callStageHeader h1:focus,.callStageControl:focus-visible{outline:none}

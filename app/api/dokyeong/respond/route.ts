@@ -354,6 +354,7 @@ export async function POST(request: NextRequest) {
   let videoCall = false;
   let visualOnly = false;
   let visualFollowUp = false;
+  let microphoneMuted = false;
   let cameraFrames: MessageImage[] = [];
   let callPhoto: string | null | undefined;
   let requestId:string|undefined;
@@ -372,6 +373,7 @@ export async function POST(request: NextRequest) {
     videoCall = realtime && parsed.videoCall === true;
     visualOnly = realtime && parsed.visualOnly === true;
     visualFollowUp = visualOnly && parsed.visualFollowUp === true;
+    microphoneMuted = videoCall && parsed.microphoneMuted === true;
     if (parsed.openingCallId !== undefined) {
       if (!realtime || !isIncomingCallId(parsed.openingCallId)) throw Error();
       openingCallId = parsed.openingCallId;
@@ -420,9 +422,13 @@ export async function POST(request: NextRequest) {
   if (visualOnly) {
     messages = [...messages.slice(-23), {
       role: "user",
-      content: visualFollowUp
-        ? "[형이 말을 하지 않고 영상통화를 이어가는 중이야. 지우가 앞서 혼잣말을 시작했어. 실제로 확인되는 최근 화면과 직전 지우의 대사를 참고해 말을 자연스럽게 이어가. 새로운 움직임이 보이지 않으면 행동을 지어내지 마.]"
-        : "[영상통화 중 형의 카메라에서 움직임이 감지됐어. 최근 화면의 변화를 관찰해 형이 말하지 않는 동안 지우가 자연스럽게 먼저 말을 시작해.]",
+      content: microphoneMuted
+        ? visualFollowUp
+          ? "[형이 자신의 마이크를 끄고 카메라 영상만 공유하고 있어. 목소리는 전혀 들리지 않아. 이전 지우의 말과 새로 전달된 화면을 참고해서 짧은 혼잣말 한마디를 이어가.]"
+          : "[형이 자신의 마이크를 끄고 카메라 영상만 공유하고 있어. 목소리는 전혀 들리지 않아. 화면을 보고 자연스럽게 짧은 혼잣말 한마디를 시작해. 움직임이 감지됐다고 가정하지 마.]"
+        : visualFollowUp
+          ? "[형이 말을 하지 않고 영상통화를 이어가는 중이야. 지우가 앞서 혼잣말을 시작했어. 실제로 확인되는 최근 화면과 직전 지우의 대사를 참고해 말을 자연스럽게 이어가. 새로운 움직임이 보이지 않으면 행동을 지어내지 마.]"
+          : "[영상통화 중 형의 카메라에서 움직임이 감지됐어. 최근 화면의 변화를 관찰해 형이 말하지 않는 동안 지우가 자연스럽게 먼저 말을 시작해.]",
     }];
   }
   if (openingCallId) {
@@ -502,6 +508,9 @@ export async function POST(request: NextRequest) {
       ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 지우는 방금 하던 이야기를 자연스럽게 이어서 한 번에 짧은 한 문장만 말해. 앞선 대사를 반복하거나 같은 질문을 재차 던지지 말고, 상황과 관련된 생각·농담·일상 이야기를 지우답게 덧붙여. 형의 답변을 재촉하지 마. 최근 카메라 프레임에서 분명히 보이는 변화만 언급하고, 새 움직임이 없으면 이전 대화 내용을 중심으로 이어가. 말없이 있는 형의 의도나 속마음은 단정하지 마. 사진을 저장했다고 말하지 마.\n"
       : "\n[움직임을 계기로 시작하는 혼잣말] 형이 말없이 움직였어. 시간순 카메라 장면에서 실제로 확인되는 행동만 자연스럽게 짚고, 방금까지 나눈 대화와 연결해 지우답게 짧은 한 문장만 자연스럽게 말해. 형이 대답하지 않아도 어색하게 재촉하지 말고 질문만 연달아 던지지 마. 행동이 불분명하면 특정 동작을 지어내지 말고 생각이나 일상 이야기로 이어가. 매번 외모를 평가하거나 카메라가 켜졌다는 설명을 반복하지 마. 사진을 저장했다고 말하지 마.\n"
     : "";
+  const mutedVideoPrompt = jiwooCall && videoCall && microphoneMuted
+    ? "\n[내 마이크가 꺼진 영상통화] 형의 새로운 발언이나 목소리는 전달되지 않아. 현재 카메라 화면만 보고 말해. 사진 사이에 없는 움직임이나 형의 마음을 지어내지 마. 형이 대답하지 않아도 자연스럽게 한 문장씩 혼잣말을 이어갈 수 있어. 마이크를 다시 켜라고 재촉하지 마.\n"
+    : "";
   const shortVideoPrompt = jiwooCall && videoCall
     ? "\n[지우 영상통화: 짧은 실시간 반응] 답변은 반드시 짧은 한 문장만 말해. 대략 10~35자 안팎으로 한마디만 툭 던져. 침묵 중 움직임을 보고 먼저 말할 때도, 앞선 말을 이어 갈 때도, 형이 직접 말을 걸 때도 똑같이 한 문장으로 끝내. 2~5문장 독백이나 설명, 연달아 질문하는 방식은 금지야. 형이 대답하지 않아도 다음 움직임이 확인되면 다음 차례에 다른 한 문장을 말하면 돼. 음성통화와 문자채팅에는 이 제한을 적용하지 마.\n"
     : "";
@@ -518,7 +527,7 @@ export async function POST(request: NextRequest) {
     const lastIndex = modelMessages.length - 1;
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;

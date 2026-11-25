@@ -20,3 +20,10 @@ test('visual monologue pauses when movement stops or new calls are too close', (
   assert.equal(selectVisualMonologueTurn({ ...base, lastRequestAt: now - 2_000 }), null);
   assert.equal(selectVisualMonologueTurn({ ...base, lastRequestAt: now - 5_000 }), 'motion');
 });
+
+test('muted video calls continue from fresh frames even if the user is motionless', () => {
+  assert.equal(selectVisualMonologueTurn({ ...base, lastMotionAt: 0, microphoneMuted: true }), 'motion');
+  assert.equal(selectVisualMonologueTurn({ ...base, lastMotionAt: 0, microphoneMuted: true, hasStarted: true, lastRequestAt: now - 8_001 }), 'followup');
+  assert.equal(selectVisualMonologueTurn({ ...base, microphoneMuted: true, hasStarted: true, lastRequestAt: now - 3_000 }), null);
+  assert.equal(selectVisualMonologueTurn({ ...base, lastMotionAt: 0, microphoneMuted: false }), null);
+});

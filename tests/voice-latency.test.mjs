@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,microphoneMuted=false,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -62,7 +62,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,microphoneMuted,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -482,4 +482,21 @@ test('Jiwoo call start uses Korea time and the start day of a window crossing mi
  assert.deepEqual(ids('2026-11-14T16:00:00Z'),[]); // Sunday 01:00 KST, from Saturday.
  assert.deepEqual(ids('2026-11-16T00:00:00Z'),['work']);
  assert.deepEqual(ids('2026-11-16T09:00:00Z'),[]);
+});
+
+test('muted Jiwoo camera-only calls never claim to hear speech or invent movement', { timeout: 3000 }, async () => {
+  const cameraFrames=[{mimeType:'image/jpeg',data:'A'.repeat(100)}];
+  for (const visualFollowUp of [false,true]) {
+    const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames,visualOnly:true,visualFollowUp,microphoneMuted:true,
+      messages:[{role:'assistant',content:'형 오늘 뭐 해?'}]});
+    await tick();f.contextReady();await tick();
+    const prompt=f.modelBody.systemInstruction.parts[0].text;
+    assert.match(prompt,/내 마이크가 꺼진 영상통화/);
+    assert.match(prompt,/목소리는 전달되지 않아/);
+    assert.match(f.modelBody.contents.at(-1).parts[0].text,/자신의 마이크를 끄고/);
+    if (!visualFollowUp) assert.match(f.modelBody.contents.at(-1).parts[0].text,/움직임이 감지됐다고 가정하지 마/);
+    assert.equal(f.modelBody.contents.at(-1).parts.filter(part=>part.inlineData).length,1);
+    f.gates.headers.resolve(new Response(null,{status:500}));
+    assert.equal((await f.pending).status,502);
+  }
 });
