@@ -414,7 +414,7 @@ test('Jiwoo continues the previous visual monologue while the caller remains sil
   await tick();f.contextReady();await tick();
   const prompt=f.modelBody.systemInstruction.parts[0].text;
   assert.match(prompt,/영상통화 속 이어지는 혼잣말/);
-  assert.match(prompt,/앞선 대사를 반복하거나 같은 질문을 재차 던지지 말고/);
+  assert.match(prompt,/방금 했던 질문·명령·농담을 말만 바꿔 되풀이하지 마/);
   assert.match(f.modelBody.contents.at(-1).parts[0].text,/앞서 혼잣말을 시작했어/);
   assert.equal(f.modelBody.contents.at(-1).parts.filter(part=>part.inlineData).length,1);
   f.gates.headers.resolve(new Response(null,{status:500}));
