@@ -38,6 +38,24 @@ type DialogueBridge = {
 
 const SLEEP_MODE_MS = 60 * 60 * 1000;
 
+/**
+ * Video calls should feel like quick reactions, even if the model produces a
+ * paragraph. Apply the limit before streaming both text and synthesized speech.
+ */
+function shortVideoReply(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const terminal = /[.!?。！？]+(?=\s|$)/u.exec(normalized);
+  const first = terminal?.index === undefined ? normalized : normalized.slice(0, terminal.index + terminal[0].length);
+  const chars = Array.from(first.trim());
+  if (chars.length <= 55) return first.trim();
+  const prefix = chars.slice(0, 52).join("");
+  const space = prefix.lastIndexOf(" ");
+  const clipped = (space >= 22 ? prefix.slice(0, space) : prefix).replace(/[\s,，]+$/u, "").trim();
+  return clipped.replace(/[.!?。！？]+$/u, "") + "…";
+}
+
+
 const SLEEP_MODE_PROMPT = `
 
 [자동 수면모드 - 현재 활성]
@@ -481,8 +499,11 @@ export async function POST(request: NextRequest) {
     : "";
   const visualPrompt = visualOnly
     ? visualFollowUp
-      ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 지우는 방금 하던 이야기를 자연스럽게 이어서 3~5문장 정도 말해. 앞선 대사를 반복하거나 같은 질문을 재차 던지지 말고, 상황과 관련된 생각·농담·일상 이야기를 지우답게 덧붙여. 형의 답변을 재촉하지 마. 최근 카메라 프레임에서 분명히 보이는 변화만 언급하고, 새 움직임이 없으면 이전 대화 내용을 중심으로 이어가. 말없이 있는 형의 의도나 속마음은 단정하지 마. 사진을 저장했다고 말하지 마.\n"
-      : "\n[움직임을 계기로 시작하는 혼잣말] 형이 말없이 움직였어. 시간순 카메라 장면에서 실제로 확인되는 행동만 자연스럽게 짚고, 방금까지 나눈 대화와 연결해 지우답게 3~5문장 정도 스스로 이야기를 이어가. 형이 대답하지 않아도 어색하게 재촉하지 말고 질문만 연달아 던지지 마. 행동이 불분명하면 특정 동작을 지어내지 말고 생각이나 일상 이야기로 이어가. 매번 외모를 평가하거나 카메라가 켜졌다는 설명을 반복하지 마. 사진을 저장했다고 말하지 마.\n"
+      ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 지우는 방금 하던 이야기를 자연스럽게 이어서 한 번에 짧은 한 문장만 말해. 앞선 대사를 반복하거나 같은 질문을 재차 던지지 말고, 상황과 관련된 생각·농담·일상 이야기를 지우답게 덧붙여. 형의 답변을 재촉하지 마. 최근 카메라 프레임에서 분명히 보이는 변화만 언급하고, 새 움직임이 없으면 이전 대화 내용을 중심으로 이어가. 말없이 있는 형의 의도나 속마음은 단정하지 마. 사진을 저장했다고 말하지 마.\n"
+      : "\n[움직임을 계기로 시작하는 혼잣말] 형이 말없이 움직였어. 시간순 카메라 장면에서 실제로 확인되는 행동만 자연스럽게 짚고, 방금까지 나눈 대화와 연결해 지우답게 짧은 한 문장만 자연스럽게 말해. 형이 대답하지 않아도 어색하게 재촉하지 말고 질문만 연달아 던지지 마. 행동이 불분명하면 특정 동작을 지어내지 말고 생각이나 일상 이야기로 이어가. 매번 외모를 평가하거나 카메라가 켜졌다는 설명을 반복하지 마. 사진을 저장했다고 말하지 마.\n"
+    : "";
+  const shortVideoPrompt = jiwooCall && videoCall
+    ? "\n[지우 영상통화: 짧은 실시간 반응] 답변은 반드시 짧은 한 문장만 말해. 대략 10~35자 안팎으로 한마디만 툭 던져. 침묵 중 움직임을 보고 먼저 말할 때도, 앞선 말을 이어 갈 때도, 형이 직접 말을 걸 때도 똑같이 한 문장으로 끝내. 2~5문장 독백이나 설명, 연달아 질문하는 방식은 금지야. 형이 대답하지 않아도 다음 움직임이 확인되면 다음 차례에 다른 한 문장을 말하면 돼. 음성통화와 문자채팅에는 이 제한을 적용하지 마.\n"
     : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
   const canEndCall = jiwooCall && !openingCallId;
@@ -497,7 +518,7 @@ export async function POST(request: NextRequest) {
     const lastIndex = modelMessages.length - 1;
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -650,11 +671,14 @@ export async function POST(request: NextRequest) {
           const dialogueText = linkedOutput.replace(/\[CALL_END\]/g, "");
           const clean = jiwooCall ? spokenDialogue(dialogueText) : dialogueOnly(dialogueText);
           if (openingCallId) {
-            const continuation = clean.replace(/^여보세요(?=$|[\s,.!?…。？！~～])[\s,.!?…。？！~～]*/u, "");
-            if (continuation) emitText(` ${continuation}`);
+            // A video call greeting is a complete one-sentence turn ("여보세요?").
+            if (!videoCall) {
+              const continuation = clean.replace(/^여보세요(?=$|[\s,.!?…。？！~～])[\s,.!?…。？！~～]*/u, "");
+              if (continuation) emitText(` ${continuation}`);
+            }
           } else {
             if (!clean && !photoPlan) throw Error("Empty Jiwoo dialogue");
-            if (clean && !photoPlan) emitText(clean);
+            if (clean && !photoPlan) emitText(videoCall ? shortVideoReply(clean) : clean);
           }
         }
 
