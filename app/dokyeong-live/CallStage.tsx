@@ -103,7 +103,7 @@ export default function CallStage(props: Props) {
           {videoError === "complete" ? "영통완성 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : videoError === "alternate" ? "첨부 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : "배경 영상을 불러오지 못했어. 통화는 계속돼."}
         </p>}
         {props.micMuted && <p className={styles.callStageNotice} role="status">
-          {props.cameraStream ? "내 마이크 꺼짐 · 지우는 카메라만 보고 있어." : "내 마이크 꺼짐 · 혼잣말을 들으려면 내 카메라를 켜 줘."}
+          {!videoOn && !props.cameraStream ? "내 마이크 꺼짐 · 지우가 혼자 말하고 있어." : props.cameraStream ? "내 마이크 꺼짐 · 지우는 카메라만 보고 있어." : "내 마이크 꺼짐 · 혼잣말을 들으려면 내 카메라를 켜 줘."}
         </p>}
         {props.cameraError && <p className={styles.callStageNotice} role="alert">{props.cameraError}</p>}
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
@@ -122,7 +122,7 @@ export default function CallStage(props: Props) {
             aria-label={videoOn ? "음성 통화로 전환" : "영상 통화로 전환"}>
             <span>{videoOn ? <VideoOff /> : <Video />}</span><small>{videoOn ? "영상 끄기" : "영상"}</small>
           </button>}
-          {props.onToggleMic && (videoOn || !!props.cameraStream || props.micMuted) && <button type="button"
+          {props.onToggleMic && <button type="button"
             className={styles.callStageControl} data-muted={props.micMuted ? "true" : "false"}
             onClick={props.onToggleMic} disabled={props.paused || props.reconnecting}
             aria-pressed={!!props.micMuted} aria-label={props.micMuted ? "내 마이크 켜기" : "내 마이크 끄기"}>

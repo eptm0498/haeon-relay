@@ -12,7 +12,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,microphoneMuted=false,recentUserCue="",answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -62,7 +62,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,microphoneMuted,recentUserCue,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,audioOnlyMonologue,microphoneMuted,recentUserCue,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -534,4 +534,52 @@ test('muted Jiwoo camera-only calls never claim to hear speech or invent movemen
     f.gates.headers.resolve(new Response(null,{status:500}));
     assert.equal((await f.pending).status,502);
   }
+});
+ 
+test('muted audio-only Jiwoo call accepts no user speech or camera frames and prompts proactive assumed-completed commands', {timeout:3000}, async()=>{
+ const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,wantVoice:false,
+   microphoneMuted:true,audioOnlyMonologue:true,
+   recentUserCue:'형아 나 뭐 할까',messages:[{role:'assistant',content:'형, 손 들어봐.'}]});
+ await tick();f.contextReady();await tick();
+ const p=f.modelBody.systemInstruction.parts[0].text;
+ assert.match(p,/마이크를 끈 음성통화/);
+ assert.match(p,/지우가 주도하는 짧은 명령형 역할극/);
+ assert.match(p,/역할극 안에서 수행한 것으로/);
+ assert.match(p,/다음 행동 지시를 적극적으로/);
+ assert.match(p,/최근 지우 발화/);
+ assert.match(p,/형, 손 들어봐/);
+ assert.match(p,/형아 나 뭐 할까/);
+ assert.doesNotMatch(p,/영상통화 혼잣말: 대화의 연속성과/);
+ const last=f.modelBody.contents.at(-1);
+ assert.equal(last.role,'user');
+ assert.match(last.parts[0].text,/마이크를 껐어/);
+ assert.equal(last.parts.filter(p=>p.inlineData).length,0);
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('잘했어, 형! 이번엔 고개 들어봐. 진짜 잘했어!');
+ f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(e=>e.type==='done').text,'잘했어, 형!');
+ assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'잘했어, 형!');
+});
+test('audio-only silence generation rejects nonmuted or unrelated character requests', {timeout:3000},async()=>{
+ for(const scenario of [
+   {standaloneJiwoo:true,realtime:true,videoCall:false,microphoneMuted:false,audioOnlyMonologue:true},
+   {standaloneJiwoo:true,realtime:true,videoCall:true,microphoneMuted:true,audioOnlyMonologue:true},
+   {standaloneJiwoo:false,realtime:true,videoCall:false,microphoneMuted:true,audioOnlyMonologue:true}
+ ]) {
+   const f=fixture({...scenario,messages:[{role:'assistant',content:'전에 말했잖아'}]});
+   const response=await f.pending;
+   assert.equal(response.status,400);
+ }
+});
+test('normal unmuted voice calls still allow full-sentence multi-line answers', {timeout:3000},async()=>{
+ const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,wantVoice:false,microphoneMuted:false});
+ await tick();f.contextReady();await tick();
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame('그래 형. 오늘은 좀 얘기해 보자. 알았지?');
+ f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(e=>e.type==='done').text,'그래 형. 오늘은 좀 얘기해 보자. 알았지?');
 });

@@ -9,6 +9,7 @@ import LiveModelEditor from "./LiveModelEditor";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
+import { selectMutedAudioTurn } from "@/lib/dokyeong/audio-monologue";
 import { useCallCamera } from "./useCallCamera";
 import { selectVisualMonologueTurn } from "@/lib/dokyeong/visual-monologue";
 import IncomingCallScreen from "./IncomingCallScreen";
@@ -227,6 +228,9 @@ export default function DokyeongLive() {
   const lastVisualRequestAt = useRef(0);
   const lastUserSpeechAt = useRef(0);
   const visualMonologueStarted = useRef(false);
+  const lastAudioMonologueRequestAt = useRef(0);
+  const audioMonologueStarted = useRef(false);
+  const audioMonologueActive = useRef(false);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const startingCallRef = useRef(false);
@@ -419,8 +423,14 @@ export default function DokyeongLive() {
 
   function changeMicrophoneMuted(muted: boolean) {
     if (micMutedRef.current === muted) return;
+    // Stop a currently generated autonomous voice turn as soon as the
+    // caller unmutes so their next real spoken turn has priority.
+    if (!muted && audioMonologueActive.current) interrupt();
     micMutedRef.current = muted;
     setMicMuted(muted);
+    lastAudioMonologueRequestAt.current = 0;
+    audioMonologueStarted.current = false;
+    audioMonologueActive.current = false;
     streamRef.current?.getAudioTracks().forEach(track => { track.enabled = !muted; });
     const wasTranscribing = !!transcriptionRef.current;
     transcriptionRef.current?.abort();
@@ -468,6 +478,9 @@ export default function DokyeongLive() {
     startingCallRef.current = false;
     videoOnRef.current = false; setVideoOn(false);
     micMutedRef.current = false; setMicMuted(false);
+    lastAudioMonologueRequestAt.current = 0;
+    audioMonologueStarted.current = false;
+    audioMonologueActive.current = false;
     camera.stop();
     lastVisualReactedMotionAt.current = 0;
     lastVisualObservedMotionAt.current = 0;
@@ -595,12 +608,12 @@ export default function DokyeongLive() {
     });
   }
 
-  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number, visualOnly = false, visualFollowUp = false) {
+  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number, visualOnly = false, visualFollowUp = false, audioOnlyMonologue = false) {
     const requestCharacterId = characterIdRef.current;
     const realtime = chatModeRef.current === "voice";
     const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
     const text = userText.trim().slice(0, 1500);
-    if (!text && !image && !openingCallId && !visualOnly) { if (running.current) setMode("listening"); return; }
+    if (!text && !image && !openingCallId && !visualOnly && !audioOnlyMonologue) { if (running.current) setMode("listening"); return; }
     if (!historyReady || resetting) { setError("대화 기록을 불러온 뒤 다시 보내줘."); return; }
     const editSource=editImageRef.current;editImageRef.current=undefined;
     interrupt(); const turn = generation.current;
@@ -609,8 +622,9 @@ export default function DokyeongLive() {
       if (turn === generation.current) setLatency(Math.round(performance.now() - start + bufferDelayMs));
     };
     const incoming = { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now(), image };
-    const conversation = openingCallId || visualOnly ? [...messageRef.current] : [...messageRef.current, incoming];
-    if (!openingCallId && !visualOnly) setHistory(conversation, jiwooText ? incoming.id : undefined);
+    const autonomous = visualOnly || audioOnlyMonologue;
+    const conversation = openingCallId || autonomous ? [...messageRef.current] : [...messageRef.current, incoming];
+    if (!openingCallId && !autonomous) setHistory(conversation, jiwooText ? incoming.id : undefined);
     setMode("thinking");
     const controller = new AbortController(); requestRef.current = controller;
 
@@ -683,7 +697,7 @@ export default function DokyeongLive() {
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       // Retain the caller's latest real topic after many autonomous camera-only
       // turns have pushed that message outside the model's rolling history.
-      const earlierUserCue = visualOnly
+      const earlierUserCue = autonomous
         ? [...messageRef.current].reverse().find(m =>
             m.role === "user" && m.content.trim() &&
             typeof m.ts === "number" && Date.now() - m.ts <= 30 * 60 * 1000)?.content.trim().slice(0, 180)
@@ -692,7 +706,7 @@ export default function DokyeongLive() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: conversation.slice(visualOnly ? -23 : -24).map((m, index, arr) => {
+          messages: conversation.slice(autonomous ? -23 : -24).map((m, index, arr) => {
             return {
               role: m.role,
               content: m.content || (m.image ? "[사진을 보냈어]" : ""),
@@ -708,7 +722,8 @@ export default function DokyeongLive() {
           cameraFrames,
           visualOnly,
           visualFollowUp: visualOnly && visualFollowUp,
-          recentUserCue: visualOnly ? earlierUserCue : undefined,
+          audioOnlyMonologue,
+          recentUserCue: autonomous ? earlierUserCue : undefined,
           microphoneMuted: realtime && micMutedRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
@@ -834,6 +849,7 @@ export default function DokyeongLive() {
     } catch (err) {
       if (!controller.signal.aborted && turn === generation.current) {
         if (visualOnly) visualMonologueStarted.current = false;
+        if (audioOnlyMonologue) audioMonologueStarted.current = false;
         if (full.trim()) {
           commitText(full);
         } else {
@@ -842,6 +858,7 @@ export default function DokyeongLive() {
         }
       }
     } finally {
+      if (audioOnlyMonologue) audioMonologueActive.current = false;
       if (turn === generation.current) {
         setGeneratingPhoto(false);
         requestRef.current = null;
@@ -891,12 +908,38 @@ export default function DokyeongLive() {
     return () => window.clearInterval(timer);
   }, [camera.stream, camera.getMotion, camera.getFrames, standaloneJiwoo, historyReady, voice]);
 
+  // Audio-only mute mode doesn't require a camera. Continue one short roleplay
+  // turn after each completed model + TTS response; never overlap audio turns.
+  useEffect(() => {
+    if (!standaloneJiwoo || !micMuted || camera.stream) return;
+    const timer = window.setInterval(() => {
+      if (!running.current || !voice || !historyReady || phaseRef.current !== "listening" ||
+          requestRef.current || transcriptionRef.current || recordingRef.current || pendingEndRef.current) return;
+      const turn = selectMutedAudioTurn({
+        now: Date.now(),
+        lastRequestAt: lastAudioMonologueRequestAt.current,
+        hasStarted: audioMonologueStarted.current,
+        microphoneMuted: micMutedRef.current,
+        videoOn: videoOnRef.current,
+        cameraOn: !!camera.stream,
+      });
+      if (!turn) return;
+      lastAudioMonologueRequestAt.current = Date.now();
+      audioMonologueStarted.current = true;
+      audioMonologueActive.current = true;
+      void reply("", undefined, undefined, undefined, false, false, true);
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [standaloneJiwoo, micMuted, camera.stream, voice, historyReady]);
+
   async function onSpeech(blob: Blob) {
     if (!running.current || micMutedRef.current || blob.size < 1000) return;
     lastUserSpeechAt.current = Date.now();
     lastVisualObservedMotionAt.current = 0;
     lastVisualReactedMotionAt.current = 0;
     visualMonologueStarted.current = false;
+    audioMonologueStarted.current = false;
+    lastAudioMonologueRequestAt.current = 0;
     lastSpeechEndRef.current = performance.now();
     speechQueueRef.current.push(blob);
     if (transcriptionRef.current) return;
