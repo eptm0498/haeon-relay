@@ -5,7 +5,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { formatJiwooUserMessage, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { formatJiwooUserMessage, jiwooSceneSystemPrompt, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -18,7 +18,7 @@ import { readJiwooPreferences } from "@/lib/dokyeong/jiwoo-settings";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
 import { sleepIntent } from "@/lib/dokyeong/sleep-intent";
-import { declinesPhoto,photoFallbackAllowed,photoIntentContext,photoRequestPrompt } from "@/lib/dokyeong/photo-intent";
+import { declinesPhoto,photoFallbackAllowed,photoIntentContext,photoRequestPrompt,wantsPhoto } from "@/lib/dokyeong/photo-intent";
 import { queueReply,runReplyWorker } from "@/lib/dokyeong/reply-jobs";
 import { serverRpc } from "@/lib/dokyeong/memory";
 import { timingPrompt,timingPlan } from "@/lib/dokyeong/reply-timing";
@@ -470,6 +470,8 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? JIWOO_SPEECH_TRANSCRIPT_PROMPT : "";
+  const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && wantsPhoto(messages.at(-1)?.content || "", photoIntentContext(messages));
+  const jiwooPhotoPrompt = jiwooPhotoRequested ? "\n[사진 전송 기능] 형이 새 사진을 찍거나 생성해 달라고 했다면 send_character_photo 도구를 호출해. 도구의 scene에 실제 요청의 장소·복장·포즈를 담아. 기존 사진첩을 다시 보여달라는 요청은 사진첩에서 선택하고, 새로 촬영해 달라는 요청은 도구를 이용해 GPT 이미지 생성 작업을 시작해. 도구를 호출하면 이미지가 생성되기 전까지 보냈다고 말하지 마.\n" : "";
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
@@ -487,7 +489,7 @@ export async function POST(request: NextRequest) {
     const lastIndex = modelMessages.length - 1;
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt, request.signal, !standaloneJiwoo, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -594,7 +596,7 @@ export async function POST(request: NextRequest) {
           if (Array.isArray(parts)) {
             for (const part of parts) {
               if (part?.thought === true) continue;
-              const photo=standaloneJiwoo ? null : parsePhotoCall(part);
+              const photo=parsePhotoCall(part);
               if(photo)photoPlan=photo;
               if (typeof part?.text === "string") sceneReader.push(part.text);
             }
@@ -643,8 +645,8 @@ export async function POST(request: NextRequest) {
             const continuation = clean.replace(/^여보세요(?=$|[\s,.!?…。？！~～])[\s,.!?…。？！~～]*/u, "");
             if (continuation) emitText(` ${continuation}`);
           } else {
-            if (!clean) throw Error("Empty Jiwoo dialogue");
-            emitText(clean);
+            if (!clean && !photoPlan) throw Error("Empty Jiwoo dialogue");
+            if (clean && !photoPlan) emitText(clean);
           }
         }
 
