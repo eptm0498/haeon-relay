@@ -381,11 +381,12 @@ test('Jiwoo reads opted-in camera frames without adding them to past chat messag
  const cameraFrames = [
   {mimeType:'image/jpeg',data:'A'.repeat(100)},
   {mimeType:'image/jpeg',data:'B'.repeat(100)},
+  {mimeType:'image/jpeg',data:'C'.repeat(100)},
  ];
  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames});
  await tick();f.contextReady();await tick();
  const prompt=f.modelBody.systemInstruction.parts[0].text;
- assert.match(prompt,/최근 정지 프레임/);
+ assert.match(prompt,/시간순으로 촬영된 최근 정지 프레임/);
  const parts=f.modelBody.contents.at(-1).parts;
  assert.deepEqual(parts.filter(part=>part.inlineData).map(part=>part.inlineData.data),cameraFrames.map(frame=>frame.data));
  assert.equal(f.modelBody.contents[0].parts[0].text,'안녕');
@@ -398,9 +399,9 @@ test('Jiwoo can react to a camera scene change without a fabricated persistent u
  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,cameraFrames,visualOnly:true,
    messages:[{role:'assistant',content:'그래 형.'}]});
  await tick();f.contextReady();await tick();
- assert.match(f.modelBody.systemInstruction.parts[0].text,/자발적 대화/);
+ assert.match(f.modelBody.systemInstruction.parts[0].text,/움직임을 보고 먼저 반응/);
  assert.equal(f.modelBody.contents.at(-1).role,'user');
- assert.match(f.modelBody.contents.at(-1).parts[0].text,/카메라 화면이 바뀌었어/);
+ assert.match(f.modelBody.contents.at(-1).parts[0].text,/카메라에서 움직임이 감지됐어/);
  assert.equal(f.modelBody.contents.at(-1).parts.filter(part=>part.inlineData).length,1);
  f.gates.headers.resolve(new Response(null,{status:500}));
  assert.equal((await f.pending).status,502);

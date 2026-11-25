@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { measureVisualMotion } from "@/lib/dokyeong/camera-motion";
 
 export type CameraFrame = { mimeType: "image/jpeg"; data: string };
-type CapturedFrame = { image: CameraFrame; signature: number[]; capturedAt: number };
+type CapturedFrame = { image: CameraFrame; signature: number[]; capturedAt: number; moved: boolean };
+export type CameraMotion = { at: number; changedFraction: number };
 type Facing = "user" | "environment";
 
 /**
@@ -19,6 +21,8 @@ export function useCallCamera() {
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const requestVersion = useRef(0);
   const captured = useRef<CapturedFrame[]>([]);
+  const cameraStartedAt = useRef(0);
+  const recentMotion = useRef<CameraMotion | null>(null);
 
   const stop = useCallback(() => {
     requestVersion.current++;
@@ -27,6 +31,8 @@ export function useCallCamera() {
     old?.getTracks().forEach(track => track.stop());
     if (previewRef.current) previewRef.current.srcObject = null;
     captured.current = [];
+    recentMotion.current = null;
+    cameraStartedAt.current = 0;
     setStream(null);
     setBusy(false);
     setError("");
@@ -41,6 +47,8 @@ export function useCallCamera() {
     streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
     captured.current = [];
+    recentMotion.current = null;
+    cameraStartedAt.current = 0;
     setStream(null);
     setBusy(true);
     setError("");
@@ -54,6 +62,7 @@ export function useCallCamera() {
         return;
       }
       streamRef.current = next;
+      cameraStartedAt.current = Date.now();
       setFacing(nextFacing);
       setStream(next);
       next.getVideoTracks()[0]?.addEventListener("ended", () => {
@@ -94,8 +103,8 @@ export function useCallCamera() {
       const base64 = canvas.toDataURL("image/jpeg", 0.6).split(",")[1];
       if (!base64 || base64.length > 190_000) return;
       const tiny = document.createElement("canvas");
-      tiny.width = 16;
-      tiny.height = 12;
+      tiny.width = 24;
+      tiny.height = 18;
       const tinyCtx = tiny.getContext("2d", { willReadFrequently: true });
       if (!tinyCtx) return;
       tinyCtx.drawImage(video, 0, 0, tiny.width, tiny.height);
@@ -104,11 +113,20 @@ export function useCallCamera() {
       for (let i = 0; i < pixels.length; i += 4) {
         signature.push(pixels[i], pixels[i + 1], pixels[i + 2]);
       }
+      const capturedAt = Date.now();
+      const previous = captured.current.at(-1);
+      const motion = previous && capturedAt - cameraStartedAt.current > 2200
+        ? measureVisualMotion(previous.signature, signature)
+        : null;
+      if (motion?.significant) {
+        recentMotion.current = { at: capturedAt, changedFraction: motion.changedFraction };
+      }
       captured.current = [...captured.current, {
         image: { mimeType: "image/jpeg" as const, data: base64 },
         signature,
-        capturedAt: Date.now(),
-      }].slice(-5);
+        capturedAt,
+        moved: motion?.significant ?? false,
+      }].slice(-7);
     } catch {
       // A single unavailable frame must not interrupt a voice call.
     }
@@ -116,7 +134,7 @@ export function useCallCamera() {
 
   useEffect(() => {
     if (!stream) return;
-    const timer = window.setInterval(capture, 1300);
+    const timer = window.setInterval(capture, 850);
     return () => window.clearInterval(timer);
   }, [stream, capture]);
 
@@ -134,15 +152,18 @@ export function useCallCamera() {
   }, []);
 
   const getFrames = useCallback((): CameraFrame[] => {
-    const fresh = captured.current.filter(frame => Date.now() - frame.capturedAt < 12_000);
+    const fresh = captured.current.filter(frame => Date.now() - frame.capturedAt < 7_000);
     if (!fresh.length || !streamRef.current) return [];
-    return fresh.length > 2 ? [fresh[0].image, fresh[fresh.length - 1].image] : fresh.map(frame => frame.image);
+    // Three chronological snapshots tell Gemini much more about a gesture
+    // than the single latest frame. None are added to chat history.
+    if (fresh.length <= 3) return fresh.map(frame => frame.image);
+    return [fresh[0].image, fresh[Math.floor((fresh.length - 1) / 2)].image, fresh[fresh.length - 1].image];
   }, []);
 
-  const getSignature = useCallback((): number[] | null => {
-    const latest = captured.current.at(-1);
-    return latest && Date.now() - latest.capturedAt < 5_000 ? latest.signature : null;
+  const getMotion = useCallback((): CameraMotion | null => {
+    const motion = recentMotion.current;
+    return streamRef.current && motion && Date.now() - motion.at < 4_500 ? motion : null;
   }, []);
 
-  return { stream, facing, busy, error, previewRef, stop, toggle, flip, getFrames, getSignature };
+  return { stream, facing, busy, error, previewRef, stop, toggle, flip, getFrames, getMotion };
 }
