@@ -43,6 +43,7 @@ export default function JiwooProactiveFields({ value, disabled, onChange }: Prop
         {countOptions(JIWOO_MAX_TEXTS_PER_SERIES)}
       </select>
     </label>
+    <p>선톡을 켜도 한국 시간 매일 01:00~07:30에는 선톡을 보내지 않아. 07:30부터 다시 가능하고, 전화 설정은 별개야.</p>
     <p>한국 시간 기준이야. 연속 메시지 수에 첫 톡이 포함되고, 답장하면 그 흐름은 끝나.</p>
   </>;
 }

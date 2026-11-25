@@ -72,3 +72,30 @@ test("authentication, request origin, and both prior caps are enforced", async (
   }
   assert.equal(app.calls.length, 0);
 });
+
+test("Jiwoo stays silent in the fixed 01:00–07:30 KST window even with proactive enabled", () => {
+  const allowed = prefs.jiwooProactiveTextAllowedAt;
+  const cases = [
+    ["2026-11-24T15:59:59Z", true],  // 00:59:59 KST
+    ["2026-11-24T16:00:00Z", false], // 01:00:00 KST
+    ["2026-11-24T19:00:00Z", false], // 04:00:00 KST
+    ["2026-11-24T22:29:59Z", false], // 07:29:59 KST
+    ["2026-11-24T22:30:00Z", true],  // 07:30:00 KST
+    ["2026-11-25T14:59:00Z", true],  // 23:59:00 KST
+  ];
+  for (const [timestamp, expected] of cases) assert.equal(allowed(new Date(timestamp)), expected, timestamp);
+  assert.equal(prefs.JIWOO_TEXT_QUIET_START, "01:00");
+  assert.equal(prefs.JIWOO_TEXT_QUIET_END, "07:30");
+});
+
+test("Jiwoo proactive worker rechecks time at finish and settings UI discloses the quiet period", () => {
+  const worker = readFileSync(new URL("../lib/dokyeong/jiwoo-proactive.ts", import.meta.url), "utf8");
+  const interfaceSource = readFileSync(new URL("../app/dokyeong-live/JiwooProactiveFields.tsx", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/20261125134500_jiwoo_proactive_text_quiet_hours.sql", import.meta.url), "utf8");
+  assert.match(worker, /claim\.canText && jiwooProactiveTextAllowedAt\(new Date\(\)\)/);
+  assert.match(worker, /한국 시간 매일 01:00부터 07:30 직전까지/);
+  assert.match(interfaceSource, /01:00~07:30/);
+  assert.match(migration, /private\.live_jiwoo_proactive_text_allowed\(current_at\)/);
+  assert.match(migration, /time '01:00'/);
+  assert.match(migration, /time '07:30'/);
+});

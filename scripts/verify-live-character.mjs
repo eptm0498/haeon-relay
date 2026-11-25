@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import { execFileSync } from "node:child_process";
+execFileSync(process.execPath, ["--test", "tests/jiwoo-proactive-settings.test.mjs"], { stdio: "inherit" });
 await import("./verify-body-photo-intent.mjs");
 await import("./verify-dialogue-style.mjs");
 await import("./verify-message-session.mjs");

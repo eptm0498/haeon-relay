@@ -2,6 +2,19 @@ export const jiwooDays = ["일", "월", "화", "수", "목", "금", "토"] as co
 export const JIWOO_MAX_DAILY_TEXT_STARTS = 10;
 export const JIWOO_MAX_TEXTS_PER_SERIES = 5;
 
+// Fixed Korea-time do-not-disturb window for Jiwoo's autonomous texts.
+// This is independent of the switch and applies to every series follow-up.
+export const JIWOO_TEXT_QUIET_START = "01:00";
+export const JIWOO_TEXT_QUIET_END = "07:30";
+
+export function jiwooProactiveTextAllowedAt(now: Date): boolean {
+  // Korea Standard Time is UTC+09:00. Use UTC getters so server timezone
+  // differences cannot affect the quiet-hour boundary.
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return minutes < 60 || minutes >= 7 * 60 + 30;
+}
+
 export type JiwooProactivePreferences = {
   incomingCalls: boolean;
   proactiveTexts: boolean;

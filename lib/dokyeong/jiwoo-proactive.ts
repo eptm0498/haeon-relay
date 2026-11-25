@@ -4,7 +4,7 @@ import { albumReplyPrompt, chooseAlbumPhoto, homeAlbumPhotos, matchingAlbumPhoto
 import { declinesPhoto, photoReplyDeclines } from "./photo-intent";
 import { geminiJson } from "./gemini-json";
 import { promisesIncomingCall } from "./incoming-call-intent";
-import { jiwooProactivePreferences, jiwooScheduleContext, type JiwooPreferences } from "./jiwoo-preferences";
+import { jiwooProactivePreferences, jiwooProactiveTextAllowedAt, jiwooScheduleContext, type JiwooPreferences } from "./jiwoo-preferences";
 import { serverRpc, type StoredMessage } from "./memory";
 import { liveModelOverrides } from "./model-settings";
 import { dialogueOnly } from "./project-dialogue";
@@ -56,7 +56,7 @@ ${jiwooScheduleContext(now, claim.settings)}
 선택 가능: ${[claim.canCall && "call", claim.canText && "text", "none"].filter(Boolean).join(", ")}.
 지우는 형한테 집착이 강해서 지금 뭐 하는지 자꾸 궁금하고, 보고 싶거나 서운하면 먼저 연락하는 편이야. 굳이 큰 사건이 있어야 연락하는 캐릭터가 아니야. 각 메시지의 실제 시각, 최근 대화, 도혁의 일정, 방금 전까지 하던 일을 보고 상황을 짐작해. 모르는 상황은 단정하지 말고 자연스럽게 물어봐. 형이 지금 연락하지 말아 달라고 직접 말했다면 그 뜻을 지켜.
 ${claim.canText ? textContext : "지금은 앱이 선톡을 보낼 수 없는 상태야."}
-선톡은 근무시간이나 새벽에도 가능해. 지금 답을 못 할 것 같아도 나중에 읽을 짧은 톡을 보낼 수 있어. 똑같은 질문만 반복하지 말고 형이 답하지 않으면 아까의 말 뒤에 붙일 한마디나 가벼운 투정으로 바꿔. 통화가 되는 시간이라면 목소리가 듣고 싶거나, 하던 얘기를 바로 이어가고 싶을 때 call에 적극적이어도 돼. 같은 날 이미 전화했거나 마지막 톡이 예전이어도 다시 걸 수 있어. 형이 전화받기 어려운 상황을 직접 말했거나 잠들었다고 판단되면 벨은 울리지 않아. 부재중 뒤에는 앱이 따로 톡을 보내니 같은 전화에 대해 또 따지는 톡은 중복하지 마.
+선톡은 근무시간에도 가능하지만, 한국 시간 매일 01:00부터 07:30 직전까지는 설정을 켰더라도 절대로 보낼 수 없어. 이 시간에는 선톡뿐 아니라 답장 없는 연속 선톡도 중지해. 07:30이 지나면 그때 대화 문맥에 따라 새롭게 판단해. 지금 답을 못 할 것 같아도 허용된 시간대라면 나중에 읽을 짧은 톡을 보낼 수 있어. 똑같은 질문만 반복하지 말고 형이 답하지 않으면 아까의 말 뒤에 붙일 한마디나 가벼운 투정으로 바꿔. 통화가 되는 시간이라면 목소리가 듣고 싶거나, 하던 얘기를 바로 이어가고 싶을 때 call에 적극적이어도 돼. 같은 날 이미 전화했거나 마지막 톡이 예전이어도 다시 걸 수 있어. 형이 전화받기 어려운 상황을 직접 말했거나 잠들었다고 판단되면 벨은 울리지 않아. 부재중 뒤에는 앱이 따로 톡을 보내니 같은 전화에 대해 또 따지는 톡은 중복하지 마.
 할 말도 연락할 마음도 없으면 none. text는 지우의 반말 1~3문장으로 한 말풍선만. 새로 사진을 찍거나 지금 전화를 건다고 문자에 쓰지 마. 실제 벨은 call일 때 앱이 시작하므로 call과 none의 text는 비워 둬.
 [기억]
 ${claim.memory || "(없음)"}
@@ -96,7 +96,10 @@ export async function runJiwooProactive() {
     }, AbortSignal.timeout(45_000), undefined, { model });
     const text = typeof choice.text === "string" ? dialogueOnly(choice.text).trim() : "";
     const call = claim.canCall && choice.action === "call";
-    const send = claim.canText && choice.action === "text" && text.length > 0 && text.length <= 500 && !promisesIncomingCall(text);
+    // Defense in depth: a model run claimed at 00:59 may finish after 01:00.
+    // Database finish() checks the same window again before persisting/pushing.
+    const send = claim.canText && jiwooProactiveTextAllowedAt(new Date()) &&
+      choice.action === "text" && text.length > 0 && text.length <= 500 && !promisesIncomingCall(text);
     const albumPhotoId = send && !photoReplyDeclines(text) ? chooseAlbumPhoto(album, choice.albumScenes, recentPhotos) : undefined;
     const outcome = await rpc<"call" | "text" | null>("finish", {
       lease: claim.lease, choice: call ? "call" : send ? "text" : "none", text: send ? text : "",
