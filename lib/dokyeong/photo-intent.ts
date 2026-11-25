@@ -43,7 +43,7 @@ export function photoRequestPrompt(characterName:string) {
 export function wantsFreshPhoto(text: string, context = "") {
  const value = text.replace(/\s+/g, " ").trim();
  if (declinesPhoto(value)) return false;
- const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서)\s*(?:한\s*번\s*)?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
+ const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서).{0,30}?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
  const action = /(?:찍어|찍어서|촬영|생성|만들|그려|보내|보여|줘|줄래|주라|주세요)/u.test(value);
  const picture = /(?:사진|셀카|이미지|포토|촬영|찍|생성)/u.test(value) || /(?:사진|셀카|이미지|찍)/u.test(context);
  return fresh && action && picture;
