@@ -6,8 +6,9 @@ export type PhotoUse = "call" | "chat" | "both";
 export type PhotoDays = "daily" | "weekdays" | "weekend";
 export type PhotoDetails = { tags: string[]; useFor: PhotoUse; startTime: string; endTime: string; days: PhotoDays };
 export type CallPhoto = { id: string; situation: string } & Partial<PhotoDetails>;
-export type CallVideoScene = "default" | "intimate";
-export const isCallVideoScene = (value: unknown): value is CallVideoScene => value === "default" || value === "intimate";
+export type CallVideoScene = "default" | "intimate" | "complete";
+export const isCallVideoScene = (value: unknown): value is CallVideoScene =>
+  value === "default" || value === "intimate" || value === "complete";
 export const isCallPhotoId = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 

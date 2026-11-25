@@ -3,9 +3,33 @@ import { authenticated, noStore, unauthorized } from "@/lib/dokyeong/auth";
 import { isCallVideoScene, type CallVideoScene } from "@/lib/dokyeong/call-scenes";
 import { serverRpc } from "@/lib/dokyeong/memory";
 
-const pendingVideos = new Map<CallVideoScene, Promise<Uint8Array<ArrayBuffer> | null>>();
+type LegacyVideoScene = Exclude<CallVideoScene, "complete">;
+const pendingVideos = new Map<LegacyVideoScene, Promise<Uint8Array<ArrayBuffer> | null>>();
 
-function loadVideo(scene: CallVideoScene) {
+async function signedCompletedVideo() {
+  const serverToken = process.env.CHARACTER_HISTORY_KEY;
+  if (!serverToken) return null;
+  try {
+    const endpoint = "https://ckesuyinmcqemgeemzlh.supabase.co/functions/v1/jiwoo-video-asset";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "x-live-server-token": serverToken },
+      signal: AbortSignal.timeout(7000),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    if (!data || typeof data !== "object" || !("url" in data) || typeof data.url !== "string") return null;
+    const signed = new URL(data.url);
+    if (signed.protocol !== "https:" || signed.hostname !== "ckesuyinmcqemgeemzlh.supabase.co" ||
+      !signed.pathname.startsWith("/storage/v1/object/sign/jiwoo-call-videos/jiwoo-complete.mp4")) return null;
+    return signed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function loadVideo(scene: LegacyVideoScene) {
   const cached = pendingVideos.get(scene);
   if (cached) return cached;
   const rpc = scene === "intimate" ? "live_read_jiwoo_contextual_video" : "live_read_jiwoo_video";
@@ -22,6 +46,11 @@ export async function GET(request: NextRequest) {
   if (!authenticated(request)) return unauthorized();
   const scene = request.nextUrl.searchParams.get("scene") ?? "default";
   if (!isCallVideoScene(scene)) return new Response(null, { status: 404, headers: noStore });
+  if (scene === "complete") {
+    const url = await signedCompletedVideo();
+    if (!url) return new Response(null, { status: 503, headers: noStore });
+    return new Response(null, { status: 307, headers: { ...noStore, Location: url, "Cache-Control": "private, no-store" } });
+  }
   const video = await loadVideo(scene);
   if (!video) return new Response(null, { status: 503, headers: noStore });
 

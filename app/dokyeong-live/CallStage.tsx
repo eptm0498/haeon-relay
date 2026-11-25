@@ -11,6 +11,7 @@ type Props = {
   scene?: string | null;
   videoSource?: string;
   alternateVideoSource?: string;
+  completedVideoSource?: string;
   videoOn: boolean;
   onVideoChange: (on: boolean) => void;
   cameraStream?: MediaStream | null;
@@ -35,9 +36,11 @@ type Props = {
 
 export default function CallStage(props: Props) {
   const { videoOn, onVideoChange } = props;
-  const [useAlternateVideo, setUseAlternateVideo] = useState(false);
-  const [videoError, setVideoError] = useState<"default" | "alternate" | null>(null);
-  const videoSource = useAlternateVideo ? props.alternateVideoSource : props.videoSource;
+  type VideoChoice = "default" | "alternate" | "complete";
+  const [videoChoice, setVideoChoice] = useState<VideoChoice>("default");
+  const [videoError, setVideoError] = useState<VideoChoice | null>(null);
+  const videoSource = videoChoice === "complete" ? props.completedVideoSource
+    : videoChoice === "alternate" ? props.alternateVideoSource : props.videoSource;
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [{ loaded, previous }, setLayers] = useState<{ loaded: string | null; previous: string | null }>({ loaded: null, previous: null });
@@ -61,8 +64,8 @@ export default function CallStage(props: Props) {
     if (props.cameraStream) void preview.play().catch(() => {});
   }, [props.cameraStream, props.cameraPreviewRef]);
 
-  function selectVideo(alternate: boolean) {
-    setUseAlternateVideo(alternate);
+  function selectVideo(choice: "default" | "alternate" | "complete") {
+    setVideoChoice(choice);
     setVideoError(null);
   }
 
@@ -81,8 +84,8 @@ export default function CallStage(props: Props) {
         className={styles.callStageVideo} src={videoSource} autoPlay loop muted playsInline disablePictureInPicture
         onLoadedData={event => { void event.currentTarget.play().catch(() => {}); }}
         onError={() => {
-          setVideoError(useAlternateVideo ? "alternate" : "default");
-          setUseAlternateVideo(false);
+          setVideoError(videoChoice);
+          if (videoChoice !== "default") setVideoChoice("default");
         }} />}
       {props.cameraStream && <div className={styles.callSelfPreview} aria-label="내 카메라 미리보기">
         <video ref={props.cameraPreviewRef} autoPlay muted playsInline data-facing={props.cameraFacing ?? "user"} />
@@ -97,7 +100,7 @@ export default function CallStage(props: Props) {
       </header>
       <div className={styles.callStageBottom}>
         {videoOn && videoError && <p className={styles.callStageNotice} role="status">
-          {videoError === "alternate" ? "첨부 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : "배경 영상을 불러오지 못했어. 통화는 계속돼."}
+          {videoError === "complete" ? "영통완성 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : videoError === "alternate" ? "첨부 영상을 불러오지 못해서 기본 영상으로 돌아갔어." : "배경 영상을 불러오지 못했어. 통화는 계속돼."}
         </p>}
         {props.micMuted && <p className={styles.callStageNotice} role="status">
           {props.cameraStream ? "내 마이크 꺼짐 · 지우는 카메라만 보고 있어." : "내 마이크 꺼짐 · 혼잣말을 들으려면 내 카메라를 켜 줘."}
@@ -105,16 +108,17 @@ export default function CallStage(props: Props) {
         {props.cameraError && <p className={styles.callStageNotice} role="alert">{props.cameraError}</p>}
         {props.error && <p className={styles.callStageNotice} role="alert">{props.error}</p>}
         {props.paused && <p className={styles.callStageNotice}>이어서 통화하려면 마이크 버튼을 눌러 줘.</p>}
-        {videoOn && props.alternateVideoSource && <div className={styles.callVideoSwitch} role="group" aria-label="재생 영상 선택">
-          <button type="button" aria-pressed={!useAlternateVideo} onClick={() => selectVideo(false)}>기본 영상</button>
-          <button type="button" aria-pressed={useAlternateVideo} onClick={() => selectVideo(true)}>첨부 영상</button>
-        </div>}
+        {videoOn && (props.alternateVideoSource || props.completedVideoSource) && <div className={styles.callVideoSwitch} role="group" aria-label="재생 영상 선택">
+          <button type="button" aria-pressed={videoChoice === "default"} onClick={() => selectVideo("default")}>기본 영상</button>
+          {props.alternateVideoSource && <button type="button" aria-pressed={videoChoice === "alternate"} onClick={() => selectVideo("alternate")}>첨부 영상</button>}
+          {props.completedVideoSource && <button type="button" aria-pressed={videoChoice === "complete"} onClick={() => selectVideo("complete")}>영통완성</button>}
+        </div>
         <div className={styles.callStageActions}>
           <button type="button" className={styles.callStageControl} onClick={props.onToggleVoice} aria-pressed={props.voice} aria-label="상대 음성">
             <span>{props.voice ? <Volume2 /> : <VolumeX />}</span><small>지우 소리</small>
           </button>
           {props.videoSource && <button type="button" className={styles.callStageControl}
-            onClick={() => { selectVideo(false); onVideoChange(!videoOn); }}
+            onClick={() => { selectVideo("default"); onVideoChange(!videoOn); }}
             aria-label={videoOn ? "음성 통화로 전환" : "영상 통화로 전환"}>
             <span>{videoOn ? <VideoOff /> : <Video />}</span><small>{videoOn ? "영상 끄기" : "영상"}</small>
           </button>}

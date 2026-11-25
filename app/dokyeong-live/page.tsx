@@ -1653,6 +1653,7 @@ export default function DokyeongLive() {
         name={activeName} avatar={activeAvatar} scene={callPhoto ? callPhotoUrl(characterId, callPhoto) : null}
         videoSource={standaloneJiwoo ? `${API}/call-video` : undefined}
         alternateVideoSource={standaloneJiwoo ? `${API}/call-video?scene=intimate` : undefined}
+        completedVideoSource={standaloneJiwoo ? `${API}/call-video?scene=complete` : undefined}
         videoOn={videoOn} onVideoChange={on => { videoOnRef.current = on; setVideoOn(on); }}
         micMuted={micMuted} onToggleMic={standaloneJiwoo ? () => changeMicrophoneMuted(!micMutedRef.current) : undefined}
         cameraStream={standaloneJiwoo ? camera.stream : null}
