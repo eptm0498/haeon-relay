@@ -43,7 +43,10 @@ export function photoRequestPrompt(characterName:string) {
 export function wantsFreshPhoto(text: string, context = "") {
  const value = text.replace(/\s+/g, " ").trim();
  if (declinesPhoto(value)) return false;
- const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서).{0,30}?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
+ // Requests to retrieve a previously taken photo are album requests, even if sent right now.
+ if (/(?:예전에|옛날에|전에|지난번에|이미|기존에|저장해둔|사진첩|앨범).{0,24}(?:찍은|찍었던|사진|셀카).{0,30}(?:보내|보여)/u.test(value) &&
+     !/(?:새로|새롭게|새로운|다시\\s*찍|지금\\s*찍|직접\\s*찍|새\\s*사진)/u.test(value)) return false;
+ const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서).{0,30}?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지|한\s*장).{0,24}(?:찍어|촬영해|생성해|그려|만들어)\s*(?:줘|줄래|주라|주세요)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
  const action = /(?:찍어|찍어서|촬영|생성|만들|그려|보내|보여|줘|줄래|주라|주세요)/u.test(value);
  const picture = /(?:사진|셀카|이미지|포토|촬영|찍|생성)/u.test(value) || /(?:사진|셀카|이미지|찍)/u.test(context);
  return fresh && action && picture;
