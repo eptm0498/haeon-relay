@@ -49,7 +49,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/samples':{relatedSampleContext:()=>read('samples')},
   '@/lib/dokyeong/time-context':{currentTimeContext:()=>''},
   '@/lib/dokyeong/photo-tool':{photoTool:{name:'send_character_photo'},parsePhotoCall:()=>null},
-  '@/lib/dokyeong/photo-intent':{declinesPhoto:()=>false,photoFallbackAllowed:()=>{assert.ok(!standaloneJiwoo,'no photo fallback');return false;},photoIntentContext:()=>'',photoRequestPrompt:()=>''},
+  '@/lib/dokyeong/photo-intent':{declinesPhoto:()=>false,photoFallbackAllowed:()=>{assert.ok(!standaloneJiwoo,'no photo fallback');return false;},photoIntentContext:()=>'',photoRequestPrompt:()=>'',wantsPhoto:()=>false},
   '@/lib/dokyeong/sleep-intent':{sleepIntent:()=>false},
   '@/lib/dokyeong/reply-jobs':{queueReply:async(...args)=>{jobs.push(args);},runReplyWorker:async id=>{jobs.push(id);}},
   '@/lib/dokyeong/reply-timing':{timingPrompt:'',timingPlan:()=>({awaySeconds:0})},
