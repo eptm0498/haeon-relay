@@ -10,6 +10,7 @@ import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
 import { useCallCamera } from "./useCallCamera";
+import { selectVisualMonologueTurn } from "@/lib/dokyeong/visual-monologue";
 import IncomingCallScreen from "./IncomingCallScreen";
 import { resolveIncomingCall, useIncomingCall } from "./useIncomingCall";
 import { encodeSpeechWav, speechRms, speechThresholds, SpeechTurnBuffer } from "@/lib/dokyeong/speech-capture";
@@ -220,7 +221,10 @@ export default function DokyeongLive() {
   const videoOnRef = useRef(false);
   const camera = useCallCamera();
   const lastVisualReactedMotionAt = useRef(0);
+  const lastVisualObservedMotionAt = useRef(0);
   const lastVisualRequestAt = useRef(0);
+  const lastUserSpeechAt = useRef(0);
+  const visualMonologueStarted = useRef(false);
   const [callPhoto, setCallPhoto] = useState<string | null>(null);
   const [startingCall, setStartingCall] = useState(false);
   const startingCallRef = useRef(false);
@@ -428,7 +432,10 @@ export default function DokyeongLive() {
     videoOnRef.current = false; setVideoOn(false);
     camera.stop();
     lastVisualReactedMotionAt.current = 0;
+    lastVisualObservedMotionAt.current = 0;
     lastVisualRequestAt.current = 0;
+    lastUserSpeechAt.current = 0;
+    visualMonologueStarted.current = false;
     running.current = false; interrupt(); closeMic(); releaseWakeLock();
     callPhotoRef.current = null; setCallPhoto(null); setStartingCall(false);
     chatModeRef.current = "text"; setChatMode("text");
@@ -550,7 +557,7 @@ export default function DokyeongLive() {
     });
   }
 
-  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number, visualOnly = false) {
+  async function reply(userText: string, image?: ChatImage, openingCallId?: string, speechEndedAt?: number, visualOnly = false, visualFollowUp = false) {
     const requestCharacterId = characterIdRef.current;
     const realtime = chatModeRef.current === "voice";
     const jiwooText = isStandaloneJiwoo(requestCharacterId) && !realtime;
@@ -635,10 +642,6 @@ export default function DokyeongLive() {
       if (jiwooText || controller.signal.aborted) return;
       const cameraFrames = realtime && isStandaloneJiwoo(requestCharacterId) ? camera.getFrames() : [];
       if (visualOnly && !cameraFrames.length) return;
-      if (cameraFrames.length) {
-        lastVisualReactedMotionAt.current = camera.getMotion()?.at ?? Date.now();
-        lastVisualRequestAt.current = Date.now();
-      }
       const activeSleepModeUntil = readSleepModeUntil(requestCharacterId);
       const response = await fetch(`${API}/respond`, {
         method: "POST",
@@ -659,6 +662,7 @@ export default function DokyeongLive() {
           videoCall: realtime && (videoOnRef.current || cameraFrames.length > 0),
           cameraFrames,
           visualOnly,
+          visualFollowUp: visualOnly && visualFollowUp,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
           requestId: openingCallId ? undefined : conversation.at(-1)?.id,
           openingCallId,
@@ -782,6 +786,7 @@ export default function DokyeongLive() {
       }
     } catch (err) {
       if (!controller.signal.aborted && turn === generation.current) {
+        if (visualOnly) visualMonologueStarted.current = false;
         if (full.trim()) {
           commitText(full);
         } else {
@@ -802,32 +807,48 @@ export default function DokyeongLive() {
     }
   }
 
-  // Track actual short-lived frame-to-frame motion, not just a major scene change.
-  // Responses respect the ongoing conversation and never store camera frames.
+  // Keep chatting while the caller is quiet and moving, without interrupting
+  // their speech or stacking overlapping model/TTS requests.
   useEffect(() => {
     if (!camera.stream || !standaloneJiwoo) {
       lastVisualReactedMotionAt.current = 0;
+      lastVisualObservedMotionAt.current = 0;
       lastVisualRequestAt.current = 0;
+      visualMonologueStarted.current = false;
       return;
     }
     const timer = window.setInterval(() => {
-      if (!running.current || document.hidden || !historyReady || phaseRef.current !== "listening" ||
-          recordingRef.current || pendingEndRef.current || transcriptionRef.current) return;
       const motion = camera.getMotion();
-      if (!motion || motion.at <= lastVisualReactedMotionAt.current) return;
-      // Prevent interruption and repetitive unsolicited talk during ordinary movement.
-      if (Date.now() - lastVisualRequestAt.current < 20_000 ||
-          performance.now() - lastInputAtRef.current < 5_000 ||
-          camera.getFrames().length < 2) return;
-      lastVisualReactedMotionAt.current = motion.at;
-      lastVisualRequestAt.current = Date.now();
-      void reply("", undefined, undefined, undefined, true);
-    }, 2000);
+      if (motion && motion.at > lastUserSpeechAt.current && motion.at > lastVisualObservedMotionAt.current) {
+        lastVisualObservedMotionAt.current = motion.at;
+      }
+      if (!running.current || !voice || document.hidden || !historyReady || phaseRef.current !== "listening" ||
+          recordingRef.current || pendingEndRef.current || transcriptionRef.current) return;
+      if (camera.getFrames().length < 2) return;
+      const now = Date.now();
+      const turn = selectVisualMonologueTurn({
+        now,
+        lastMotionAt: lastVisualObservedMotionAt.current,
+        reactedMotionAt: lastVisualReactedMotionAt.current,
+        lastRequestAt: lastVisualRequestAt.current,
+        lastSpeechAt: lastUserSpeechAt.current,
+        hasStarted: visualMonologueStarted.current,
+      });
+      if (!turn) return;
+      lastVisualReactedMotionAt.current = lastVisualObservedMotionAt.current;
+      lastVisualRequestAt.current = now;
+      visualMonologueStarted.current = true;
+      void reply("", undefined, undefined, undefined, true, turn === "followup");
+    }, 1200);
     return () => window.clearInterval(timer);
-  }, [camera.stream, camera.getMotion, camera.getFrames, standaloneJiwoo, historyReady]);
+  }, [camera.stream, camera.getMotion, camera.getFrames, standaloneJiwoo, historyReady, voice]);
 
   async function onSpeech(blob: Blob) {
     if (!running.current || blob.size < 1000) return;
+    lastUserSpeechAt.current = Date.now();
+    lastVisualObservedMotionAt.current = 0;
+    lastVisualReactedMotionAt.current = 0;
+    visualMonologueStarted.current = false;
     lastSpeechEndRef.current = performance.now();
     speechQueueRef.current.push(blob);
     if (transcriptionRef.current) return;
@@ -901,6 +922,10 @@ export default function DokyeongLive() {
       micInput.type = "highpass"; micInput.frequency.value = 70;
       source.connect(micInput);
       const onSpeechStart = () => {
+        lastUserSpeechAt.current = Date.now();
+        lastVisualObservedMotionAt.current = 0;
+        lastVisualReactedMotionAt.current = 0;
+        visualMonologueStarted.current = false;
         if (phaseRef.current === "speaking" || (phaseRef.current === "thinking" && !transcriptionRef.current)) interrupt();
         lastInputAtRef.current = performance.now();
         setMode("listening");
