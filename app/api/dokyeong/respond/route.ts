@@ -509,7 +509,7 @@ export async function POST(request: NextRequest) {
     : "";
   const recentJiwooRemarks = visualOnly
     ? messages.filter(message => message.role === "assistant" && message.content.trim())
-      .slice(-8).map(message => message.content.replace(/\\s+/g, " ").trim().slice(0, 100))
+      .slice(-8).map(message => message.content.replace(/\s+/g, " ").trim().slice(0, 100))
     : [];
   const visualThreadPrompt = visualOnly ? `
 [영상통화 혼잣말: 대화의 연속성과 지우의 주도권]
@@ -523,7 +523,9 @@ ${recentUserCue ? `형의 마지막 실제 발화 단서(현재 말하고 있는
   const visualPrompt = visualOnly
     ? visualFollowUp
       ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 반복하지 않으면서 직전의 대화나 지우가 꺼낸 화제를 발전시켜 짧은 한 문장으로 이어가. 새로운 움직임이 있으면 확인된 변화에 반응하고, 없다면 혼자 대화의 다음 흐름을 주도해.\n"
-      : "\n[움직임을 계기로 시작하는 혼잣말] 카메라에서 움직임이 감지됐어. 실제로 확인되는 변화만 짚고, 그 상황에 어울리는 짧은 한 문장을 지우가 먼저 꺼내. 확인되지 않은 의도나 행동은 지어내지 마.\n"
+      : microphoneMuted
+        ? "\n[카메라만 보고 시작하는 혼잣말] 형의 마이크는 꺼져 있고 새 움직임이 없을 수도 있어. 지금 화면에서 실제로 확인되는 내용과 앞 대화를 바탕으로 지우가 짧은 한 문장을 먼저 꺼내. 움직였다고 단정하거나 형의 대답을 요구하지 마.\n"
+        : "\n[움직임을 계기로 시작하는 혼잣말] 카메라에서 움직임이 감지됐어. 실제로 확인되는 변화만 짚고, 그 상황에 어울리는 짧은 한 문장을 지우가 먼저 꺼내. 확인되지 않은 의도나 행동은 지어내지 마.\n"
     : "";
   const mutedVideoPrompt = jiwooCall && videoCall && microphoneMuted
     ? "\n[내 마이크가 꺼진 영상통화] 형의 새로운 발언이나 목소리는 전달되지 않아. 현재 카메라 화면만 보고 말해. 사진 사이에 없는 움직임이나 형의 마음을 지어내지 마. 형이 대답하지 않아도 자연스럽게 한 문장씩 혼잣말을 이어갈 수 있어. 마이크를 다시 켜라고 재촉하지 마.\n"
