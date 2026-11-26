@@ -32,10 +32,9 @@ export default function JiwooProactiveFields({ value, disabled, onChange }: Prop
       </select>
     </label>
     <label>하루에 선톡을 시작하는 횟수
-      <select value={value.proactiveDailyStarts} disabled={disabled || !value.proactiveTexts}
-        onChange={event => onChange({ ...value, proactiveDailyStarts: Number(event.target.value) })}>
-        {countOptions(JIWOO_MAX_DAILY_TEXT_STARTS)}
-      </select>
+      <input type="number" inputMode="numeric" required min={1} max={JIWOO_MAX_DAILY_TEXT_STARTS} step={1}
+        value={value.proactiveDailyStarts || ""} disabled={disabled || !value.proactiveTexts}
+        onChange={event => onChange({ ...value, proactiveDailyStarts: Number(event.target.value) })}/>
     </label>
     <label>답장 없이 연속으로 보내는 메시지 수
       <select value={value.proactiveSeriesMessages} disabled={disabled || !value.proactiveTexts}

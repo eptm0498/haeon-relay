@@ -61,16 +61,27 @@ test("older clients saving only text preferences preserve the phone setting", as
   assert.equal((await fixture({ conflict: true }).PUT(request(settings))).status, 409);
 });
 
-test("authentication, request origin, and both prior caps are enforced", async () => {
+test("authentication, request origin, and valid positive integer counts are enforced", async () => {
   assert.equal((await fixture({ authenticated: false }).PUT(request(settings))).status, 401);
   assert.equal((await fixture({ sameOrigin: false }).PUT(request(settings))).status, 403);
   const app = fixture();
-  for (const fields of [{ proactiveDailyStarts: 11 }, { proactiveSeriesMessages: 6 },
+  for (const fields of [{ proactiveDailyStarts: 0 }, { proactiveDailyStarts: -1 },
+    { proactiveDailyStarts: 1.5 }, { proactiveDailyStarts: 2147483648 }, { proactiveSeriesMessages: 6 },
     { proactiveDailyStarts: "3" }, { proactiveTexts: "false" }, { incomingCalls: "false" },
     { incomingCalls: null }, { version: -1 }]) {
     assert.equal((await app.PUT(request({ ...settings, ...fields }))).status, 400);
   }
   assert.equal(app.calls.length, 0);
+});
+
+test("daily starts above ten survive saving and reading", async () => {
+  for (const count of [11, 30, 100, 2147483647]) {
+    const app = fixture();
+    const response = await app.PUT(request({ ...settings, proactiveDailyStarts: count }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).proactiveDailyStarts, count);
+    assert.equal((await (await app.GET(new Request("https://example.com"))).json()).proactiveDailyStarts, count);
+  }
 });
 
 test("Jiwoo stays silent in the fixed 01:00–07:30 KST window even with proactive enabled", () => {
