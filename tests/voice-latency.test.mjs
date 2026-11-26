@@ -8,11 +8,12 @@ import * as characterModes from '../lib/dokyeong/character-modes.ts';
 import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as callScenes from '../lib/dokyeong/call-scenes.ts';
+import * as callMonologue from '../lib/dokyeong/call-monologue.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -33,6 +34,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
    liveModelOverrides:async()=>({textModel:null,voiceModel:null,speechModel:null,...models}),
    realtimeSpeechModel:model=>model===null?'eleven_v3_conversational':model==='eleven_v4_turbo'?model:null,
   },
+  '@/lib/dokyeong/call-monologue':callMonologue,
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-album':jiwooAlbum,
@@ -62,7 +64,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   console:{warn:()=>{},info:()=>{}},setTimeout:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},clearTimeout:t=>{if(t)t.cleared=true;},
   fetch:async(url,init)=>{fetchCalled=true;modelUrl=url;modelBody=JSON.parse(init.body);return gates.headers.promise;},
  });
- const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,audioOnlyMonologue,microphoneMuted,recentUserCue,callPhoto:photos?null:undefined,messages})});
+ const request=new Request('https://app.test/api/dokyeong/respond',{method:'POST',body:JSON.stringify({voice:wantVoice,realtime,speechTranscript,requestId,openingCallId,videoCall,cameraFrames,visualOnly,visualFollowUp,audioOnlyMonologue,microphoneMuted,recentUserCue,monologueTurn,callPhoto:photos?null:undefined,messages})});
  const pending=exports.POST(request);
  const contextReady=()=>{gates.activity.resolve(null);for(const k of ['samples','memory','project'])gates[k].resolve('');};
  const frame=text=>input.enqueue(new TextEncoder().encode('data: '+JSON.stringify({candidates:[{content:{parts:[{text}]}}]})+'\n\n'));
@@ -453,7 +455,7 @@ test('Jiwoo video calls clip an unusually long unpunctuated model line', { timeo
   assert.doesNotMatch(spoken,/안 들려줘야 하는 부분/);
 });
 
-test('Jiwoo monologue remembers recent remarks and older user topic and encourages commanding initiative', { timeout: 3000 }, async () => {
+test('Jiwoo monologue uses earlier user context and recent remarks to advance its own topic', { timeout: 3000 }, async () => {
   const cameraFrames=[{mimeType:'image/jpeg',data:'A'.repeat(100)}];
   const previous=[
     {role:'user',content:'우리 저녁에 게임하기로 했잖아.'},
@@ -464,14 +466,14 @@ test('Jiwoo monologue remembers recent remarks and older user topic and encourag
   await tick();f.contextReady();await tick();
   const prompt=f.modelBody.systemInstruction.parts[0].text;
   assert.match(prompt,/캐릭터 설정\(character prompt\)/);
-  assert.match(prompt,/지우답게 상황에 맞춰/);
-  assert.match(prompt,/직접적인 명령/);
+  assert.match(prompt,/자기 생각이나 이야기로 이어가/);
+  assert.match(prompt,/새 정보, 새로운 관점/);
   assert.match(prompt,/반드시 참고해/);
   assert.match(prompt,/지우가 했던 말 20/);
-  assert.doesNotMatch(prompt,/지우가 했던 말 1[0-2]\./);
+  assert.doesNotMatch(prompt,/지우가 했던 말 [1-8]\./);
   assert.match(prompt,/우리 저녁에 게임하기로 했잖아/);
   assert.match(prompt,/현재 말하고 있는 게 아님/);
-  assert.match(prompt,/아주 짧은 한 문장만/);
+  assert.match(prompt,/두세 문장/);
   assert.equal(f.modelBody.contents.at(-1).role,'user');
   f.gates.headers.resolve(new Response(null,{status:500}));
   assert.equal((await f.pending).status,502);
@@ -536,17 +538,17 @@ test('muted Jiwoo camera-only calls never claim to hear speech or invent movemen
   }
 });
  
-test('muted audio-only Jiwoo call accepts no user speech or camera frames and prompts proactive assumed-completed commands', {timeout:3000}, async()=>{
+test('muted audio-only Jiwoo advances a conversation without assuming real user actions', {timeout:3000}, async()=>{
  const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:false,wantVoice:false,
    microphoneMuted:true,audioOnlyMonologue:true,
    recentUserCue:'형아 나 뭐 할까',messages:[{role:'assistant',content:'형, 손 들어봐.'}]});
  await tick();f.contextReady();await tick();
  const p=f.modelBody.systemInstruction.parts[0].text;
- assert.match(p,/마이크를 끈 음성통화/);
- assert.match(p,/지우가 주도하는 짧은 명령형 역할극/);
- assert.match(p,/역할극 안에서 수행한 것으로/);
- assert.match(p,/다음 행동 지시를 적극적으로/);
- assert.match(p,/최근 지우 발화/);
+ assert.match(p,/지우가 스스로 이어가는 통화/);
+ assert.match(p,/형의 침묵을 동의나 실제 행동의 증거로 삼지 마/);
+ assert.match(p,/누적 기억에서 실제 소재/);
+ assert.match(p,/형이 새로 대답해야만 진행되는 질문이나 지시로 매번 끝내지 마/);
+ assert.match(p,/최근 지우의 실제 발화/);
  assert.match(p,/형, 손 들어봐/);
  assert.match(p,/형아 나 뭐 할까/);
  assert.doesNotMatch(p,/영상통화 혼잣말: 대화의 연속성과/);
@@ -559,8 +561,8 @@ test('muted audio-only Jiwoo call accepts no user speech or camera frames and pr
  f.frame('잘했어, 형! 이번엔 고개 들어봐. 진짜 잘했어!');
  f.input.close();
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
- assert.equal(events.find(e=>e.type==='done').text,'잘했어, 형!');
- assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'잘했어, 형!');
+ assert.equal(events.find(e=>e.type==='done').text,'잘했어, 형! 이번엔 고개 들어봐. 진짜 잘했어!');
+ assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'잘했어, 형! 이번엔 고개 들어봐. 진짜 잘했어!');
 });
 test('audio-only silence generation rejects nonmuted or unrelated character requests', {timeout:3000},async()=>{
  for(const scenario of [
@@ -600,8 +602,8 @@ test('muted audio-only Jiwoo accepts legacy empty cameraFrames and produces stre
   f.frame('그래 형, 잘했어. 이번엔 조금 웃어 봐.');
   f.input.close();
   const events=(await response.text()).trim().split('\n').map(JSON.parse);
-  assert.equal(events.find(e=>e.type==='done').text,'그래 형, 잘했어.');
-  assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'그래 형, 잘했어.');
+  assert.equal(events.find(e=>e.type==='done').text,'그래 형, 잘했어. 이번엔 조금 웃어 봐.');
+  assert.equal(events.filter(e=>e.type==='delta').map(e=>e.text).join(''),'그래 형, 잘했어. 이번엔 조금 웃어 봐.');
   assert.ok(events.some(e=>e.type==='audio'), 'ElevenLabs audio must be sent to caller');
   assert.ok(events.some(e=>e.type==='audio_done'), 'audio stream must end cleanly');
   assert.ok(f.sockets[0].sent.some(e=>e.inputs?.some(input=>input.text.includes('그래 형, 잘했어.'))),
@@ -621,4 +623,37 @@ test('actual unsolicited video frames are rejected outside video mode', {timeout
     wantVoice:false,messages:[{role:'user',content:'안녕'}]});
   const response=await f.pending;
   assert.equal(response.status,400);
+});
+
+test('autonomous audio and video use the advancing turn index after history fills up', {timeout:3000},async()=>{
+ const history=Array.from({length:23},(_,i)=>({role:'assistant',content:`지난 혼잣말 ${i}`}));
+ for(const videoCall of [false,true]) {
+  const prompts=[];
+  for(const monologueTurn of [80,81]) {
+   const f=fixture({standaloneJiwoo:true,realtime:true,videoCall,wantVoice:false,microphoneMuted:true,
+    visualOnly:videoCall,audioOnlyMonologue:!videoCall,monologueTurn,messages:history,
+    cameraFrames:videoCall?[{mimeType:'image/jpeg',data:'A'.repeat(100)}]:undefined});
+   f.contextReady();await tick();
+   const prompt=f.modelBody.systemInstruction.parts[0].text;
+   assert.match(prompt,new RegExp(`현재 연속 발화 차례는 ${monologueTurn+1}번째`));
+   assert.doesNotMatch(prompt,/반드시 짧은 한 문장만|짧은 명령형 역할극/);
+   prompts.push(prompt.split('이번 발화의 방향은 다음과 같아.')[1].split('\n')[1]);
+   f.gates.headers.resolve(new Response(null,{status:500}));
+   assert.equal((await f.pending).status,502);
+  }
+  assert.notEqual(prompts[0],prompts[1]);
+ }
+});
+
+test('an autonomous video story reaches both spoken audio and history without losing its development', {timeout:3000},async()=>{
+ const answer='내일은 같이 요리해 보자. 매운 건 빼고 해도 맛있거든. 내가 재료 조합 좀 생각해 볼게.';
+ const f=fixture({standaloneJiwoo:true,realtime:true,videoCall:true,visualOnly:true,microphoneMuted:true,
+  cameraFrames:[{mimeType:'image/jpeg',data:'A'.repeat(100)}]});
+ f.contextReady();await tick();f.sockets[0].open();
+ f.gates.headers.resolve(new Response(f.upstream));
+ const response=await f.pending;
+ f.frame(answer);f.input.close();
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(events.find(e=>e.type==='done').text,answer);
+ assert.equal(f.sockets[0].sent.filter(m=>m.inputs).flatMap(m=>m.inputs.map(i=>i.text)).join(''),answer);
 });
