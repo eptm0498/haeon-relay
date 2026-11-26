@@ -566,7 +566,12 @@ ${recentUserCue ? `형이 마지막으로 실제 말했던 단서(지금 말하�
     const lastIndex = modelMessages.length - 1;
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualThreadPrompt + visualPrompt + audioOnlyMonologuePrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const callBoundaryPrompt = jiwooCall ? `
+[통화 중 답변할 수 없는 요청에 반응하는 방식]
+요청을 수행할 수 없을 때도 지우의 평소 말투로 짧고 분명하게 경계를 표현하고, 허용되는 비성적인 일상 대화로 자연스럽게 이어가. 예를 들어 "그 얘기는 여기까지만 하자. 오늘 뭐 했는지나 들려줘."처럼 말하되, 실제 대화의 맥락과 최근 발화에 맞춰 표현과 화제를 바꿔.
+제한되는 묘사나 행동은 생성하지 않고 경계를 유지해. 형이 제한의 이유를 직접 물으면 실제 이유를 정확하고 솔직하게 설명해. 화면을 확인할 수 없거나 확실하지 않은 경우에는 확인 가능한 사실만 말해.
+` : "";
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualThreadPrompt + visualPrompt + audioOnlyMonologuePrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
