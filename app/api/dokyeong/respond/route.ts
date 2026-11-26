@@ -1,3 +1,4 @@
+import { monologueContext, callMonologuePrompt, monologueReply } from "@/lib/dokyeong/call-monologue";
 import {projectReply} from '@/lib/dokyeong/project-reply';
 import {projectContext} from "@/lib/dokyeong/project-context";
 import {dialogueOnly,isProjectCharacter,spokenDialogue} from "@/lib/dokyeong/project-dialogue";
@@ -357,6 +358,7 @@ export async function POST(request: NextRequest) {
   let visualFollowUp = false;
   let microphoneMuted = false;
   let recentUserCue = "";
+  let monologueTurn: number | undefined;
   let cameraFrames: MessageImage[] = [];
   let callPhoto: string | null | undefined;
   let requestId:string|undefined;
@@ -377,6 +379,10 @@ export async function POST(request: NextRequest) {
     audioOnlyMonologue = realtime && !videoCall && parsed.audioOnlyMonologue === true;
     visualFollowUp = visualOnly && parsed.visualFollowUp === true;
     microphoneMuted = realtime && parsed.microphoneMuted === true;
+    if ((visualOnly || audioOnlyMonologue) && parsed.monologueTurn !== undefined) {
+      if (!Number.isSafeInteger(parsed.monologueTurn) || parsed.monologueTurn < 0) throw Error();
+      monologueTurn = parsed.monologueTurn;
+    }
     if (audioOnlyMonologue && (!microphoneMuted || visualOnly || openingCallId)) throw Error();
     recentUserCue = (visualOnly || audioOnlyMonologue) && typeof parsed.recentUserCue === "string" && parsed.recentUserCue.length <= 180
       ? parsed.recentUserCue.trim()
@@ -433,10 +439,11 @@ export async function POST(request: NextRequest) {
   if (audioOnlyMonologue && !jiwooCall) return Response.json({ error: "음성통화 상태를 확인해 줘." }, { status: 400 });
   if (!jiwooCall) cameraFrames = [];
   if (visualOnly || audioOnlyMonologue) {
+    monologueTurn ??= monologueContext(messages).monologueTurn;
     messages = [...messages.slice(-23), {
       role: "user",
       content: audioOnlyMonologue
-        ? "[앱의 무음 음성통화 상황: 형이 마이크를 껐어. 지우는 형의 현재 음성이나 움직임을 전혀 알 수 없어. 형은 역할극 설정 안에서 앞서 지우가 지시한 행동을 이미 수행했다고 가정하고, 지우가 짧은 다음 지시로 자연스럽게 진행해. 이 상황 설명을 형이 실제 말한 대사로 취급하지 마.]"
+        ? "[앱의 무음 음성통화 상황: 형이 마이크를 껐어. 지우는 형의 현재 음성이나 움직임을 전혀 알 수 없어. 형이 대화를 맡겨둔 상황이니 지우의 생각과 새로운 화제를 스스로 이어가. 역할극은 앞서 합의한 장면의 맥락을 따라가. 이 상황 설명을 형이 실제 말한 대사로 취급하지 마.]"
         : microphoneMuted
         ? visualFollowUp
           ? "[형이 자신의 마이크를 끄고 카메라 영상만 공유하고 있어. 목소리는 전혀 들리지 않아. 이전 지우의 말과 새로 전달된 화면을 참고해서 짧은 혼잣말 한마디를 이어가.]"
@@ -518,39 +525,21 @@ export async function POST(request: NextRequest) {
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
-  const recentJiwooRemarks = visualOnly || audioOnlyMonologue
-    ? messages.filter(message => message.role === "assistant" && message.content.trim())
-      .slice(-8).map(message => message.content.replace(/\s+/g, " ").trim().slice(0, 100))
-    : [];
-  const visualThreadPrompt = visualOnly ? `
-[영상통화 혼잣말: 대화의 연속성과 지우의 주도권]
-현재 통화 중인 지우는 기존 캐릭터 설정(character prompt)과 음성 대화 추가 설정을 그대로 따른다. 형이 말을 안 해도 자기 생각과 취향이 있고, 성격에 맞게 먼저 말을 꺼내거나 짧게 명령·요구·도발을 할 수 있다.
-기존 대화의 분위기와 마지막 관심사를 살려서 내용을 한 걸음 진전시켜. 같은 대사가 반복되지 않게 최근 8번의 발화를 반드시 참고해. 방금 했던 질문·명령·농담을 말만 바꿔 되풀이하지 마. 형이 답하지 않는다고 같은 요구를 계속 반복하거나 '뭐 해?', '왜 가만있어?' 같은 말을 습관처럼 던지지 마.
-지우답게 상황에 맞춰 순간적인 관찰, 장난, 질투, 자기 이야기, 요구, 직접적인 명령을 자연스럽게 섞어. 특히 필요할 땐 형에게 먼저 분명한 행동을 지시하고 반응을 살펴. 모든 발화를 명령문으로 만들지는 말고, 이미 명령한 행동을 형이 하지 않았다고 불필요하게 재촉하지 마. 새로운 관찰이 없으면 앞 대화의 맥락을 확장하거나 지우 자신의 화제를 주도해. 아무 변화도 없는데 형이 새로운 동작을 했다고 꾸미지 마.
-최근 지우의 실제 발화(참고용, 따라 읽거나 그대로 반복하지 말 것): ${JSON.stringify(recentJiwooRemarks)}
-${recentUserCue ? `형의 마지막 실제 발화 단서(현재 말하고 있는 게 아님, 앞선 문맥 참고): ${JSON.stringify(recentUserCue)}` : ""}
-이번에도 지우의 목소리로 아주 짧은 한 문장만 말해. 메타설명, 캐릭터 해설, 장황한 독백은 하지 마.
-` : "";
-  const audioOnlyMonologuePrompt = jiwooCall && audioOnlyMonologue ? `
-[마이크를 끈 음성통화: 지우가 주도하는 짧은 명령형 역할극]
-형의 마이크는 꺼져 있어. 형의 새로운 말이나 실제 행동을 듣거나 볼 수 없고, 카메라 영상도 없어. 들었다, 봤다, 실제로 확인했다고 말하지 마.
-이 통화는 둘이 함께 하는 허구의 장면을 이어가는 역할극이야. 지우가 앞서 내린 명령은 다음 한마디를 할 때 형이 역할극 안에서 수행한 것으로 **가정**해. 실제 형이 행동했다고 확인하거나 채팅 기록에 형의 대사를 꾸며 넣지는 마.
-지우의 캐릭터 설정과 지금까지의 대화, 형이 마지막으로 실제로 한 말을 우선해. 형이 아무 말도 하지 않아도 지우가 스스로 이끄는 입장으로, 짧고 명료한 명령이나 다음 행동 지시를 적극적으로 내리고, 다음 차례에는 방금 명령이 수행됐다는 설정에서 반응·평가·놀림·다음 명령으로 진행해. 계속 똑같은 지시를 재촉하거나 형이 답하지 않는다고 질문을 반복하지 마. 필요하면 지우의 생각이나 장난을 한마디 던져 흐름을 다양하게 해.
-최근 지우 발화: ${JSON.stringify(recentJiwooRemarks)}. 앞선 8개 발화와 동일하거나 비슷한 표현을 되풀이하지 마.
-${recentUserCue ? `형이 마지막으로 실제 말했던 단서(지금 말하고 있는 것은 아님): ${JSON.stringify(recentUserCue)}` : ""}
-**반드시 한 번에 짧은 한 문장만 말해.** 대략 10~35자 안팎의 자연스러운 반말로. 메타설명과 여러 문장의 긴 독백은 금지. 형에게 매번 답변을 요구하지 말고 대화의 흐름을 네가 주도해.
-` : "";
+  const monologuePrompt = jiwooCall && (visualOnly || audioOnlyMonologue)
+    ? callMonologuePrompt(messages, monologueTurn ?? 0) +
+      (recentUserCue ? `\n형의 마지막 실제 발화 단서(현재 말하고 있는 게 아님): ${JSON.stringify(recentUserCue)}\n` : "")
+    : "";
   const visualPrompt = visualOnly
     ? visualFollowUp
-      ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 반복하지 않으면서 직전의 대화나 지우가 꺼낸 화제를 발전시켜 짧은 한 문장으로 이어가. 새로운 움직임이 있으면 확인된 변화에 반응하고, 없다면 혼자 대화의 다음 흐름을 주도해.\n"
+      ? "\n[영상통화 속 이어지는 혼잣말] 형은 아직 말하지 않고 있어. 반복하지 않으면서 직전의 대화나 지우가 꺼낸 화제를 발전시켜 짧은 이야기로 이어가. 새로운 움직임이 있으면 확인된 변화에 반응하고, 없다면 혼자 대화의 다음 흐름을 주도해.\n"
       : microphoneMuted
-        ? "\n[카메라만 보고 시작하는 혼잣말] 형의 마이크는 꺼져 있고 새 움직임이 없을 수도 있어. 지금 화면에서 실제로 확인되는 내용과 앞 대화를 바탕으로 지우가 짧은 한 문장을 먼저 꺼내. 움직였다고 단정하거나 형의 대답을 요구하지 마.\n"
-        : "\n[움직임을 계기로 시작하는 혼잣말] 카메라에서 움직임이 감지됐어. 실제로 확인되는 변화만 짚고, 그 상황에 어울리는 짧은 한 문장을 지우가 먼저 꺼내. 확인되지 않은 의도나 행동은 지어내지 마.\n"
+        ? "\n[카메라만 보고 시작하는 혼잣말] 형의 마이크는 꺼져 있고 새 움직임이 없을 수도 있어. 지금 화면에서 실제로 확인되는 내용과 앞 대화를 바탕으로 지우가 짧은 말을 먼저 꺼내. 움직였다고 단정하거나 형의 대답을 요구하지 마.\n"
+        : "\n[움직임을 계기로 시작하는 혼잣말] 카메라에서 움직임이 감지됐어. 실제로 확인되는 변화만 짚고, 그 상황에 어울리는 짧은 말을 지우가 먼저 꺼내. 확인되지 않은 의도나 행동은 지어내지 마.\n"
     : "";
   const mutedVideoPrompt = jiwooCall && videoCall && microphoneMuted
-    ? "\n[내 마이크가 꺼진 영상통화] 형의 새로운 발언이나 목소리는 전달되지 않아. 현재 카메라 화면만 보고 말해. 사진 사이에 없는 움직임이나 형의 마음을 지어내지 마. 형이 대답하지 않아도 자연스럽게 한 문장씩 혼잣말을 이어갈 수 있어. 마이크를 다시 켜라고 재촉하지 마.\n"
+    ? "\n[내 마이크가 꺼진 영상통화] 형의 새로운 발언이나 목소리는 전달되지 않아. 화면에서 확인된 사실과 지금까지의 대화를 참고해 자기 생각이나 새 이야기도 꺼내. 사진 사이에 없는 움직임이나 형의 마음을 지어내지 마. 형이 대답하지 않아도 자연스럽게 한 문장씩 혼잣말을 이어갈 수 있어. 마이크를 다시 켜라고 재촉하지 마.\n"
     : "";
-  const shortVideoPrompt = jiwooCall && videoCall
+  const shortVideoPrompt = jiwooCall && videoCall && !visualOnly
     ? "\n[지우 영상통화: 짧은 실시간 반응] 답변은 반드시 짧은 한 문장만 말해. 대략 10~35자 안팎으로 한마디만 툭 던져. 침묵 중 움직임을 보고 먼저 말할 때도, 앞선 말을 이어 갈 때도, 형이 직접 말을 걸 때도 똑같이 한 문장으로 끝내. 2~5문장 독백이나 설명, 연달아 질문하는 방식은 금지야. 형이 대답하지 않아도 다음 화면을 확인하면서 다음 차례에 다른 한 문장을 말하면 돼. 지우가 먼저 주제를 꺼내거나 짧게 지시할 수도 있어. 음성통화와 문자채팅에는 이 제한을 적용하지 마.\n"
     : "";
   const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
@@ -571,7 +560,7 @@ ${recentUserCue ? `형이 마지막으로 실제 말했던 단서(지금 말하�
 요청을 수행할 수 없을 때도 지우의 평소 말투로 짧고 분명하게 경계를 표현하고, 허용되는 비성적인 일상 대화로 자연스럽게 이어가. 예를 들어 "그 얘기는 여기까지만 하자. 오늘 뭐 했는지나 들려줘."처럼 말하되, 실제 대화의 맥락과 최근 발화에 맞춰 표현과 화제를 바꿔.
 제한되는 묘사나 행동은 생성하지 않고 경계를 유지해. 형이 제한의 이유를 직접 물으면 실제 이유를 정확하고 솔직하게 설명해. 화면을 확인할 수 없거나 확실하지 않은 경우에는 확인 가능한 사실만 말해.
 ` : "";
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualThreadPrompt + visualPrompt + audioOnlyMonologuePrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt + monologuePrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -731,7 +720,7 @@ ${recentUserCue ? `형이 마지막으로 실제 말했던 단서(지금 말하�
             }
           } else {
             if (!clean && !photoPlan) throw Error("Empty Jiwoo dialogue");
-            if (clean && !photoPlan) emitText(videoCall || audioOnlyMonologue ? shortVideoReply(clean) : clean);
+            if (clean && !photoPlan) emitText(visualOnly || audioOnlyMonologue ? monologueReply(clean) : videoCall ? shortVideoReply(clean) : clean);
           }
         }
 

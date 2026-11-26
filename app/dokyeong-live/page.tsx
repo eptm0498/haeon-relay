@@ -9,6 +9,7 @@ import LiveModelEditor from "./LiveModelEditor";
 import {useImageJobs,ImageJobTray} from "./useImageJobs";
 import CharacterAvatar from "./CharacterAvatar";
 import CallStage from "./CallStage";
+import { monologueContext } from "@/lib/dokyeong/call-monologue";
 import { selectMutedAudioTurn } from "@/lib/dokyeong/audio-monologue";
 import { useCallCamera } from "./useCallCamera";
 import { selectVisualMonologueTurn } from "@/lib/dokyeong/visual-monologue";
@@ -702,11 +703,12 @@ export default function DokyeongLive() {
             m.role === "user" && m.content.trim() &&
             typeof m.ts === "number" && Date.now() - m.ts <= 30 * 60 * 1000)?.content.trim().slice(0, 180)
         : undefined;
+      const autonomousContext = autonomous ? monologueContext(conversation) : undefined;
       const response = await fetch(`${API}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: conversation.slice(autonomous ? -23 : -24).map((m, index, arr) => {
+          messages: (autonomousContext?.messages ?? conversation.slice(-24)).map((m, index, arr) => {
             return {
               role: m.role,
               content: m.content || (m.image ? "[사진을 보냈어]" : ""),
@@ -723,6 +725,7 @@ export default function DokyeongLive() {
           visualOnly,
           visualFollowUp: visualOnly && visualFollowUp,
           audioOnlyMonologue,
+          monologueTurn: autonomousContext?.monologueTurn,
           recentUserCue: autonomous ? earlierUserCue : undefined,
           microphoneMuted: realtime && micMutedRef.current,
           callPhoto: running.current && realtime ? callPhotoRef.current : undefined,
