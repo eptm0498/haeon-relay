@@ -1,5 +1,6 @@
 export const jiwooDays = ["일", "월", "화", "수", "목", "금", "토"] as const;
-export const JIWOO_MAX_DAILY_TEXT_STARTS = 10;
+export const JIWOO_DEFAULT_DAILY_TEXT_STARTS = 10;
+export const JIWOO_MAX_DAILY_TEXT_STARTS = 2_147_483_647;
 export const JIWOO_MAX_TEXTS_PER_SERIES = 5;
 
 // Fixed Korea-time do-not-disturb window for Jiwoo's autonomous texts.
@@ -42,7 +43,7 @@ export function jiwooProactivePreferences(settings: Partial<JiwooProactivePrefer
   return {
     incomingCalls: settings.incomingCalls !== false,
     proactiveTexts: settings.proactiveTexts !== false,
-    proactiveDailyStarts: settings.proactiveDailyStarts ?? JIWOO_MAX_DAILY_TEXT_STARTS,
+    proactiveDailyStarts: settings.proactiveDailyStarts ?? JIWOO_DEFAULT_DAILY_TEXT_STARTS,
     proactiveSeriesMessages: settings.proactiveSeriesMessages ?? JIWOO_MAX_TEXTS_PER_SERIES,
   };
 }
