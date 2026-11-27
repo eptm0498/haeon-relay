@@ -111,7 +111,7 @@ const broadTags = new Set([
 
 export function matchingAlbumPhotos(
   photos: CallPhoto[], messages: { content: string }[], use: "call" | "chat",
-  options: { current?: string | null; scheduled?: CallPhoto[]; recentlySent?: string[]; contextualOnly?: boolean } = {},
+  options: { current?: string | null; scheduled?: CallPhoto[]; recentlySent?: string[]; contextualOnly?: boolean; limit?: number; perGroup?: number } = {},
 ) {
   const recent = messages.slice(-5).reverse().map(message => canonical(message.content));
   const matches = photos.filter(photo => photoSupports(photo, use)).map(photo => {
@@ -149,10 +149,10 @@ export function matchingAlbumPhotos(
   for (const { photo } of matches) {
     const group = photo.tags?.[0] ?? "";
     const count = groups.get(group) ?? 0;
-    if (count >= (options.contextualOnly ? 6 : 3)) continue;
+    if (count >= (options.perGroup ?? (options.contextualOnly ? 6 : 3))) continue;
     groups.set(group, count + 1);
     include(photo);
-    if (selected.length >= 18) break;
+    if (selected.length >= (options.limit ?? 18)) break;
   }
   return selected;
 }

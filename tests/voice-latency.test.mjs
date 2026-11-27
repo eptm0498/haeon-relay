@@ -12,10 +12,11 @@ import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import * as callMonologue from '../lib/dokyeong/call-monologue.ts';
 import * as lockData from '../lib/dokyeong/jiwoo-lock-data.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
+import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',conversationRules,models={},lockResult={context:''},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',conversationRules,models={},lockResult={context:''},albumSelection='',messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -43,6 +44,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
   '@/lib/dokyeong/jiwoo-album':jiwooAlbum,
+  '@/lib/dokyeong/gemini-json':{geminiJson:async()=>({selection:albumSelection})},
   '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
   '@/lib/dokyeong/incoming-call':{incomingCallContext:async()=>callContext,incomingCallWork:async(action,id)=>{assert.equal(action,'greet');assert.equal(id,openingCallId);return answered?{id}:null;},isIncomingCallId:value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)},
   '@/lib/dokyeong/jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(standaloneJiwoo);return '넘겨온 통화 맥락';}},
@@ -56,7 +58,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/samples':{relatedSampleContext:()=>read('samples')},
   '@/lib/dokyeong/time-context':{currentTimeContext:()=>''},
   '@/lib/dokyeong/photo-tool':{photoTool:{name:'send_character_photo'},parsePhotoCall:()=>null},
-  '@/lib/dokyeong/photo-intent':{declinesPhoto:()=>false,photoFallbackAllowed:()=>{assert.ok(!standaloneJiwoo,'no photo fallback');return false;},photoIntentContext:()=>'',photoRequestPrompt:()=>'',wantsPhoto:()=>false},
+  '@/lib/dokyeong/photo-intent':photoIntent,
   '@/lib/dokyeong/sleep-intent':{sleepIntent:()=>false},
   '@/lib/dokyeong/reply-jobs':{queueReply:async(...args)=>{jobs.push(args);},runReplyWorker:async id=>{jobs.push(id);}},
   '@/lib/dokyeong/reply-timing':{timingPrompt:'',timingPlan:()=>({awaySeconds:0})},
@@ -154,6 +156,32 @@ test('standalone Jiwoo voice keeps its call-only processing and skips project an
  assert.ok(events.some(e=>e.type==='audio_done'));
  assert.ok(!events.some(e=>e.type==='call_photo'||e.type==='photo'));
  assert.deepEqual(call.repairs,[]);
+});
+
+test('spoken photo requests recover omitted tools and still prefer a matching album photo',{timeout:3000},async()=>{
+ const id='aabbccdd-1234-4321-aaaa-abcdef123456';
+ for(const albumSelection of ['1','']){
+  const f=fixture({standaloneJiwoo:true,wantVoice:false,photos:[{id,situation:'집에서 티셔츠를 입고 책 읽는 셀카',tags:['독서'],useFor:'both'}],albumSelection,messages:[{role:'assistant',content:'집에서 책 읽는 중이야.'},{role:'user',content:'셀카 찍어줘'}]});
+  f.contextReady();await tick();f.gates.headers.resolve(new Response(f.upstream));const response=await f.pending;
+  assert.ok(f.modelBody.tools);f.frame('책 읽고 있었어, 형.');f.input.close();
+  const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  if(albumSelection){assert.ok(events.some(e=>e.type==='jiwoo_photo'&&e.id===id));assert.ok(!events.some(e=>e.type==='photo'));}
+  else{const photo=events.find(e=>e.type==='photo');assert.ok(photo);assert.match(photo.scene,/책 읽는 중/);}
+ }
+});
+
+test('call photo recovery follows visual context and honors fresh captures and refusals',{timeout:3000},async()=>{
+ for(const {request,reply,preceding=[],photo} of [
+  {request:'뭐 하고 있어?',reply:'책 읽고 있어.',preceding:[{role:'user',content:'셀카 보고 싶어'},{role:'assistant',content:'집에 왔어.'}],photo:true},
+  {request:'지금 새로 셀카 찍어줘',reply:'집에서 쉬고 있어.',photo:true},
+  {request:'셀카 보내줘',reply:'지금은 사진 안 보낼래.',photo:false},
+  {request:'사진 보내지 마',reply:'알았어. 책 읽고 있었어.',photo:false},
+ ]){
+  const f=fixture({standaloneJiwoo:true,wantVoice:false,messages:[...preceding,{role:'user',content:request}]});
+  f.contextReady();await tick();f.gates.headers.resolve(new Response(f.upstream));const response=await f.pending;
+  f.frame(reply);f.input.close();const events=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(events.some(e=>e.type==='photo'),photo,request);
+ }
 });
 
 test('Jiwoo gets conversational context and keeps its scene marker out of spoken dialogue',{timeout:3000},async()=>{

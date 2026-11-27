@@ -208,6 +208,34 @@ test('a visual question permits a concrete photo scene without forcing images fo
  const canceled=await prepare(null,null,true,{kind:'photo',text:'책 읽는 중.',scene:'독서'},'사진 보내지 마');assert.equal(canceled.calls.at(-1).data.photo,null);
 });
 
+test('capture requests search the album first and can recover a match outside the initial shortlist',async()=>{
+ const photos=Array.from({length:25},(_,i)=>({id:`portrait-${i+1}`,situation:`일상 셀카 후보 ${i+1}`,tags:['셀카'],useFor:'both'}));
+ const draft={kind:'reply',text:'형, 이렇게 쉬고 있어.',scene:'',albumSelection:'25'};
+ for(const request of ['사진 찍어줘','셀카 찍어줘','찍어봐']){
+  const outcome=await prepare(null,null,true,draft,request,undefined,photos);
+  assert.equal(outcome.calls.at(-1).data.albumPhotoId,'portrait-25',request);
+  assert.equal(outcome.calls.at(-1).data.photo,null);
+  assert.doesNotMatch(outcome.prompts[0],/일상 셀카 후보 25/);
+  assert.match(outcome.prompts[1],/일상 셀카 후보 25/);
+ }
+ const fresh=await prepare(null,null,true,{...draft,kind:'album',scene:'1'},'지금 새로 셀카 찍어줘',undefined,photos);
+ assert.equal(fresh.calls.at(-1).data.albumPhotoId,undefined);assert.ok(fresh.calls.at(-1).data.photo);
+ assert.notEqual(fresh.calls.at(-1).data.photo.scene,'1');
+});
+
+test('implicit visual requests and concrete daily scenes recover a missing image action',async()=>{
+ const photos=[{id:'reading',situation:'방에서 책 읽는 셀카',tags:['독서'],useFor:'both'}];
+ const preceding=[{role:'user',content:'셀카 보고 싶어',ts:Date.parse('2026-11-14T01:58:00+09:00')},{role:'assistant',content:'책 읽고 있어.',ts:Date.parse('2026-11-14T01:59:00+09:00')}];
+ const implicit=await prepare(null,null,true,{kind:'reply',text:'책 읽는 중이야.',scene:'',albumSelection:'1'},'뭐 하고 있어?',undefined,photos,preceding);
+ assert.equal(implicit.calls.at(-1).data.albumPhotoId,'reading');assert.equal(implicit.calls.at(-1).data.photo,null);
+ const generated=await prepare(null,null,true,{kind:'reply',text:'책 읽는 중이야.',scene:'방에서 티셔츠를 입고 책 읽는 일상 셀카'},'뭐 해?');
+ assert.ok(generated.calls.at(-1).data.photo);
+ const invalid=await prepare(null,null,true,{kind:'album',text:'책 읽는 중이야.',scene:'99',albumSelection:'1'},'책 읽는 셀카 보내줘',undefined,photos);
+ assert.equal(invalid.calls.at(-1).data.albumPhotoId,'reading');
+ const refused=await prepare(null,null,true,{kind:'photo',text:'사진은 안 보낼래.',scene:'책 읽는 셀카'},'셀카 보내줘');
+ assert.equal(refused.calls.at(-1).data.photo,null);
+});
+
 test('stored current lock replies skip the model and all image generation',async()=>{
  const lock={context:'current record',reply:'이번 잠금 번호는 0012야.',sessionId:'session-current'};
  const outcome=await prepare(null,null,true,{},'키 비번 알려줘',undefined,[],[],null,undefined,lock);

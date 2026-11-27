@@ -11,7 +11,8 @@ import { formatJiwooUserMessage, jiwooSceneSystemPrompt, jiwooSpokenText, isStan
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
-import { homeAlbumPhotos, matchingAlbumPhotos, photoSupports, pickAlbumPhoto, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
+import { albumReplyPrompt, chooseAlbumPhoto, homeAlbumPhotos, matchingAlbumPhotos, photoSupports, pickAlbumPhoto, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
+import { geminiJson } from "@/lib/dokyeong/gemini-json";
 import { memoryContext } from "@/lib/dokyeong/memory";
 import { jiwooLockTurn, type LockTurn } from "@/lib/dokyeong/jiwoo-lock";
 import { guardLockReply, redactLockMessages } from "@/lib/dokyeong/jiwoo-lock-data";
@@ -22,7 +23,7 @@ import { readJiwooPreferences } from "@/lib/dokyeong/jiwoo-settings";
 import { currentTimeContext } from "@/lib/dokyeong/time-context";
 import { photoTool, parsePhotoCall } from "@/lib/dokyeong/photo-tool";
 import { sleepIntent } from "@/lib/dokyeong/sleep-intent";
-import { declinesPhoto,photoFallbackAllowed,photoIntentContext,photoRequestPrompt,wantsPhoto } from "@/lib/dokyeong/photo-intent";
+import { contextualPhotoRequest, declinesPhoto,photoFallbackAllowed,photoIntentContext,photoReplyDeclines,photoRequestPrompt,wantsFreshPhoto,wantsPhoto } from "@/lib/dokyeong/photo-intent";
 import { queueReply,runReplyWorker } from "@/lib/dokyeong/reply-jobs";
 import { serverRpc } from "@/lib/dokyeong/memory";
 import { timingPrompt,timingPlan } from "@/lib/dokyeong/reply-timing";
@@ -506,10 +507,15 @@ export async function POST(request: NextRequest) {
   let sendAudio: ((event: object) => void) | undefined;
   const speechModel = wantVoice && (!standaloneJiwoo || jiwooCall) ? realtimeSpeechModel(models.speechModel) : null;
   const dialogue = speechModel ? createDialogueBridge(event => sendAudio?.(event), request.signal, activeVoiceId, linked || standaloneJiwoo, speechModel) : null;
-  const sceneOptions = jiwooCall
+  const jiwooPhotoContext = photoIntentContext(messages);
+  const jiwooPhotoText = jiwooSpokenText(messages.at(-1)?.content || "");
+  const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && !audioOnlyMonologue &&
+    (wantsPhoto(jiwooPhotoText, jiwooPhotoContext) || contextualPhotoRequest(jiwooPhotoText, jiwooPhotoContext));
+  const jiwooFreshPhoto = jiwooPhotoRequested && wantsFreshPhoto(jiwooPhotoText, jiwooPhotoContext);
+  const sceneOptions = jiwooFreshPhoto ? [] : jiwooCall
     ? matchingAlbumPhotos(callPhotos ?? [], messages, "call", { current: currentPhoto, scheduled: scheduledCallPhotos(callPhotos ?? [], responseTime) })
     : callPhotos ?? [];
-  const homePhoto = jiwooCall
+  const homePhoto = jiwooCall && !jiwooFreshPhoto
     ? pickAlbumPhoto(homeAlbumPhotos(callPhotos ?? [], "call"), currentPhoto ? [currentPhoto] : [])
     : undefined;
   const modePrompt = standaloneJiwoo && !jiwooCall ? jiwooRule(jiwooPreferences, "text") : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall, homePhoto);
@@ -523,8 +529,7 @@ export async function POST(request: NextRequest) {
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
   const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? jiwooRule(jiwooPreferences, "transcript") : "";
-  const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && !audioOnlyMonologue && wantsPhoto(jiwooSpokenText(messages.at(-1)?.content || ""), photoIntentContext(messages));
-  const jiwooPhotoPrompt = jiwooPhotoRequested ? "\n[사진 전송 기능] 형이 새 사진을 찍거나 생성해 달라고 했다면 send_character_photo 도구를 호출해. 도구의 scene에 실제 요청의 장소·복장·포즈를 담아. 기존 사진첩을 다시 보여달라는 요청은 사진첩에서 선택하고, 새로 촬영해 달라는 요청은 도구를 이용해 GPT 이미지 생성 작업을 시작해. 도구를 호출하면 이미지가 생성되기 전까지 보냈다고 말하지 마.\n" : "";
+  const jiwooPhotoPrompt = jiwooPhotoRequested ? "\n[사진 전송 기능] 형이 지금 모습을 보고 싶어 하는 요청이야. 말로만 수락하지 말고 실제 사진 기능을 써. '찍어줘', '셀카 보내줘'도 기존 사진첩에서 최근 대화의 장소·복장·행동과 맞는 장면을 먼저 골라. 맞는 사진이 없을 때 send_character_photo 도구를 호출하고 scene에 실제 요청과 앞 대화의 장면을 담아. 새로 찍으라는 명시적인 요청은 GPT 생성 도구를 써. 일상 사진에 요청하지 않은 노출이나 성적 연출을 추가하지 마. 사진이 준비되기 전에는 보냈다고 말하지 마.\n" : "";
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
@@ -595,6 +600,7 @@ export async function POST(request: NextRequest) {
       let linkedOutput = "";
       let endCall = false;
       let photoPlan: {scene:string;waitMessage:string}|null=null;
+      let selectedJiwooPhoto = false;
       let sentenceCount = 0, inTerminalRun = false, limitReached = false;
 
       const segment = (flush = false) => {
@@ -652,7 +658,7 @@ export async function POST(request: NextRequest) {
 
       const sceneReader = callSceneReader(sceneOptions,
         id => {
-          if (jiwooCall) { if (id && id !== currentPhoto) send({ type: "jiwoo_photo", id }); }
+          if (jiwooCall) { if (id) { selectedJiwooPhoto=true; if (id !== currentPhoto || jiwooPhotoRequested) send({ type: "jiwoo_photo", id }); } }
           else if (id !== currentPhoto) send({ type: "call_photo", id });
         },
         text => { if (linked || standaloneJiwoo) linkedOutput += text; else emitText(text); },
@@ -712,6 +718,21 @@ export async function POST(request: NextRequest) {
           lock=await jiwooLockTurn({characterId:character.id,eventId:requestId||`voice-${Date.now()}`,timestamp:Date.now(),text:'이번 잠금 비밀번호 알려줘',signal:request.signal});
           if(lock.reply)linkedOutput=lock.reply;
         }
+        if(jiwooPhotoRequested&&!lock.reply&&!lastError&&!photoReplyDeclines(dialogueOnly(linkedOutput))) {
+          if(!selectedJiwooPhoto&&!jiwooFreshPhoto&&callPhotos?.length) {
+            try {
+              const album={scenes:matchingAlbumPhotos(callPhotos,messages,"call",{limit:callPhotos.length,perGroup:callPhotos.length}),home:homeAlbumPhotos(callPhotos,"call")};
+              const selection=await geminiJson<{selection:string}>(`최근 대화의 사진 요청에 맞는 기존 사진을 선택해. 장소·옷·행동이 다르면 선택하지 마. 일상·셀카 요청에 성적 장면을 선택하지 마. 없으면 빈 selection.\n${messages.slice(-8).map(m=>`${m.role}: ${m.content}`).join("\n")}\n이번 답장: ${dialogueOnly(linkedOutput)}\n${albumReplyPrompt(album,[],true,false,true)}`,
+                {type:"OBJECT",properties:{selection:{type:"STRING"}},required:["selection"]},request.signal,undefined,{model:models.voiceModel,temperature:0});
+              const id=chooseAlbumPhoto(album,selection.selection,[]);
+              if(id){selectedJiwooPhoto=true;send({type:"jiwoo_photo",id});}
+            } catch { /* An unconfirmed album selection keeps the generation path available. */ }
+          }
+          if(!streamOpen||request.signal.aborted)return;
+          if(selectedJiwooPhoto)photoPlan=null;
+          else if(!photoPlan)photoPlan={scene:messages.slice(-8).map(m=>`${m.role}: ${m.content}`).join("\n").slice(-1800),waitMessage:"잠깐만, 사진 준비해서 보내줄게."};
+        }
+        if(standaloneJiwoo&&(lock.reply||declinesPhoto(jiwooPhotoText)||photoReplyDeclines(dialogueOnly(linkedOutput))))photoPlan=null;
         if (standaloneJiwoo && !lastError) {
           endCall = canEndCall && /(?:^|\n)[ \t]*\[CALL_END\]\s*$/.test(linkedOutput);
           const dialogueText = linkedOutput.replace(/\[CALL_END\]/g, "");

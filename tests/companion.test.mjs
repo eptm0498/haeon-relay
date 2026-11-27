@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed,photoRequestPrompt,DURI_ORDINARY_PHOTO_PREFERENCE,wantsFreshPhoto} from '../lib/dokyeong/photo-intent.ts';
+import {wantsPhoto,ordinaryBodyPhotoRequest,photoReplyDeclines,photoIntentContext,photoFallbackAllowed,photoRequestPrompt,DURI_ORDINARY_PHOTO_PREFERENCE,wantsFreshPhoto,contextualPhotoRequest} from '../lib/dokyeong/photo-intent.ts';
 import {parsePhotoCall} from '../lib/dokyeong/photo-tool.ts';
 import {koreaTime} from '../lib/dokyeong/time-context.ts';
 import {validSubscription} from '../lib/dokyeong/push-subscription.ts';
@@ -70,9 +70,19 @@ test('asterisk scenes are canonical scene events and never spoken dialogue',()=>
  assert.equal(jiwooSceneSystemPrompt([{role:'user',content:'*지우가 일어난다*'},{role:'assistant',content:'응'}]),'');
 });
 test('fresh photo is generated while ordinary album requests stay eligible for reuse',()=>{
- for(const value of ['지금 새로 셀카 찍어서 보내줘','사진 찍어줘','셀카 찍어줘','한 장 찍어줘','사진 생성해서 보내줘','지금 찍어서 보내줘','방금처럼 다시 찍어줘']){
+ for(const value of ['지금 새로 셀카 찍어서 보내줘','사진 생성해서 보내줘','지금 찍어서 보내줘','방금처럼 다시 찍어줘']){
   assert.equal(wantsFreshPhoto(value),true,value);assert.equal(wantsPhoto(value),true,value);
  }
- for(const value of ['사진 보여줘','예전에 찍은 사진 보여줘','지금 예전에 찍은 사진 보내줘','그 사진 다시 보여줘','사진 찍지 마','사진 얘기한 거야'])assert.equal(wantsFreshPhoto(value),false,value);
+ for(const value of ['사진 찍어줘','셀카 찍어줘','한 장 찍어줘','찍어서 보내줘','사진 보여줘','예전에 찍은 사진 보여줘','지금 예전에 찍은 사진 보내줘','그 사진 다시 보여줘','사진 찍지 마','사진 얘기한 거야'])assert.equal(wantsFreshPhoto(value),false,value);
  assert.equal(wantsPhoto('지금 찍어서 보내줘'),true);
+});
+
+test('short activity questions retain a recent photo request but cancellations end it',()=>{
+ const history=[{role:'user',content:'셀카 보고 싶어'},{role:'assistant',content:'나 집에서 책 읽는 중이야.'},{role:'user',content:'뭐 하고 있어?'}];
+ assert.equal(contextualPhotoRequest('뭐 하고 있어?',photoIntentContext(history)),true);
+ assert.equal(contextualPhotoRequest('뭐 해?','오늘 날씨 좋네'),false);
+ assert.equal(contextualPhotoRequest('일은 잘 돼?','셀카 보내줘'),false);
+ history.splice(1,0,{role:'user',content:'사진은 보내지 마'});
+ assert.equal(contextualPhotoRequest('뭐 하고 있어?',photoIntentContext(history)),false);
+ for(const request of ['지우야 찍어봐','야 찍어','셀카 찍어줘','한 장 찍어줘','셀카 좀','뭐 하고 있는지 보여줘'])assert.equal(wantsPhoto(request),true,request);
 });
