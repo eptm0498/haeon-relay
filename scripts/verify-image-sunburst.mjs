@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import ts from 'typescript';
 
-const offline=spawnSync(process.execPath,['--test','tests/image-scene.test.mjs','tests/image-generation.test.mjs'],{stdio:'inherit'});
+const offline=spawnSync(process.execPath,['--test','tests/image-scene.test.mjs','tests/image-generation.test.mjs','tests/image-reference.test.mjs'],{stdio:'inherit'});
 if(offline.status!==0)throw new Error('Image scene and generation regression checks failed');
 
 // Explicit release check: one image, never saved to chat history or sent as a notification.
@@ -21,7 +21,7 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-image-sunburst]')) {
   const character=(await response.json()).characters?.find(c=>c.name==='도경');
   if(!character?.avatar_url)throw new Error('Image release reference unavailable');
   const dir=resolve('node_modules/.cache/image-sunburst-verify');mkdirSync(dir,{recursive:true});
-  const modules=['reference-images','image-generation','image-scene','gemini-json','config'];
+  const modules=['reference-images','image-generation','image-scene','gemini-json','config','pollo-image','image-policy','image-reference'];
   for(const name of modules) {
     let compiled=ts.transpileModule(readFileSync(`lib/dokyeong/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
     for(const dependency of modules)compiled=compiled.replaceAll(`"./${dependency}"`,`"./${dependency}.mjs"`).replaceAll(`'./${dependency}'`,`'./${dependency}.mjs'`);
@@ -46,7 +46,9 @@ if(process.env.VERCEL_GIT_COMMIT_MESSAGE?.includes('[verify-image-sunburst]')) {
       }
       return savedFetch(url,options);
     };
+    const savedPolloKey=process.env.POLLO_API_KEY;delete process.env.POLLO_API_KEY;
     const result=await generateCharacterPhoto({name:character.name,characterPrompt:plan.appearance,request,scene:plan.scene,references:{face:[character.avatar_url],body:[]},signal:AbortSignal.timeout(190000)});
+    if(savedPolloKey)process.env.POLLO_API_KEY=savedPolloKey;
     assert.equal(result.model,'gpt-image-2.5-sunburst');assert.equal(imageCalls,1);
     const bytes=Buffer.from(result.image.dataUrl.split(',')[1],'base64');
     assert.ok(bytes.length>1000&&bytes[0]===255&&bytes[1]===216);

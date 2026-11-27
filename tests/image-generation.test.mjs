@@ -8,9 +8,9 @@ import sharp from 'sharp';
 
 const dir=resolve('node_modules/.cache/image-generation-test-'+process.pid);
 mkdirSync(dir,{recursive:true});
-for(const name of ['reference-images','image-generation']) {
+for(const name of ['reference-images','image-generation','pollo-image','image-policy','image-reference']) {
   const source=readFileSync(`lib/dokyeong/${name}.ts`,'utf8');
-  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace('"./reference-images"','"./reference-images.mjs"');
+  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/"\.\/(reference-images|pollo-image|image-policy|image-reference)"/g,'"./$1.mjs"');
   writeFileSync(`${dir}/${name}.mjs`,compiled);
 }
 after(()=>rmSync(dir,{recursive:true,force:true}));
@@ -22,11 +22,13 @@ async function withApi(response,run) {
   const savedFetch=globalThis.fetch;
   const savedKey=process.env.OPENAI_API_KEY;
   const savedModel=process.env.OPENAI_IMAGE_MODEL;
+  const polloKey=process.env.POLLO_API_KEY;delete process.env.POLLO_API_KEY;
   process.env.OPENAI_API_KEY='offline-test';delete process.env.OPENAI_IMAGE_MODEL;
   const calls=[];
   globalThis.fetch=async(url,options)=>{calls.push({url:String(url),payload:JSON.parse(options.body)});return response();};
   try {await run(calls);} finally {
     globalThis.fetch=savedFetch;
+    if(polloKey===undefined)delete process.env.POLLO_API_KEY;else process.env.POLLO_API_KEY=polloKey;
     if(savedKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=savedKey;
     if(savedModel===undefined)delete process.env.OPENAI_IMAGE_MODEL;else process.env.OPENAI_IMAGE_MODEL=savedModel;
   }
@@ -103,4 +105,65 @@ test('reports unavailable model access without silently downgrading quality',asy
     await assert.rejects(()=>generateCharacterPhoto(base),/이미지 모델을 사용할 수 없어/);
     assert.equal(calls.length,1);
   });
+});
+
+async function withPollo(run,{failure,flagInput=false,flagOutput=false,statusFailure=false,transport=false,wrappedFailure=false}={}) {
+ const savedFetch=globalThis.fetch;const env={OPENAI_API_KEY:process.env.OPENAI_API_KEY,POLLO_API_KEY:process.env.POLLO_API_KEY,CHARACTER_HISTORY_KEY:process.env.CHARACTER_HISTORY_KEY};
+ process.env.OPENAI_API_KEY='test-openai';process.env.POLLO_API_KEY='test-pollo';process.env.CHARACTER_HISTORY_KEY='private-signing-key';
+ const calls=[];let moderation=0;
+ globalThis.fetch=async(url,options={})=>{
+  options.signal?.throwIfAborted();
+  const target=String(url),payload=options.body?JSON.parse(options.body):undefined;calls.push({url:target,payload,headers:options.headers});
+  if(target.endsWith('/moderations')){moderation++;return Response.json({results:[{flagged:moderation===1?flagInput:flagOutput}]});}
+  if(target.includes('pollo.ai/api/platform/v1/generation/')) {
+   if(transport)throw Error('network unavailable');
+   if(options.method==='POST')return failure?Response.json(wrappedFailure?{code:'FAIL',error:{code:failure}}:{error:{code:failure}},{status:wrappedFailure?200:failure==='bad_key'?401:400}):Response.json({taskId:'task_test',status:'waiting'});
+   return Response.json({taskId:'task_test',generations:[statusFailure?{status:'failed',failMsg:statusFailure}:{status:'succeed',mediaType:'image',url:'https://cdn.pollo.ai/test.jpg'}]});
+  }
+  if(target==='https://cdn.pollo.ai/test.jpg') return new Response(Buffer.from(encoded,'base64'),{headers:{'content-type':'image/jpeg'}});
+  if(target.includes('api.openai.com/v1/images/'))return Response.json({data:[{b64_json:encoded}]});
+  throw Error('Unexpected URL '+target);
+ };
+ try{await run(calls);}finally{globalThis.fetch=savedFetch;for(const [key,value]of Object.entries(env)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+}
+const characterId='8bda7b48-b3bc-4c8e-900b-7b92b04fe21c';
+const ordinary={...base,characterId,request:'책 읽는 셀카 보내줘',scene:'방에서 티셔츠를 입고 책을 읽는 자연스러운 셀카',characterPrompt:'30세 성인 남성'};
+test('Pollo is first for chat photos, preserves ordered references, and never calls GPT when successful',async()=>{
+ await withPollo(async calls=>{
+  const result=await generateCharacterPhoto({...ordinary,references:{face:[face],body:[face]},sourceImage:face,sourceMessageId:'photo-123'});
+  assert.equal(result.model,'pollo/pollojourney-v8-2-image');assert.equal(result.referenceCount,2);
+  const submission=calls.find(c=>c.url.includes('/generation/')&&c.payload);
+  assert.equal(submission.headers['x-api-key'],'test-pollo');
+  assert.ok(submission.payload.input.prompt.includes(ordinary.request));
+  assert.equal(submission.payload.input.images.length,1);
+  const grants=submission.payload.input.images.map(url=>JSON.parse(Buffer.from(new URL(url).pathname.split('/').at(-1).split('.')[0],'base64url')));
+  assert.deepEqual(grants.map(g=>g.kind),['board']);assert.equal(grants[0].messageId,'photo-123');
+  assert.ok(!calls.some(c=>c.url.includes('/v1/images/')));
+  const downloaded=calls.find(c=>c.url==='https://cdn.pollo.ai/test.jpg');assert.equal(downloaded.headers,undefined);
+  assert.equal(calls.filter(c=>c.url.endsWith('/moderations')).length,2);
+  assert.ok(result.image.dataUrl.startsWith('data:image/jpeg;base64,'));
+ });
+});
+test('technical Pollo failures fall back once to the original GPT model and original reference data',async()=>{
+ for(const scenario of [{failure:'bad_key'},{statusFailure:'GPU temporarily unavailable'},{transport:true}])await withPollo(async calls=>{
+  const result=await generateCharacterPhoto(ordinary);assert.equal(result.model,'gpt-image-2.5-sunburst');
+  const imageCalls=calls.filter(c=>c.url.includes('/v1/images/'));assert.equal(imageCalls.length,1);
+  assert.deepEqual(imageCalls[0].payload.images,[{image_url:face}]);assert.equal(imageCalls[0].payload.moderation,'auto');
+  assert.equal(calls.filter(c=>c.url.includes('pollo.ai/api/platform/')&&c.payload).length,1);
+ },scenario);
+});
+test('input, provider and actual output rejections stop instead of switching models',async()=>{
+ for(const scenario of [{flagInput:true},{failure:'content_policy_violation'},{failure:'content_policy_violation',wrappedFailure:true},{statusFailure:'NSFW rejected'},{flagOutput:true}])await withPollo(async calls=>{
+  await assert.rejects(()=>generateCharacterPhoto(ordinary),/이 사진은 생성할 수 없어/);
+  assert.ok(!calls.some(c=>c.url.includes('/v1/images/')));
+  if(scenario.flagInput)assert.ok(!calls.some(c=>c.url.includes('pollo.ai')));
+ },scenario);
+});
+test('profiles keep the existing provider and overlong prompts retain intent through GPT fallback',async()=>{
+ await withPollo(async calls=>{
+  const profile=await generateCharacterPhoto({...ordinary,profile:true});assert.equal(profile.model,'gpt-image-2.5-sunburst');
+  const request='새 사진 '.repeat(300);const result=await generateCharacterPhoto({...ordinary,request});
+  assert.equal(result.model,'gpt-image-2.5-sunburst');assert.ok(calls.at(-1).payload.prompt.includes(request));
+  assert.ok(!calls.some(c=>c.url.includes('pollo.ai')));
+ });
 });

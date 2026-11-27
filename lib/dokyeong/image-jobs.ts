@@ -15,7 +15,7 @@ export async function runImageJob(id?:string){
   const source=job.payload.sourceMessageId?await serverRpc<{dataUrl:string}|null>('live_data_work',{action:'media',target_character:character.id,data:{messageId:job.payload.sourceMessageId}}):null;
   const request=job.payload.text||job.payload.scene;
   const planned=parsePhotoScene(await geminiJson<PhotoScene>(photoScenePrompt({name:character.name,characterPrompt:character.prompt,request,proposedScene:job.payload.scene,context:currentTimeContext()+(job.payload.context||''),memory:await memoryContext(character.id),editing:!!source}),photoSceneSchema));
-  const generated=await generateCharacterPhoto({name:character.name,characterPrompt:planned.appearance,references,avatar:character.avatar_url,request,scene:planned.scene,sourceImage:source?.dataUrl,signal:AbortSignal.timeout(190000)});
+  const generated=await generateCharacterPhoto({name:character.name,characterPrompt:planned.appearance,references,avatar:character.avatar_url,characterId:character.id,sourceMessageId:job.payload.sourceMessageId,request,scene:planned.scene,sourceImage:source?.dataUrl,signal:AbortSignal.timeout(190000)});
   await serverRpc('live_image_work',{action:'complete',target_job:job.id,data:{lease:job.lease,image:generated.image}});
   console.log('LIVE_IMAGE_JOB_OK',job.id,generated.model,generated.referenceCount);
   await Promise.all([updateMemory(character.id,1).catch(()=>{}),deliverPushJobs().catch(()=>0)]);return true;
