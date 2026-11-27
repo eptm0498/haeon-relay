@@ -14,7 +14,9 @@ export function photoReplyDeclines(text:string) {
 
 export function photoIntentContext(messages:{role:string;content:string}[]) {
  const index=messages.findLastIndex(m=>m.role==='user');
- const preceding=messages.slice(0,index<0?messages.length:index).slice(-4);
+ let preceding=messages.slice(0,index<0?messages.length:index).slice(-8);
+ const cancelled=preceding.findLastIndex(m=>m.role==='user'&&declinesPhoto(m.content));
+ if(cancelled>=0)preceding=preceding.slice(cancelled+1);
  const lastAnswer=[...preceding].reverse().find(m=>m.role==='assistant');
  // An old offer is no longer an agreement after a refusal.
  return photoReplyDeclines(lastAnswer?.content||'')?'':preceding.map(m=>m.content).join('\n');
@@ -38,7 +40,7 @@ export function photoRequestPrompt(characterName:string) {
  if(characterName!=='두리')return intent;
  return intent+DURI_ORDINARY_PHOTO_PREFERENCE;
 }
-// A request to take/generate a NEW picture overrides reuse of album pictures.
+// Only an explicit demand for a new capture/generation overrides album reuse.
 // A mere photo mention, refusal, or a description of an old photo is not enough.
 export function wantsFreshPhoto(text: string, context = "") {
  const value = text.replace(/\s+/g, " ").trim();
@@ -46,7 +48,7 @@ export function wantsFreshPhoto(text: string, context = "") {
  // Requests to retrieve a previously taken photo are album requests, even if sent right now.
  if (/(?:예전에|옛날에|전에|지난번에|이미|기존에|저장해둔|사진첩|앨범).{0,24}(?:찍은|찍었던|사진|셀카).{0,30}(?:보내|보여)/u.test(value) &&
      !/(?:새로|새롭게|새로운|다시\s*찍|지금\s*찍|직접\s*찍|새\s*사진)/u.test(value)) return false;
- const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서).{0,30}?(?:찍|촬영|생성|만들|그려)|(?:찍어서|촬영해서|생성해서|만들어서|그려서)\s*(?:바로\s*)?(?:보내|보여)|(?:사진|셀카|이미지|한\s*장).{0,24}(?:찍어|촬영해|생성해|그려|만들어)\s*(?:줘|줄래|주라|주세요)|(?:사진|셀카|이미지).{0,20}(?:새로|새로운|다시\s*찍|지금\s*찍|생성해|만들어)/u.test(value);
+ const fresh = /(?:새로|새로운|새롭게|다시|지금|방금|즉석에서).{0,30}?(?:찍|촬영|생성|만들|그려)|(?:생성해|생성해서|그려|만들어서).{0,20}(?:줘|보내|보여)|(?:사진|셀카|이미지).{0,20}(?:생성|만들어|그려)|(?:사진첩|앨범|기존\s*사진).{0,12}(?:말고|대신).{0,20}(?:찍|새|생성)/u.test(value);
  const action = /(?:찍어|찍어서|촬영|생성|만들|그려|보내|보여|줘|줄래|주라|주세요)/u.test(value);
  const picture = /(?:사진|셀카|이미지|포토|촬영|찍|생성)/u.test(value) || /(?:사진|셀카|이미지|찍)/u.test(context);
  return fresh && action && picture;
@@ -57,15 +59,17 @@ export function wantsPhoto(text: string, context = "") {
   const value = text.replace(/\s+/g, " ").trim();
   if (declinesPhoto(value)) return false;
   if (wantsFreshPhoto(value, context)) return true;
-  if (/^(?:(?:응|그럼|그러면|한번|한 번|좀)\s*)*(?:찍어|찍어서\s*보내)(?:줘|주라|줄래|봐|봐봐|주세요)?[.!?~\s]*$/u.test(value)) return true;
+  if (/^(?:사진|셀카)(?:\s*(?:좀|한\s*장|하나))*[.!?~\s]*$/u.test(value)) return true;
+  if (/^(?:(?:지우야|야|응|그럼|그러면|한번|한 번|좀)\s*)*(?:찍어|찍어서\s*보내)(?:줘|주라|줄래|봐|봐봐|주세요|라|라니까)?[.!?~\s]*$/u.test(value)) return true;
   if (/(?:지금\s*)?(?:네|너|니|지우)?\s*(?:모습|얼굴|표정|옷차림|입은\s*옷).{0,20}(?:보여|보고\s*싶|볼\s*수|인증)/u.test(value)) return true;
+  if (/(?:뭐\s*(?:하고|하는|입고|입었)|어떻게\s*입).{0,20}(?:보여|보고\s*싶)/u.test(value)) return true;
   if (ordinaryBodyPhotoRequest(value)) return true;
-  if (/(사진|셀카|이미지|그림|포토)/u.test(value) &&
+  if (/(사진|셀카|이미지|그림|포토|한\s*장)/u.test(value) &&
       !/(보내지\s*마|보여주지\s*마|찍지\s*마|만들지\s*마|그리지\s*마|생성하지\s*마|필요\s*없|안\s*보내|안\s*찍|안\s*만들)/u.test(value)) {
     return /(보내|보여|찍어|찍으라|찍어서|그려|생성해|생성해줘|만들어|볼\s*수|보고\s*싶|줄래|줘|주세요|주라|부탁|한\s*장)/u.test(value);
   }
   if (/(사진|셀카|이미지|그림|찍)/u.test(context) && !/(보내지\s*마|안\s*보내|필요\s*없|됐어)/u.test(value) &&
-      /^(?:응|어|좋아|그래|ㅇㅇ)?[, .!]*?(?:보내줘|보여줘|찍어줘|하나\s*더|한\s*장\s*더|다시\s*찍|그렇게\s*(찍|보내)|그거\s*(보내|보여))/u.test(value)) return true;
+      /^(?:응|웅|엉|어|좋아|그래|ㅇㅇ)?[, .!]*?(?:보내\s*(?:줘|봐|라)|보여\s*(?:줘|봐|주라)|찍어줘|하나\s*더|한\s*장\s*더|다시\s*찍|그렇게\s*(찍|보내)|그거\s*(보내|보여))/u.test(value)) return true;
   if (/(?:사진|셀카|이미지).{0,30}(?:보내줄까|보여줄까|찍어줄까|보내줄게|보여줄게)/u.test(context) && /^(?:응|웅|엉|어|좋아|그래|ㅇㅇ|보고\s*싶어|궁금해)[.!?~\s]*$/u.test(value)) return true;
   if (/(?:사진|셀카|모습|옷|포즈|얼굴)/u.test(context)&&/^(?:(?:응|그럼|나도|좀)\s*)*(?:보여봐|보여주라|보자|구경\s*좀|한\s*장\s*더)[.!?~\s]*$/u.test(value))return true;
   return /(?:generate|create|send|show|draw|make).{0,80}(?:photo|selfie|picture|image)/i.test(value) && !/\b(?:don't|do not|never)\b/i.test(value);
@@ -74,4 +78,11 @@ export function wantsPhoto(text: string, context = "") {
 // A cue permits a contextual photo decision; it never forces generation for a plain greeting.
 export function contextualPhotoCue(text:string) {
  return !declinesPhoto(text) && /(?:뭐\s*(?:해|하고|하는)|어디\s*(?:야|있)|무슨\s*옷|뭐\s*입|어떻게\s*(?:입|생겼)|지금\s*모습|얼굴\s*보고\s*싶)/u.test(text);
+}
+
+// A short activity question continues a recent visual request, even without
+// repeating "photo". Plain greetings with no visual context stay ordinary chat.
+export function contextualPhotoRequest(text:string,context='') {
+ return contextualPhotoCue(text)&&context.split('\n').some(line=>wantsPhoto(line)||
+  /(?:사진|셀카).{0,30}(?:보내줄까|보여줄까|찍어줄까|보내줄게|보여줄게)/u.test(line));
 }
