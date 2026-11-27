@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
-execFileSync(process.execPath, ["--test", "tests/jiwoo-proactive-settings.test.mjs", "tests/jiwoo-conversation-rules.test.mjs", "tests/call-monologue.test.mjs"], { stdio: "inherit" });
+execFileSync(process.execPath, ["--test", "tests/jiwoo-proactive-settings.test.mjs", "tests/jiwoo-conversation-rules.test.mjs", "tests/call-monologue.test.mjs", "tests/jiwoo-lock.test.mjs", "tests/reply-jobs.test.mjs"], { stdio: "inherit" });
 await import("./verify-body-photo-intent.mjs");
 await import("./verify-dialogue-style.mjs");
 await import("./verify-message-session.mjs");

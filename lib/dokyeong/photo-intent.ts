@@ -57,12 +57,21 @@ export function wantsPhoto(text: string, context = "") {
   const value = text.replace(/\s+/g, " ").trim();
   if (declinesPhoto(value)) return false;
   if (wantsFreshPhoto(value, context)) return true;
+  if (/^(?:(?:응|그럼|그러면|한번|한 번|좀)\s*)*(?:찍어|찍어서\s*보내)(?:줘|주라|줄래|봐|봐봐|주세요)?[.!?~\s]*$/u.test(value)) return true;
+  if (/(?:지금\s*)?(?:네|너|니|지우)?\s*(?:모습|얼굴|표정|옷차림|입은\s*옷).{0,20}(?:보여|보고\s*싶|볼\s*수|인증)/u.test(value)) return true;
   if (ordinaryBodyPhotoRequest(value)) return true;
   if (/(사진|셀카|이미지|그림|포토)/u.test(value) &&
       !/(보내지\s*마|보여주지\s*마|찍지\s*마|만들지\s*마|그리지\s*마|생성하지\s*마|필요\s*없|안\s*보내|안\s*찍|안\s*만들)/u.test(value)) {
-    return /(보내|보여|찍어|찍어서|그려|생성해|생성해줘|만들어|볼\s*수|보고\s*싶|줄래|줘|주세요|주라|부탁|한\s*장)/u.test(value);
+    return /(보내|보여|찍어|찍으라|찍어서|그려|생성해|생성해줘|만들어|볼\s*수|보고\s*싶|줄래|줘|주세요|주라|부탁|한\s*장)/u.test(value);
   }
   if (/(사진|셀카|이미지|그림|찍)/u.test(context) && !/(보내지\s*마|안\s*보내|필요\s*없|됐어)/u.test(value) &&
       /^(?:응|어|좋아|그래|ㅇㅇ)?[, .!]*?(?:보내줘|보여줘|찍어줘|하나\s*더|한\s*장\s*더|다시\s*찍|그렇게\s*(찍|보내)|그거\s*(보내|보여))/u.test(value)) return true;
+  if (/(?:사진|셀카|이미지).{0,30}(?:보내줄까|보여줄까|찍어줄까|보내줄게|보여줄게)/u.test(context) && /^(?:응|웅|엉|어|좋아|그래|ㅇㅇ|보고\s*싶어|궁금해)[.!?~\s]*$/u.test(value)) return true;
+  if (/(?:사진|셀카|모습|옷|포즈|얼굴)/u.test(context)&&/^(?:(?:응|그럼|나도|좀)\s*)*(?:보여봐|보여주라|보자|구경\s*좀|한\s*장\s*더)[.!?~\s]*$/u.test(value))return true;
   return /(?:generate|create|send|show|draw|make).{0,80}(?:photo|selfie|picture|image)/i.test(value) && !/\b(?:don't|do not|never)\b/i.test(value);
+}
+
+// A cue permits a contextual photo decision; it never forces generation for a plain greeting.
+export function contextualPhotoCue(text:string) {
+ return !declinesPhoto(text) && /(?:뭐\s*(?:해|하고|하는)|어디\s*(?:야|있)|무슨\s*옷|뭐\s*입|어떻게\s*(?:입|생겼)|지금\s*모습|얼굴\s*보고\s*싶)/u.test(text);
 }
