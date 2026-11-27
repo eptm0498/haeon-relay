@@ -1,3 +1,4 @@
+import jiwooRules from './helpers/jiwoo-rules.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,18 +18,19 @@ vm.runInNewContext(ts.transpileModule(memorySource,{compilerOptions:{module:ts.M
  require:name=>name==='./character-modes'?characterModes:name==='./time-context'?{koreaTime:date=>date.toISOString()}:{},
 });
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[], attachment=null){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[], attachment=null,conversationRules){
  const calls=[],prompts=[],models=[],warnings=[],images=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
  const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}],attachedPhotoId:attachment?'pending':undefined},context:{messages:[...preceding,{id:'pending',role:'user',content:latest,ts:Date.parse(now)}],memory:''},activity};
  const mocks={
   './project-reply':{projectReply:async text=>text},
+  './jiwoo-conversation-rules':jiwooRules,
   './character-modes':characterModes,
   './jiwoo-preferences':jiwooPreferences,
   './incoming-call-intent':incomingCallIntent,
   './incoming-call':{incomingCallContext:async()=>''},
   './jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(jiwoo);return '넘겨온 대화 맥락';}},
-  './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
+  './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시',conversationRules})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:body.action==='media'?attachment:{};},transcript:memoryExports.transcript,updateMemory:async()=>0},
@@ -222,11 +224,12 @@ test('organic album matching recognizes conversational tags and requires a concr
 test('proactive photo selection attaches through the existing texting workflow only when permitted',async()=>{
  const run=async(canText,choice,content)=>{
   const now='2026-11-14T02:00:00+09:00';
-  const claim={lease:'lease',now,settings:jiwooPreferences.defaultJiwooPreferences,canCall:true,canText,prompt:'지우',messages:[{role:'user',content,ts:Date.parse(now)}],calls:[]};
+  const claim={lease:'lease',now,settings:{...jiwooPreferences.defaultJiwooPreferences,conversationRules:{common:'공통 선톡 수정',proactive:'선톡 반응 수정'}},canCall:true,canText,prompt:'지우',messages:[{role:'user',content,ts:Date.parse(now)}],calls:[]};
   const actions=[];
   const dependencies={
-   './character-modes':characterModes,'./jiwoo-album':jiwooAlbum,'./photo-intent':photoIntent,
-   './gemini-json':{geminiJson:async()=>({action:choice,text:'형, 저녁에 생각나더라.',albumScenes:'1'})},
+   './jiwoo-conversation-rules':jiwooRules,
+  './character-modes':characterModes,'./jiwoo-album':jiwooAlbum,'./photo-intent':photoIntent,
+   './gemini-json':{geminiJson:async prompt=>{assert.match(prompt,/공통 선톡 수정/);assert.match(prompt,/선톡 반응 수정/);return {action:choice,text:'형, 저녁에 생각나더라.',albumScenes:'1'};}},
    './incoming-call-intent':incomingCallIntent,'./jiwoo-preferences':jiwooPreferences,'./project-dialogue':projectDialogue,
    './call-photos':{readCallPhotos:async()=>[{id:'river',tags:['러닝'],useFor:'both',situation:'운동화 묶는 셀카'}]},
    './memory':{serverRpc:async(_,body)=>{actions.push(body);return body.action==='claim'?claim:null;}},
@@ -245,3 +248,9 @@ test('proactive photo selection attaches through the existing texting workflow o
  assert.equal((await run(true,'call','저녁에 러닝한다며')).albumPhotoId,undefined);
  assert.equal((await run(false,'text','저녁에 러닝한다며')).albumPhotoId,undefined);
 });
+
+ test('queued Jiwoo text uses saved common and style rules without reappending defaults',async()=>{
+ const outcome=await prepare(null,null,true,{kind:'reply'},'나 수업 들어가야 하는데',undefined,[],[],null,{common:'지금 같이 놀고 싶은 남친 반응',style:'말투 수정본',text:'문자 수정본'});
+ for(const text of ['지금 같이 놀고 싶은 남친 반응','말투 수정본','문자 수정본'])assert.ok(outcome.prompts[0].includes(text));
+ assert.doesNotMatch(outcome.prompts[0],/\[지우의 일상 말투\]/);
+ });

@@ -1,3 +1,4 @@
+import jiwooRules from './helpers/jiwoo-rules.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',conversationRules,models={},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -34,6 +35,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
    liveModelOverrides:async()=>({textModel:null,voiceModel:null,speechModel:null,...models}),
    realtimeSpeechModel:model=>model===null?'eleven_v3_conversational':model==='eleven_v4_turbo'?model:null,
   },
+  '@/lib/dokyeong/jiwoo-conversation-rules':jiwooRules,
   '@/lib/dokyeong/call-monologue':callMonologue,
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
@@ -41,7 +43,7 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
   '@/lib/dokyeong/jiwoo-preferences':jiwooPreferences,
   '@/lib/dokyeong/incoming-call':{incomingCallContext:async()=>callContext,incomingCallWork:async(action,id)=>{assert.equal(action,'greet');assert.equal(id,openingCallId);return answered?{id}:null;},isIncomingCallId:value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value)},
   '@/lib/dokyeong/jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(standaloneJiwoo);return '넘겨온 통화 맥락';}},
-  '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시'})},
+  '@/lib/dokyeong/jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시',conversationRules})},
   '@/lib/dokyeong/call-photos':{readCallPhotos:async()=>photos||[]},
   '@/lib/dokyeong/characters':{readLiveCharacter:async()=>({id:standaloneJiwoo?characterModes.STANDALONE_JIWOO_ID:'fixture-character',name:standaloneJiwoo?'지우':'도경',prompt:linked?dialogue.PROJECT_CHARACTER_MARKER:'기존 설정',voice_id:'saved-voice'})},
   '@/lib/dokyeong/memory':{memoryContext:()=>read('memory'),serverRpc:(_,body)=>{assert.equal(body.action,'activity');return read('activity');}},
@@ -656,4 +658,19 @@ test('an autonomous video story reaches both spoken audio and history without lo
  const events=(await response.text()).trim().split('\n').map(JSON.parse);
  assert.equal(events.find(e=>e.type==='done').text,answer);
  assert.equal(f.sockets[0].sent.filter(m=>m.inputs).flatMap(m=>m.inputs.map(i=>i.text)).join(''),answer);
+});
+
+test('saved relationship and call rules replace hidden defaults in text, voice and muted video',{timeout:5000},async()=>{
+ for(const options of [{realtime:false},{},{videoCall:true,visualOnly:true,microphoneMuted:true,cameraFrames:[{mimeType:'image/jpeg',data:'A'.repeat(100)}]}]) {
+  const f=fixture({standaloneJiwoo:true,...options,conversationRules:{common:'공통 수정 반응',style:'사용자 말투 수정',text:'문자 표현 수정',monologue:'음소거 수정 {{turn}} {{direction}} {{recent}}',monologueDirections:'새로운 관심사'}});
+  f.contextReady();await tick();
+  const prompt=f.modelBody.systemInstruction.parts[0].text;
+  assert.match(prompt,/공통 수정 반응/);assert.match(prompt,/사용자 말투 수정/);
+  assert.doesNotMatch(prompt,/\[지우의 일상 말투\]/);
+  if(options.realtime===false) assert.match(prompt,/문자 표현 수정/);
+  if(options.visualOnly) {assert.match(prompt,/음소거 수정 1 새로운 관심사/);assert.doesNotMatch(prompt,/\[지우가 스스로 이어가는 통화\]/);}
+  f.sockets[0]?.open();
+  f.gates.headers.resolve(new Response(f.upstream));const response=await f.pending;
+  f.frame('형, 나랑 잠깐 놀자.');f.input.close();await response.text();
+ }
 });

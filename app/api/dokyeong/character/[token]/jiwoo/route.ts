@@ -1,3 +1,4 @@
+import { resolvedJiwooRules, validJiwooRules } from "@/lib/dokyeong/jiwoo-conversation-rules";
 import type { NextRequest } from "next/server";
 import { noStore, sameOrigin } from "@/lib/dokyeong/auth";
 import { STANDALONE_JIWOO_ID } from "@/lib/dokyeong/character-modes";
@@ -19,7 +20,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       if (!memory) return result({ error: "지우 채팅방을 먼저 한 번 열어 줘." }, 409);
       return result({ epoch: memory.epoch, summary: memory.summary, messageCount: memory.message_count });
     }
-    return result(await rpc("live_jiwoo_preferences", { access_token: token, editor: true, action: "read" }));
+    const settings = await rpc<JiwooPreferences>("live_jiwoo_preferences", { access_token: token, editor: true, action: "read" });
+    return result({ ...settings, conversationRules: resolvedJiwooRules(settings) });
   } catch {
     return result({ error: "지우 설정을 불러오지 못했어." }, 503);
   }
@@ -31,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     if (!await verifyEditor(token)) return result({ error: "편집 링크를 확인해 줘." }, 404);
     const raw = await request.text();
-    if (raw.length > 65000) return result({ error: "설정이 너무 길어." }, 413);
+    if (raw.length > 128000) return result({ error: "설정이 너무 길어." }, 413);
     let body;
     try { body = JSON.parse(raw); } catch { return result({ error: "저장할 내용을 확인해 줘." }, 400); }
     if (request.nextUrl.searchParams.get("part") === "memory") {
@@ -45,6 +47,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }));
     }
     if (!body || !Number.isSafeInteger(body.version) || body.version < 0 || body.version >= 2147483647 ||
+        (body.conversationRules !== undefined && !validJiwooRules(body.conversationRules)) ||
         typeof body.chatPrompt !== "string" || body.chatPrompt.length > 8000 ||
         typeof body.voicePrompt !== "string" || body.voicePrompt.length > 8000 ||
         (body.incomingCalls !== undefined && typeof body.incomingCalls !== "boolean") ||
@@ -52,14 +55,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
         typeof body.scheduleNotes !== "string" || body.scheduleNotes.length > 2000 || !validWorkHours(body.workHours)) {
       return result({ error: "지침 길이와 근무시간을 확인해 줘. 근무시간은 09:00-21:00처럼 적어 줘." }, 400);
     }
-    const { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts,
+    const { conversationRules, chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts,
       proactiveDailyStarts, proactiveSeriesMessages, version }: JiwooPreferences = body;
     if ((proactiveDailyStarts !== undefined || proactiveSeriesMessages !== undefined) &&
         !validJiwooProactivePreferences({ proactiveTexts: proactiveTexts ?? true, proactiveDailyStarts, proactiveSeriesMessages })) {
       return result({ error: "선톡 횟수를 확인하고 다시 저장해 줘." }, 400);
     }
     return result(await rpc("live_jiwoo_preferences", {
-      access_token: token, editor: true, action: "save", settings: { chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts, proactiveDailyStarts, proactiveSeriesMessages }, expected_version: version,
+      access_token: token, editor: true, action: "save", settings: { ...(conversationRules !== undefined ? { conversationRules } : {}), chatPrompt, voicePrompt, workHours, scheduleNotes, incomingCalls, proactiveTexts, proactiveDailyStarts, proactiveSeriesMessages }, expected_version: version,
     }));
   } catch (error) {
     if (error instanceof Error && error.message === "VERSION_CONFLICT") {

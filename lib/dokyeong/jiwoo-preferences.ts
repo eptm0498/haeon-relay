@@ -1,3 +1,4 @@
+import type { JiwooConversationRules } from "./jiwoo-conversation-rules";
 export const jiwooDays = ["일", "월", "화", "수", "목", "금", "토"] as const;
 export const JIWOO_DEFAULT_DAILY_TEXT_STARTS = 10;
 export const JIWOO_MAX_DAILY_TEXT_STARTS = 2_147_483_647;
@@ -24,6 +25,7 @@ export type JiwooProactivePreferences = {
 };
 
 export type JiwooPreferences = Partial<JiwooProactivePreferences> & {
+  conversationRules?: JiwooConversationRules;
   chatPrompt: string;
   voicePrompt: string;
   workHours: string[];
@@ -91,5 +93,5 @@ export function jiwooScheduleContext(now: Date, settings: JiwooPreferences) {
   const status = !start ? "오늘은 정규 근무가 없는 날" : time < start ? `오늘 정규 근무 시작 전 (${start} 시작)` :
     time < end ? `오늘 정규 근무 시간대 (${end} 종료 예정)` : `오늘 정규 근무 종료 시각(${end}) 이후`;
   const week = settings.workHours.map((period, index) => `${jiwooDays[index]} ${period || "정규 근무 없음"}`).join(", ");
-  return `\n[도혁의 일정 · 한국 시간]\n${week}\n현재 기준 ${status}.\n별도 일정과 변경 사항: ${settings.scheduleNotes || "(없음)"}\n이 일정은 도혁의 것이고 지우 자신의 일정과 별개다. 위 기존 기본 설정의 근무시간과 다르면 이 일정표를 사용해. 날짜가 맞는 별도 일정과 도혁이 최근 직접 알려준 변경 사항을 우선해. 시간표만 보고 도혁이 실제로 출근했거나 퇴근했다고 단정하지 마. 대화와 관련될 때 출근 전·근무 중·퇴근 이후에 맞춰 자연스럽게 말하고, 매번 시간이나 근무를 언급하지 마.\n`;
+  return `\n[도혁의 일정 · 한국 시간]\n${week}\n현재 기준 ${status}.\n별도 일정과 변경 사항: ${settings.scheduleNotes || "(없음)"}\n${settings.conversationRules?.schedule ?? `이 일정은 도혁의 것이고 지우 자신의 일정과 별개다. 위 기존 기본 설정의 근무시간과 다르면 이 일정표를 사용해. 날짜가 맞는 별도 일정과 도혁이 최근 직접 알려준 변경 사항을 우선해. 시간표만 보고 도혁이 실제로 출근했거나 퇴근했다고 단정하지 마. 매번 시간이나 근무를 언급하지 마. 일정은 연락 가능 여부만 이해하는 자료다. 도혁에게 수업·출근·업무를 하라고 명령하지 말고, 남자친구로서 더 이야기하고 놀고 싶은 마음을 자연스럽게 표현해. 형이 가겠다고 정하면 그 결정을 존중해.`}\n`;
 }

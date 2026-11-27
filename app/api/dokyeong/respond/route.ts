@@ -1,3 +1,4 @@
+import { jiwooRule, JIWOO_CALL_BOUNDARY_PROMPT } from "@/lib/dokyeong/jiwoo-conversation-rules";
 import { monologueContext, callMonologuePrompt, monologueReply } from "@/lib/dokyeong/call-monologue";
 import {projectReply} from '@/lib/dokyeong/project-reply';
 import {projectContext} from "@/lib/dokyeong/project-context";
@@ -6,7 +7,7 @@ import { after, NextRequest } from "next/server";
 import { authenticated, noStore, sameOrigin, unauthorized } from "@/lib/dokyeong/auth";
 import { liveConfig } from "@/lib/dokyeong/config";
 import { liveModelOverrides, realtimeSpeechModel } from "@/lib/dokyeong/model-settings";
-import { formatJiwooUserMessage, jiwooSceneSystemPrompt, jiwooSpokenText, isStandaloneJiwoo, JIWOO_SPEECH_TRANSCRIPT_PROMPT, JIWOO_STYLE_PROMPT, JIWOO_TEXT_CHAT_PROMPT } from "@/lib/dokyeong/character-modes";
+import { formatJiwooUserMessage, jiwooSceneSystemPrompt, jiwooSpokenText, isStandaloneJiwoo } from "@/lib/dokyeong/character-modes";
 import { readLiveCharacter } from "@/lib/dokyeong/characters";
 import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
@@ -509,7 +510,7 @@ export async function POST(request: NextRequest) {
   const homePhoto = jiwooCall
     ? pickAlbumPhoto(homeAlbumPhotos(callPhotos ?? [], "call"), currentPhoto ? [currentPhoto] : [])
     : undefined;
-  const modePrompt = standaloneJiwoo && !jiwooCall ? JIWOO_TEXT_CHAT_PROMPT : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall, homePhoto);
+  const modePrompt = standaloneJiwoo && !jiwooCall ? jiwooRule(jiwooPreferences, "text") : callScenePrompt(sceneOptions, currentPhoto ?? null, jiwooCall, homePhoto);
   const mediumPrompt = !standaloneJiwoo ? "" : jiwooCall
     ? videoCall
       ? cameraFrames.length
@@ -519,14 +520,14 @@ export async function POST(request: NextRequest) {
     : "\n[현재 대화 모드: 문자 채팅] 형과 글로 대화 중이야.\n";
   const extraPrompt = jiwooPreferences ? (jiwooCall ? jiwooPreferences.voicePrompt : jiwooPreferences.chatPrompt) : "";
   const schedulePrompt = jiwooPreferences ? jiwooScheduleContext(responseTime, jiwooPreferences) : "";
-  const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? JIWOO_SPEECH_TRANSCRIPT_PROMPT : "";
+  const transcriptPrompt = jiwooCall && speechTranscript && !openingCallId ? jiwooRule(jiwooPreferences, "transcript") : "";
   const jiwooPhotoRequested = jiwooCall && !openingCallId && !visualOnly && !audioOnlyMonologue && wantsPhoto(jiwooSpokenText(messages.at(-1)?.content || ""), photoIntentContext(messages));
   const jiwooPhotoPrompt = jiwooPhotoRequested ? "\n[사진 전송 기능] 형이 새 사진을 찍거나 생성해 달라고 했다면 send_character_photo 도구를 호출해. 도구의 scene에 실제 요청의 장소·복장·포즈를 담아. 기존 사진첩을 다시 보여달라는 요청은 사진첩에서 선택하고, 새로 촬영해 달라는 요청은 도구를 이용해 GPT 이미지 생성 작업을 시작해. 도구를 호출하면 이미지가 생성되기 전까지 보냈다고 말하지 마.\n" : "";
   const attachedPhotoPrompt = standaloneJiwoo && messages.at(-1)?.image
     ? "\n형이 첨부한 사진의 실제로 보이는 내용과 함께 보낸 말에 반응해. 사진에 없는 내용은 추측하지 마.\n"
     : "";
   const monologuePrompt = jiwooCall && (visualOnly || audioOnlyMonologue)
-    ? callMonologuePrompt(messages, monologueTurn ?? 0) +
+    ? callMonologuePrompt(messages, monologueTurn ?? 0, jiwooRule(jiwooPreferences, "monologue"), jiwooRule(jiwooPreferences, "monologueDirections")) +
       (recentUserCue ? `\n형의 마지막 실제 발화 단서(현재 말하고 있는 게 아님): ${JSON.stringify(recentUserCue)}\n` : "")
     : "";
   const visualPrompt = visualOnly
@@ -540,14 +541,11 @@ export async function POST(request: NextRequest) {
     ? "\n[내 마이크가 꺼진 영상통화] 형의 새로운 발언이나 목소리는 전달되지 않아. 화면에서 확인된 사실과 지금까지의 대화를 참고해 자기 생각이나 새 이야기도 꺼내. 사진 사이에 없는 움직임이나 형의 마음을 지어내지 마. 형이 대답하지 않아도 자연스럽게 한 문장씩 혼잣말을 이어갈 수 있어. 마이크를 다시 켜라고 재촉하지 마.\n"
     : "";
   const shortVideoPrompt = jiwooCall && videoCall && !visualOnly
-    ? "\n[지우 영상통화: 짧은 실시간 반응] 답변은 반드시 짧은 한 문장만 말해. 대략 10~35자 안팎으로 한마디만 툭 던져. 침묵 중 움직임을 보고 먼저 말할 때도, 앞선 말을 이어 갈 때도, 형이 직접 말을 걸 때도 똑같이 한 문장으로 끝내. 2~5문장 독백이나 설명, 연달아 질문하는 방식은 금지야. 형이 대답하지 않아도 다음 화면을 확인하면서 다음 차례에 다른 한 문장을 말하면 돼. 지우가 먼저 주제를 꺼내거나 짧게 지시할 수도 있어. 음성통화와 문자채팅에는 이 제한을 적용하지 마.\n"
+    ? jiwooRule(jiwooPreferences, "video")
     : "";
-  const openingPrompt = openingCallId ? "\n[수신 통화 첫마디] 방금 네가 먼저 전화를 걸었고 형이 받았어. 형은 아직 아무 말도 하지 않았어. 앱에서 네 목소리로 먼저 '여보세요?'라고 인사해. 그 인사에 곧바로 이어질 네 대사 한 문장만 써. 앞 대화나 전화한 맥락을 살려 지우답게 말을 꺼내. 상황이 분명하지 않으면 형에게 짧게 안부를 물어. 첫 인사나 연결 안내는 반복하지 마.\n" : "";
+  const openingPrompt = openingCallId ? jiwooRule(jiwooPreferences, "opening") : "";
   const canEndCall = jiwooCall && !openingCallId && !audioOnlyMonologue;
-  const hangupPrompt = canEndCall ? `
-[통화 마무리]
-지금 통화에서 형이 끊자고 했거나, 할 이야기가 끝나고 서로 인사하는 흐름이거나, 실제로 대화에 나온 사정 때문에 네가 먼저 마무리할 때라면 지우답게 짧게 인사해. 네 인사가 끝난 다음 앱이 통화를 종료하도록 대사 뒤 새 줄에 [CALL_END]를 정확히 한 번 붙여. 형이 아직 묻거나 이야기하는 중이면 이어서 대답해. 과거 통화 이야기, 농담, 인용, 단어 하나나 단순한 맞장구만으로 끊지 마. 종료 이유나 일정을 지어내지 마. 계속 통화할 때는 대사만 쓰고 [CALL_END]는 쓰지 마.
-` : "";
+  const hangupPrompt = canEndCall ? jiwooRule(jiwooPreferences, "hangup") : "";
   const modelMessages = standaloneJiwoo ? messages.map(message =>
     message.role === "user" ? { ...message, content: formatJiwooUserMessage(message.content) } : message
   ) : messages;
@@ -555,12 +553,8 @@ export async function POST(request: NextRequest) {
     const lastIndex = modelMessages.length - 1;
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
-  const callBoundaryPrompt = jiwooCall ? `
-[통화 중 답변할 수 없는 요청에 반응하는 방식]
-요청을 수행할 수 없을 때도 지우의 평소 말투로 짧고 분명하게 경계를 표현하고, 허용되는 비성적인 일상 대화로 자연스럽게 이어가. 예를 들어 "그 얘기는 여기까지만 하자. 오늘 뭐 했는지나 들려줘."처럼 말하되, 실제 대화의 맥락과 최근 발화에 맞춰 표현과 화제를 바꿔.
-제한되는 묘사나 행동은 생성하지 않고 경계를 유지해. 형이 제한의 이유를 직접 물으면 실제 이유를 정확하고 솔직하게 설명해. 화면을 확인할 수 없거나 확실하지 않은 경우에는 확인 가능한 사실만 말해.
-` : "";
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? JIWOO_STYLE_PROMPT + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt + monologuePrompt, request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const callBoundaryPrompt = jiwooCall ? JIWOO_CALL_BOUNDARY_PROMPT : "";
+  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? jiwooRule(jiwooPreferences, "style") + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt + monologuePrompt + (standaloneJiwoo ? "\n" + jiwooRule(jiwooPreferences, "common") : ""), request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
