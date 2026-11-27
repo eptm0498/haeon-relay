@@ -13,6 +13,8 @@ import { readCallPhotos } from "@/lib/dokyeong/call-photos";
 import { callScenePrompt, callSceneReader, isCallPhotoId } from "@/lib/dokyeong/call-scenes";
 import { homeAlbumPhotos, matchingAlbumPhotos, photoSupports, pickAlbumPhoto, scheduledCallPhotos } from "@/lib/dokyeong/jiwoo-album";
 import { memoryContext } from "@/lib/dokyeong/memory";
+import { jiwooLockTurn, type LockTurn } from "@/lib/dokyeong/jiwoo-lock";
+import { guardLockReply, redactLockMessages } from "@/lib/dokyeong/jiwoo-lock-data";
 import { jiwooScheduleContext } from "@/lib/dokyeong/jiwoo-preferences";
 import { incomingCallContext, incomingCallWork, isIncomingCallId } from "@/lib/dokyeong/incoming-call";
 import { jiwooHandoffContext } from "@/lib/dokyeong/jiwoo-handoff";
@@ -546,7 +548,10 @@ export async function POST(request: NextRequest) {
   const openingPrompt = openingCallId ? jiwooRule(jiwooPreferences, "opening") : "";
   const canEndCall = jiwooCall && !openingCallId && !audioOnlyMonologue;
   const hangupPrompt = canEndCall ? jiwooRule(jiwooPreferences, "hangup") : "";
-  const modelMessages = standaloneJiwoo ? messages.map(message =>
+  let lock:LockTurn=standaloneJiwoo&&!openingCallId&&!visualOnly&&!audioOnlyMonologue
+    ? await jiwooLockTurn({characterId:character.id,eventId:requestId||`voice-${Date.now()}-${Math.random().toString(36).slice(2)}`,timestamp:Date.now(),text:messages.at(-1)?.content||'',context:messages.slice(-5,-1).map(m=>m.content).join('\n'),image:messages.at(-1)?.image,signal:request.signal})
+    : {context:''};
+  const modelMessages = standaloneJiwoo ? redactLockMessages(messages).map(message =>
     message.role === "user" ? { ...message, content: formatJiwooUserMessage(message.content) } : message
   ) : messages;
   if (cameraFrames.length) {
@@ -554,7 +559,7 @@ export async function POST(request: NextRequest) {
     modelMessages[lastIndex] = { ...modelMessages[lastIndex], cameraFrames };
   }
   const callBoundaryPrompt = jiwooCall ? JIWOO_CALL_BOUNDARY_PROMPT : "";
-  const result = await requestGemini(modelMessages, prompt + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? jiwooRule(jiwooPreferences, "style") + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt + monologuePrompt + (standaloneJiwoo ? "\n" + jiwooRule(jiwooPreferences, "common") : ""), request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
+  const result = lock.reply ? {response:new Response(`data: ${JSON.stringify({candidates:[{content:{parts:[{text:lock.reply}]}}]})}\n\n`),model:"stored-lock-record",error:undefined} : await requestGemini(modelMessages, prompt + lock.context + modePrompt + (extraPrompt ? `\n[지우 대화 추가 지침]\n${extraPrompt}\n` : "") + schedulePrompt + callContext + mediumPrompt + (standaloneJiwoo ? jiwooRule(jiwooPreferences, "style") + jiwooSceneSystemPrompt(messages) + jiwooPhotoPrompt : "") + openingPrompt + handoffContext + transcriptPrompt + attachedPhotoPrompt + visualPrompt + hangupPrompt + shortVideoPrompt + mutedVideoPrompt + callBoundaryPrompt + monologuePrompt + (standaloneJiwoo ? "\n" + jiwooRule(jiwooPreferences, "common") : ""), request.signal, !standaloneJiwoo || jiwooPhotoRequested, realtime ? models.voiceModel : models.textModel);
   timings.modelReadyMs = elapsed();
   if (result.error) { dialogue?.close(); return result.error; }
   const upstream = result.response!;
@@ -637,10 +642,11 @@ export async function POST(request: NextRequest) {
         const allowed = text.slice(0, cut);
         if (!allowed) return;
         full += allowed;
-        spoken += allowed;
+        const aloud=lock.sessionId?allowed.replace(/\d{3,12}/g,value=>value.split('').join(', ')):allowed;
+        spoken += aloud;
         if (timings.firstTextMs === undefined) timings.firstTextMs = elapsed();
         send({ type: "delta", text: allowed });
-        dialogue?.push(allowed);
+        dialogue?.push(aloud);
         segment();
       };
 
@@ -702,10 +708,14 @@ export async function POST(request: NextRequest) {
           emitText(clean);
         }
 
+        if(standaloneJiwoo&&!lock.reply&&/\[LOCK_CODE\]/.test(linkedOutput)) {
+          lock=await jiwooLockTurn({characterId:character.id,eventId:requestId||`voice-${Date.now()}`,timestamp:Date.now(),text:'이번 잠금 비밀번호 알려줘',signal:request.signal});
+          if(lock.reply)linkedOutput=lock.reply;
+        }
         if (standaloneJiwoo && !lastError) {
           endCall = canEndCall && /(?:^|\n)[ \t]*\[CALL_END\]\s*$/.test(linkedOutput);
           const dialogueText = linkedOutput.replace(/\[CALL_END\]/g, "");
-          const clean = jiwooCall ? spokenDialogue(dialogueText) : dialogueOnly(dialogueText);
+          const clean = lock.reply ? dialogueText.trim() : guardLockReply(jiwooCall ? spokenDialogue(dialogueText) : dialogueOnly(dialogueText),messages.slice(-5).map(m=>m.content).join("\n"));
           if (openingCallId) {
             // A video call greeting is a complete one-sentence turn ("여보세요?").
             if (!videoCall) {
@@ -737,7 +747,7 @@ export async function POST(request: NextRequest) {
             send({
               type: "text_done",
               text: completedText,
-              provider: "gemini",
+              provider: lock.reply ? "stored" : "gemini",
               model: activeModel,
             });
 
@@ -750,7 +760,7 @@ export async function POST(request: NextRequest) {
               type: "done",
               text: completedText,
               ...(endCall ? { endCall: true } : {}),
-              provider: "gemini",
+              provider: lock.reply ? "stored" : "gemini",
               model: activeModel,
               audioModel: audioStatus.completed ? speechModel : null,
               timings: wantVoice ? timings : undefined,

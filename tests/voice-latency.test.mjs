@@ -10,11 +10,12 @@ import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
 import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as callScenes from '../lib/dokyeong/call-scenes.ts';
 import * as callMonologue from '../lib/dokyeong/call-monologue.ts';
+import * as lockData from '../lib/dokyeong/jiwoo-lock-data.ts';
 import {voiceFailure} from '../lib/dokyeong/voice-failure.ts';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
-function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',conversationRules,models={},messages=[{role:'user',content:'안녕'}]}={}){
+function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVoice=realtime,speechTranscript=false,requestId,openingCallId,videoCall=false,cameraFrames,visualOnly=false,visualFollowUp=false,audioOnlyMonologue=false,microphoneMuted=false,recentUserCue="",monologueTurn,answered=false,callContext='',conversationRules,models={},lockResult={context:''},messages=[{role:'user',content:'안녕'}]}={}){
  const gates=Object.fromEntries(['activity','samples','memory','project','headers'].map(k=>[k,deferred()]));
  const started=[],sockets=[],timers=[],repairs=[],jobs=[],background=[];let input,clock=0,fetchCalled=false,modelBody,modelUrl;
  const upstream=new ReadableStream({start(controller){input=controller;}});
@@ -36,6 +37,8 @@ function fixture({linked=false,photos,standaloneJiwoo=false,realtime=true,wantVo
    realtimeSpeechModel:model=>model===null?'eleven_v3_conversational':model==='eleven_v4_turbo'?model:null,
   },
   '@/lib/dokyeong/jiwoo-conversation-rules':jiwooRules,
+  '@/lib/dokyeong/jiwoo-lock':{jiwooLockTurn:async input=>typeof lockResult==='function'?lockResult(input):lockResult},
+  '@/lib/dokyeong/jiwoo-lock-data':lockData,
   '@/lib/dokyeong/call-monologue':callMonologue,
   '@/lib/dokyeong/character-modes':characterModes,
   '@/lib/dokyeong/call-scenes':callScenes,
@@ -82,6 +85,14 @@ test('independent context reads start together and the voice socket opens before
  assert.equal(socketUrl.searchParams.get('output_format'),'pcm_24000');
  f.gates.headers.resolve(Response.json({},{status:500}));
  assert.equal((await f.pending).status,502);assert.equal(f.sockets[0].readyState,3);
+});
+
+test('a current stored code uses the normal reply stream without asking a language model to reconstruct digits',{timeout:3000},async()=>{
+ const f=fixture({standaloneJiwoo:true,realtime:false,wantVoice:false,lockResult:{context:'current lock',reply:'이번 잠금 번호는 0012야.',sessionId:'current'},messages:[{role:'user',content:'키 비밀번호 알려줘'}]});
+ await tick();f.contextReady();const response=await f.pending;
+ const events=(await response.text()).trim().split('\n').map(JSON.parse);
+ assert.equal(f.fetchCalled,false);assert.ok(events.some(event=>event.type==='text_done'&&event.text.includes('0012')));
+ assert.ok(events.some(event=>event.type==='segment'&&event.text.includes('0, 0, 1, 2')));
 });
 test('the first sentence can play before later model text and all final audio is retained',{timeout:3000},async()=>{
  const f=fixture();await tick();f.contextReady();await tick();f.sockets[0].open();

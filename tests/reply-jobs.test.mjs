@@ -10,15 +10,16 @@ import * as jiwooPreferences from '../lib/dokyeong/jiwoo-preferences.ts';
 import * as incomingCallIntent from '../lib/dokyeong/incoming-call-intent.ts';
 import * as photoIntent from '../lib/dokyeong/photo-intent.ts';
 import * as jiwooAlbum from '../lib/dokyeong/jiwoo-album.ts';
+import * as lockData from '../lib/dokyeong/jiwoo-lock-data.ts';
 
 const memoryExports={};
 const memorySource=fs.readFileSync(new URL('../lib/dokyeong/memory.ts',import.meta.url),'utf8');
 vm.runInNewContext(ts.transpileModule(memorySource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
  exports:memoryExports,
- require:name=>name==='./character-modes'?characterModes:name==='./time-context'?{koreaTime:date=>date.toISOString()}:{},
+ require:name=>name==='./character-modes'?characterModes:name==='./jiwoo-lock-data'?lockData:name==='./time-context'?{koreaTime:date=>date.toISOString()}:{},
 });
 
-async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[], attachment=null,conversationRules){
+async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 해?', now='2026-11-14T02:00:00+09:00', photos=[], preceding=[], attachment=null,conversationRules,lockResult={context:''}){
  const calls=[],prompts=[],models=[],warnings=[],images=[];
  const characterId=jiwoo?characterModes.STANDALONE_JIWOO_ID:'onyeu';
  const job={id:'pending',character_id:characterId,kind:'reply',lease:'lease',payload:{messages:[{role:'user',content:latest}],attachedPhotoId:attachment?'pending':undefined},context:{messages:[...preceding,{id:'pending',role:'user',content:latest,ts:Date.parse(now)}],memory:''},activity};
@@ -30,13 +31,15 @@ async function prepare(activity, model=null, jiwoo=false, draft={}, latest='뭐 
   './incoming-call-intent':incomingCallIntent,
   './incoming-call':{incomingCallContext:async()=>''},
   './jiwoo-handoff':{jiwooHandoffContext:async()=>{assert.ok(jiwoo);return '넘겨온 대화 맥락';}},
+  './jiwoo-lock':{jiwooLockTurn:async input=>typeof lockResult==='function'?lockResult(input):lockResult},
+  './jiwoo-lock-data':lockData,
   './jiwoo-settings':{readJiwooPreferences:async()=>({...jiwooPreferences.defaultJiwooPreferences,chatPrompt:'문자 전용 예시',voicePrompt:'음성 전용 예시',conversationRules})},
   './project-context':{projectContext:async()=>{assert.ok(!jiwoo);return ''; }},
   './project-dialogue':projectDialogue,
   './memory':{serverRpc:async(_,body)=>{calls.push(body);return body.action==='claim'?job:body.action==='media'?attachment:{};},transcript:memoryExports.transcript,updateMemory:async()=>0},
   './characters':{readLiveCharacter:async()=>({id:characterId,name:jiwoo?'지우':'온유',prompt:'저장된 설정'})},
   './model-settings':{liveModelOverrides:async()=>({textModel:model})},
-  './gemini-json':{geminiJson:async(prompt,_schema,_signal,image,options)=>{prompts.push(prompt);models.push(options?.model);images.push(image);return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
+  './gemini-json':{geminiJson:async(prompt,_schema,_signal,image,options)=>{prompts.push(prompt);models.push(options?.model);images.push(image);if(_schema.properties.selection)return {selection:draft.albumSelection||''};return {kind:jiwoo?'photo':'reply',text:jiwoo?'*웃으며* 형, 나 쉬고 있었어 ㅋㅋ':'잠깐 쉬고 있었어.',scene:'',delaySeconds:8,awaySeconds:0,activity:'',...draft};}},
   './time-context':{currentTimeContext:()=>''},'./samples':{relatedSampleContext:async()=>''},
   './photo-intent':photoIntent,
   './jiwoo-album':jiwooAlbum,
@@ -176,6 +179,47 @@ test('unmatched photo requests can queue GPT generation with a contextual text f
  assert.equal(outcome.calls.at(-1).data.photo.fallbackText,reply);
  const declined=await prepare(null,null,true,draft,'사진은 보내지 마');
  assert.equal(declined.calls.at(-1).data.photo,null);
+});
+
+test('direct selfies, bare capture requests and accepted photo offers cannot end as a plain acknowledgement',async()=>{
+ for(const request of ['셀카 좀 보내라','사진 찍으라니까','찍어','찍어봐','지금 네 모습 보고 싶어']){
+  const outcome=await prepare(null,null,true,{kind:'reply',text:'형, 나 책 읽고 있어.',scene:'방에서 책을 읽는 지우의 셀카'},request);
+  assert.ok(outcome.calls.at(-1).data.photo,request);
+ }
+ const preceding=[{role:'assistant',content:'사진 한 장 보내줄까?',ts:Date.parse('2026-11-14T01:59:00+09:00')}];
+ const accepted=await prepare(null,null,true,{kind:'reply',text:'이렇게 쉬고 있어.',scene:'집에서 쉬는 셀카'},'응',undefined,[],preceding);
+ assert.ok(accepted.calls.at(-1).data.photo);
+});
+
+test('before generating a requested photo, a skipped album selection is rechecked for a real match',async()=>{
+ const photos=[{id:'reading',situation:'방에서 책 읽는 셀카',tags:['독서'],useFor:'both'}];
+ const draft={kind:'photo',text:'나 책 읽는 중이야.',scene:'방에서 책 읽는 지우',albumSelection:'1'};
+ const matched=await prepare(null,null,true,draft,'책 읽는 셀카 보내줘',undefined,photos);
+ assert.equal(matched.prompts.length,2);assert.equal(matched.calls.at(-1).data.albumPhotoId,'reading');assert.equal(matched.calls.at(-1).data.photo,null);
+ const missing=await prepare(null,null,true,{...draft,albumSelection:''},'책 읽는 셀카 보내줘',undefined,photos);
+ assert.equal(missing.calls.at(-1).data.albumPhotoId,undefined);assert.ok(missing.calls.at(-1).data.photo);
+});
+
+test('a visual question permits a concrete photo scene without forcing images for ordinary greetings or refusals',async()=>{
+ const visual=await prepare(null,null,true,{kind:'photo',text:'형, 책 읽고 있었어.',scene:'집 창가에서 책 읽는 셀카'},'뭐 하고 있어?');
+ assert.ok(visual.calls.at(-1).data.photo);
+ const plain=await prepare(null,null,true,{kind:'reply',text:'형, 책 읽고 있어.',scene:''},'뭐 해?');assert.equal(plain.calls.at(-1).data.photo,null);
+ const refused=await prepare(null,null,true,{kind:'reply',text:'사진은 안 보낼래.',scene:''},'셀카 보내줘');assert.equal(refused.calls.at(-1).data.photo,null);
+ const canceled=await prepare(null,null,true,{kind:'photo',text:'책 읽는 중.',scene:'독서'},'사진 보내지 마');assert.equal(canceled.calls.at(-1).data.photo,null);
+});
+
+test('stored current lock replies skip the model and all image generation',async()=>{
+ const lock={context:'current record',reply:'이번 잠금 번호는 0012야.',sessionId:'session-current'};
+ const outcome=await prepare(null,null,true,{},'키 비번 알려줘',undefined,[],[],null,undefined,lock);
+ assert.equal(outcome.prompts.length,0);assert.equal(outcome.calls.at(-1).data.text,lock.reply);
+ assert.equal(outcome.calls.at(-1).data.jiwooLockSession,lock.sessionId);assert.equal(outcome.calls.at(-1).data.photo,null);
+});
+
+test('Jiwoo can choose disclosure but the app supplies the exact stored digits',async()=>{
+ const outcome=await prepare(null,null,true,{kind:'reply',text:'번호를 알려줄게.',scene:'',lockAction:'disclose'},'오늘은 여기까지 하자',undefined,[],[],null,undefined,
+  input=>input.text==='이번 잠금 비밀번호 알려줘'?{context:'current record',reply:'이번 잠금 번호는 0012야.',sessionId:'current'}:{context:'active record'});
+ assert.equal(outcome.prompts.length,1);assert.ok(outcome.calls.at(-1).data.text.includes('0012'));
+ assert.equal(outcome.calls.at(-1).data.jiwooLockSession,'current');assert.equal(outcome.calls.at(-1).data.photo,null);
 });
 
 test('random album selection is bounded to valid, distinct scene choices and prefers unseen photos',()=>{
