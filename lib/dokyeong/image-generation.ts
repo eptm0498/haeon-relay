@@ -1,6 +1,5 @@
 import { generatePolloImage, PolloImageError } from "./pollo-image";
 import { checkPhotoContent, ImagePolicyError } from "./image-policy";
-import { imageReferenceUrls } from "./image-reference";
 import sharp from "sharp";
 import { identityReferences, type ReferenceImages } from "./reference-images";
 
@@ -58,15 +57,24 @@ export async function generateCharacterPhoto(input: {
     try {
       // Keep original intent and ages intact. Long prompts use the existing GPT path,
       // rather than silently dropping details to fit Pollo's 1,000-character limit.
-      const compact = `${magazineOpening}Realistic smartphone photo. Same identity and natural proportions as references. Guide views are labeled by role; output ONE photo, never the reference board. Views in order: ${references.map(ref=>ref.kind).join(", ") || "none"}${input.sourceImage ? "; last image is previous scene to edit" : ""}. No added sexual posing, nudity or graphic content.\nAppearance: ${appearance}\nScene: ${input.scene || input.request}\nOriginal request: ${input.request}`;
-      if (compact.length > 1000 || input.sourceImage && !input.sourceMessageId) throw new PolloImageError("unsupported");
-      const urls = imageReferenceUrls(input.characterId, input.references, input.avatar, input.sourceImage ? input.sourceMessageId : undefined, true);
-      await checkPhotoContent(`${appearance}\n${input.scene || ""}\n${input.request}`, [...references.map(ref=>ref.url), ...(input.sourceImage ? [input.sourceImage] : [])], signal);
-      const pollo = await generatePolloImage({ prompt: compact, images: urls, portrait: /9:16|세로|전신/.test(input.request+" "+(input.scene||"")), signal });
+      if (input.sourceImage) throw new PolloImageError("unsupported");
+      const compact = `${magazineOpening}Create ONE realistic smartphone photo. Use the written appearance; keep natural proportions and skin texture. No added sexual posing, nudity or graphic content.\nAppearance: ${appearance}\nScene: ${input.scene || input.request}\nOriginal request: ${input.request}`;
+      if (compact.length > 1000) throw new PolloImageError("unsupported");
+      // This is explicitly text-to-image: no reference URLs or image data go to Pollo.
+      await checkPhotoContent(`${appearance}\n${input.scene || ""}\n${input.request}`, [], signal);
+      const pollo = await generatePolloImage({ prompt: compact, portrait: /9:16|세로|전신/.test(input.request+" "+(input.scene||"")), signal });
       // Verify the actual output before it can enter a user's chat or history.
       const preview = await sharp(Buffer.from(pollo.encoded,"base64"), { limitInputPixels: 40000000 }).resize(1024,1024,{fit:"inside",withoutEnlargement:true}).jpeg({quality:80}).toBuffer();
       await checkPhotoContent("", [`data:image/jpeg;base64,${preview.toString("base64")}`], signal);
-      encoded = preview.toString("base64"); model = pollo.model;
+      // Keep the 2K result for delivery. The 1K preview above is only for checking.
+      const source = Buffer.from(pollo.encoded,"base64");
+      let photo: Buffer | undefined;
+      for (const quality of [80, 70, 60, 50, 40, 30]) {
+        photo = await sharp(source, { limitInputPixels: 40000000 }).jpeg({quality}).toBuffer();
+        if (photo.length * 4 / 3 + 30 <= 1850000) break;
+      }
+      if (!photo || photo.length * 4 / 3 + 30 > 1850000) throw new PolloImageError("output");
+      encoded = photo.toString("base64"); model = pollo.model;
     } catch (error) {
       if (error instanceof ImagePolicyError || error instanceof PolloImageError && error.reason === "rejected") throw new ImageGenerationError("이 사진은 생성할 수 없어. 다른 장면으로 요청해 줘.");
       if (input.signal.aborted) throw new ImageGenerationError("사진 생성이 중단됐어. 다시 요청해 줘.");
@@ -88,8 +96,9 @@ export async function generateCharacterPhoto(input: {
     if (typeof encoded!=="string") throw new ImageGenerationError("사진을 만들지 못했어. 다시 요청해 줘.");
   }
   const edge=input.profile ? 384 : 1024;
-  const bytes=await sharp(Buffer.from(encoded!,"base64")).resize(edge,edge,{fit:"inside",withoutEnlargement:true}).jpeg({quality:80}).toBuffer();
+  const polloOutput = model.startsWith("pollo/");
+  const bytes=polloOutput ? Buffer.from(encoded!,"base64") : await sharp(Buffer.from(encoded!,"base64")).resize(edge,edge,{fit:"inside",withoutEnlargement:true}).jpeg({quality:80}).toBuffer();
   const image={dataUrl:`data:image/jpeg;base64,${bytes.toString("base64")}`,mimeType:"image/jpeg" as const};
   if (image.dataUrl.length>(input.profile ? 200000 : 1850000)) throw new ImageGenerationError("사진이 너무 커. 다시 요청해 줘.");
-  return {image,model,referenceUsed:references.length>0,referenceCount:references.length,faceCount:input.references.face.length,bodyCount:input.references.body.length};
+  return {image,model,referenceUsed:!polloOutput&&references.length>0,referenceCount:polloOutput?0:references.length,faceCount:polloOutput?0:input.references.face.length,bodyCount:polloOutput?0:input.references.body.length};
 }

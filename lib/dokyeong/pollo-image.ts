@@ -22,13 +22,13 @@ async function json(path: string, key: string, signal: AbortSignal, body?: objec
   return result;
 }
 
-export async function generatePolloImage(input: { prompt: string; images: string[]; portrait: boolean; signal: AbortSignal }) {
+export async function generatePolloImage(input: { prompt: string; portrait: boolean; signal: AbortSignal }) {
   const key = process.env.POLLO_API_KEY;
   if (!key || !input.prompt.trim() || input.prompt.length > 1000) throw new PolloImageError("unsupported");
   // One submission only. Never resubmit on a lost response or a transient polling failure.
   const signal = AbortSignal.any([input.signal, AbortSignal.timeout(80000)]);
   const task = await json(`/generation/pollo-ai/${POLLO_IMAGE_MODEL}/image`, key, signal, { input: {
-    prompt: input.prompt, ...(input.images.length ? { images: input.images } : {}), aspectRatio: input.portrait ? "9:16" : "1:1", resolution: "1K",
+    prompt: input.prompt, aspectRatio: input.portrait ? "9:16" : "1:1", resolution: "2K",
   } });
   if (typeof task?.taskId !== "string" || !/^[A-Za-z0-9_-]{1,150}$/.test(task.taskId)) throw new PolloImageError("upstream");
   for (;;) {
