@@ -289,7 +289,7 @@ export default function CharacterEditor({ token }: { token: string }) {
             {working.story&&<button role="tab" aria-selected={tab==="story"} className={tab==="story"?styles.tabActive:""} onClick={()=>setTab("story")}><FileText size={16}/> 전체 기억과 말투</button>}
             <button role="tab" aria-selected={tab==="callPhotos"} className={tab==="callPhotos"?styles.tabActive:""} onClick={()=>setTab("callPhotos")} disabled={!working.id}>{standaloneJiwoo ? "사진 앨범" : "통화 사진"}</button>
             {standaloneJiwoo && <>
-              <button role="tab" aria-selected={tab==="jiwoo"} className={tab==="jiwoo"?styles.tabActive:""} onClick={()=>setTab("jiwoo")}>대화 지침·일정</button>
+              <button role="tab" aria-selected={tab==="jiwoo"} className={tab==="jiwoo"?styles.tabActive:""} onClick={()=>setTab("jiwoo")}>전체 대화 지침·일정</button>
               <button role="tab" aria-selected={tab==="jiwooMemory"} className={tab==="jiwooMemory"?styles.tabActive:""} onClick={()=>setTab("jiwooMemory")}>요약 기억</button>
             </>}
             <button role="tab" aria-selected={tab==="samples"} className={tab==="samples"?styles.tabActive:""} onClick={()=>setTab("samples")} disabled={!working.id}><MessageCircle size={16}/> 대화 샘플</button>
@@ -338,6 +338,7 @@ export default function CharacterEditor({ token }: { token: string }) {
             <div className={styles.editorCard}>
               <div className={styles.cardHeader}><div className={styles.cardIcon}>{rawMode?<FileText size={23}/>:<Sparkles size={23}/>}</div><div className={styles.cardTitles}><span className={styles.overline}>CHARACTER PROFILE</span><h2>{rawMode?"전체 원문 편집":active==="intro"?"기본 설정":selected?.title}</h2><p>말투, 관계, 성격과 반응 방식을 이 캐릭터만의 설정으로 작성해.</p></div><button className={styles.modeButton} onClick={toggleMode}>{rawMode?"항목별 편집":"전체 원문"}</button></div>
               <div className={styles.fieldArea}>
+                {standaloneJiwoo && <p className={styles.storyHelp}>앱이 함께 적용하는 말투·연인 반응·선톡·부재중·음소거 혼잣말·통화 지침은 <button type="button" className={styles.modeButton} onClick={()=>setTab("jiwoo")}>전체 대화 지침·일정</button>에서 전문을 보고 수정할 수 있어.</p>}
                 {working.story&&<p className={styles.storyHelp}>이곳은 기본 역할 지침이야. 사건 기억·현재 상황·말투·채팅과 음성 지침 전문은 <button type="button" className={styles.modeButton} onClick={()=>setTab("story")}>전체 기억과 말투</button>에서 편집해.</p>}
                 {rawMode ? <><label htmlFor="raw-prompt">기본 지침 전체</label><textarea id="raw-prompt" className={`${styles.textarea} ${styles.rawArea}`} value={raw} onChange={e=>{setRaw(e.target.value);setNotice("");}} spellCheck={false}/></>
                 : active==="intro" && draft ? <><label htmlFor="intro">기본 역할과 관계</label><textarea id="intro" className={styles.textarea} value={draft.intro} onChange={e=>setPromptDraft({...draft,intro:e.target.value})} spellCheck={false}/></>

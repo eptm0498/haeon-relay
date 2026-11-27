@@ -1,5 +1,6 @@
 "use client";
 
+import { jiwooRuleDefinitions, resolvedJiwooRules, JIWOO_CALL_BOUNDARY_PROMPT } from "@/lib/dokyeong/jiwoo-conversation-rules";
 import { useEffect, useState } from "react";
 import { jiwooDays, jiwooProactivePreferences, validWorkHours, type JiwooPreferences } from "@/lib/dokyeong/jiwoo-preferences";
 import JiwooProactiveFields from "../../JiwooProactiveFields";
@@ -22,7 +23,7 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
       const data = await response.json();
       if (!response.ok) throw Error(data.error);
       if (memory) setRecord(data);
-      else setSettings(data);
+      else setSettings({ ...data, conversationRules: resolvedJiwooRules(data) });
     }).catch(error => {
       if (!controller.signal.aborted) setNotice(error.message || "설정을 불러오지 못했어.");
     });
@@ -40,7 +41,7 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
       });
       const data = await response.json();
       if (!response.ok) throw Error(data.error);
-      if (!memory) setSettings(data);
+      if (!memory) setSettings({ ...data, conversationRules: resolvedJiwooRules(data) });
       setNotice("저장했어. 다음 대화부터 적용돼.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "저장하지 못했어.");
@@ -51,14 +52,34 @@ export default function JiwooSettings({ endpoint, memory }: { endpoint: string; 
 
   return <section className={styles.editorCard}>
     <div className={styles.cardHeader}><div className={styles.cardTitles}>
-      <h2>{memory ? "지우의 요약 기억" : "문자·통화 지침과 내 일정"}</h2>
-      <p>{memory ? "대화에서 쌓인 요약 기억을 편집해." : "공통 성격은 캐릭터 설정에서, 문자와 통화에만 적용할 지침과 근무 일정은 여기에서 바꿔."}</p>
+      <h2>{memory ? "지우의 요약 기억" : "전체 대화 지침과 내 일정"}</h2>
+      <p>{memory ? "대화에서 쌓인 요약 기억을 편집해." : "기본 성격은 캐릭터 설정에서, 앱이 덧붙이는 공통·상황별 대화 지침은 아래에서 전문을 보고 수정해. 요약 기억·대화 샘플·사진 앨범은 각 탭에서 확인할 수 있어."}</p>
     </div></div>
     <div className={styles.fieldArea}>
       {memory ? record && <>
         <label htmlFor="jiwoo-memory">요약 기억 · 대화 {record.messageCount}개</label>
         <textarea id="jiwoo-memory" className={styles.textarea} value={record.summary} maxLength={12000} disabled={busy} onChange={event => setRecord({ ...record, summary: event.target.value })}/>
       </> : settings && <>
+        <h3>앱에서 함께 적용하는 대화 지침 전문</h3>
+        <p>항목을 펼쳐 현재 적용 내용을 확인하고 수정해. 빈 값으로 저장하면 해당 추가 지침을 비워 두고, 기본값 버튼은 앱의 기본 내용을 다시 넣어.</p>
+        {jiwooRuleDefinitions.map(rule => <details key={rule.key} className={styles.storySection} open={rule.key === "common"}>
+          <summary>{rule.title}</summary>
+          <div className={styles.storyBody}>
+            <p>{rule.help}</p>
+            <label htmlFor={`jiwoo-rule-${rule.key}`}>{rule.title} · 전문</label>
+            <textarea id={`jiwoo-rule-${rule.key}`} className={styles.textarea} value={settings.conversationRules?.[rule.key] ?? rule.defaultValue} maxLength={8000} disabled={busy} spellCheck={false}
+              onChange={event => setSettings({ ...settings, conversationRules: { ...settings.conversationRules, [rule.key]: event.target.value } })}/>
+            <button type="button" className={styles.modeButton} disabled={busy} onClick={() => setSettings({ ...settings, conversationRules: { ...settings.conversationRules, [rule.key]: rule.defaultValue } })}>이 항목 기본값 불러오기</button>
+          </div>
+        </details>)}
+        <details className={styles.storySection}>
+          <summary>앱이 매번 전달하는 상황 정보와 고정 동작</summary>
+          <div className={styles.storyBody}>
+            <p>현재 시각·연락 가능 시간·최근 대화와 기억·사진첩 후보·카메라의 실제 전달 여부는 통화 상태에 따라 채워져. 모델은 실제로 전달된 사진과 영상 프레임만 볼 수 있어. 생성과 안전 기준, 실제 통화 제어, 앱의 출력 길이 제한은 캐릭터 지침 편집으로 바뀌지 않아.</p>
+            <label htmlFor="jiwoo-fixed-boundary">통화 중 수행할 수 없는 요청에 대한 고정 지침 · 보기</label>
+            <textarea id="jiwoo-fixed-boundary" className={styles.textarea} value={JIWOO_CALL_BOUNDARY_PROMPT} readOnly/>
+          </div>
+        </details>
         <label htmlFor="jiwoo-chat">문자 채팅 추가 지침</label>
         <textarea id="jiwoo-chat" className={styles.textarea} value={settings.chatPrompt} maxLength={8000} disabled={busy} onChange={event => setSettings({ ...settings, chatPrompt: event.target.value })}/>
         <label htmlFor="jiwoo-voice">음성 통화 추가 지침</label>
