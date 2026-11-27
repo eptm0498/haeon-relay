@@ -107,7 +107,7 @@ test('reports unavailable model access without silently downgrading quality',asy
   });
 });
 
-async function withPollo(run,{failure,flagInput=false,flagOutput=false,statusFailure=false,transport=false,wrappedFailure=false}={}) {
+async function withPollo(run,{failure,flagInput=false,flagOutput=false,statusFailure=false,transport=false,wrappedFailure=false,imageEncoded=encoded}={}) {
  const savedFetch=globalThis.fetch;const env={OPENAI_API_KEY:process.env.OPENAI_API_KEY,POLLO_API_KEY:process.env.POLLO_API_KEY,CHARACTER_HISTORY_KEY:process.env.CHARACTER_HISTORY_KEY};
  process.env.OPENAI_API_KEY='test-openai';process.env.POLLO_API_KEY='test-pollo';process.env.CHARACTER_HISTORY_KEY='private-signing-key';
  const calls=[];let moderation=0;
@@ -120,7 +120,7 @@ async function withPollo(run,{failure,flagInput=false,flagOutput=false,statusFai
    if(options.method==='POST')return failure?Response.json(wrappedFailure?{code:'FAIL',error:{code:failure}}:{error:{code:failure}},{status:wrappedFailure?200:failure==='bad_key'?401:400}):Response.json({taskId:'task_test',status:'waiting'});
    return Response.json({taskId:'task_test',generations:[statusFailure?{status:'failed',failMsg:statusFailure}:{status:'succeed',mediaType:'image',url:'https://cdn.pollo.ai/test.jpg'}]});
   }
-  if(target==='https://cdn.pollo.ai/test.jpg') return new Response(Buffer.from(encoded,'base64'),{headers:{'content-type':'image/jpeg'}});
+  if(target==='https://cdn.pollo.ai/test.jpg') return new Response(Buffer.from(imageEncoded,'base64'),{headers:{'content-type':'image/jpeg'}});
   if(target.includes('api.openai.com/v1/images/'))return Response.json({data:[{b64_json:encoded}]});
   throw Error('Unexpected URL '+target);
  };
@@ -128,16 +128,20 @@ async function withPollo(run,{failure,flagInput=false,flagOutput=false,statusFai
 }
 const characterId='8bda7b48-b3bc-4c8e-900b-7b92b04fe21c';
 const ordinary={...base,characterId,request:'책 읽는 셀카 보내줘',scene:'방에서 티셔츠를 입고 책을 읽는 자연스러운 셀카',characterPrompt:'30세 성인 남성'};
-test('Pollo is first for chat photos, preserves ordered references, and never calls GPT when successful',async()=>{
+test('Pollo always submits V8.2 text-to-image at 2K without reference images',async()=>{
  await withPollo(async calls=>{
-  const result=await generateCharacterPhoto({...ordinary,references:{face:[face],body:[face]},sourceImage:face,sourceMessageId:'photo-123'});
-  assert.equal(result.model,'pollo/pollojourney-v8-2-image');assert.equal(result.referenceCount,2);
+  const result=await generateCharacterPhoto({...ordinary,references:{face:[face],body:[face]}});
+  assert.equal(result.model,'pollo/pollojourney-v8-2-image');assert.equal(result.referenceCount,0);assert.equal(result.referenceUsed,false);
   const submission=calls.find(c=>c.url.includes('/generation/')&&c.payload);
   assert.equal(submission.headers['x-api-key'],'test-pollo');
   assert.ok(submission.payload.input.prompt.includes(ordinary.request));
-  assert.equal(submission.payload.input.images.length,1);
-  const grants=submission.payload.input.images.map(url=>JSON.parse(Buffer.from(new URL(url).pathname.split('/').at(-1).split('.')[0],'base64url')));
-  assert.deepEqual(grants.map(g=>g.kind),['board']);assert.equal(grants[0].messageId,'photo-123');
+  assert.ok(submission.url.endsWith('/generation/pollo-ai/pollojourney-v8-2-image/image'));
+  assert.equal(submission.payload.input.resolution,'2K');
+  assert.equal(submission.payload.input.images,undefined);
+  assert.equal(submission.payload.input.imageUrl,undefined);
+  assert.ok(!submission.payload.input.prompt.includes('reference board'));
+  const inputCheck=calls.find(c=>c.url.endsWith('/moderations'));
+  assert.ok(inputCheck.payload.input.every(part=>part.type==='text'));
   assert.ok(!calls.some(c=>c.url.includes('/v1/images/')));
   const downloaded=calls.find(c=>c.url==='https://cdn.pollo.ai/test.jpg');assert.equal(downloaded.headers,undefined);
   assert.equal(calls.filter(c=>c.url.endsWith('/moderations')).length,2);
@@ -159,11 +163,29 @@ test('input, provider and actual output rejections stop instead of switching mod
   if(scenario.flagInput)assert.ok(!calls.some(c=>c.url.includes('pollo.ai')));
  },scenario);
 });
-test('profiles keep the existing provider and overlong prompts retain intent through GPT fallback',async()=>{
+test('profiles, source-photo edits and overlong prompts keep the original GPT path',async()=>{
  await withPollo(async calls=>{
   const profile=await generateCharacterPhoto({...ordinary,profile:true});assert.equal(profile.model,'gpt-image-2.5-sunburst');
+  const edited=await generateCharacterPhoto({...ordinary,sourceImage:face,sourceMessageId:'photo-123'});assert.equal(edited.model,'gpt-image-2.5-sunburst');assert.equal(calls.at(-1).payload.images.length,2);
   const request='새 사진 '.repeat(300);const result=await generateCharacterPhoto({...ordinary,request});
   assert.equal(result.model,'gpt-image-2.5-sunburst');assert.ok(calls.at(-1).payload.prompt.includes(request));
   assert.ok(!calls.some(c=>c.url.includes('pollo.ai')));
  });
+});
+
+test('delivered square and portrait photos preserve native 2K dimensions instead of the moderation preview',async()=>{
+ for(const [width,height] of [[2048,2048],[1536,2752]]) {
+  const imageEncoded=(await sharp({create:{width,height,channels:3,background:'#aaa'}}).jpeg().toBuffer()).toString('base64');
+  await withPollo(async calls=>{
+   const result=await generateCharacterPhoto({...ordinary,scene:width===height?ordinary.scene:'세로 구도의 자연스러운 셀카'});
+   const photo=Buffer.from(result.image.dataUrl.split(',')[1],'base64');
+   const metadata=await sharp(photo).metadata();assert.equal(metadata.width,width);assert.equal(metadata.height,height);
+   assert.ok(result.image.dataUrl.length<=1850000);
+   const outputCheck=calls.filter(c=>c.url.endsWith('/moderations'))[1];
+   const preview=await sharp(Buffer.from(outputCheck.payload.input[0].image_url.url.split(',')[1],'base64')).metadata();
+   assert.equal(Math.max(preview.width,preview.height),1024);
+   const submission=calls.find(c=>c.url.includes('/generation/')&&c.payload);assert.equal(submission.payload.input.resolution,'2K');
+   assert.equal(submission.payload.input.aspectRatio,width===height?'1:1':'9:16');
+  },{imageEncoded});
+ }
 });
